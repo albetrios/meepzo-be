@@ -76,8 +76,8 @@ sequenceDiagram
 
 ## login-flow
 
-Passwords are off everywhere (feat-instagram-dm-sending P84): there is no `POST /auth/login`,
-forgot, reset or change. A returning person signs in exactly as in the `signup-flow` above — the
+Passwords are off everywhere (feat-instagram-dm-sending P84; since P251 the four password routes are kept disabled behind `PASSWORD_ROUTES_ENABLED`, default off → 404): with the flag off there is no `POST /auth/login`,
+forgot, reset or change (on, login is one more first factor into `completeFirstFactorAuth`). A returning person signs in exactly as in the `signup-flow` above — the
 email code (`POST /auth/email/send-code` then `POST /auth/email/login`) — or with Google/Apple OAuth
 or a passkey. Every first factor ends in `completeFirstFactorAuth`: a session, or an
 `mfa_required` challenge completed with `POST /auth/mfa/login`.

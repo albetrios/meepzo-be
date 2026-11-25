@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Owns identity proof and session establishment for the platform. Supports four credential types — email verification-code login, OAuth, MFA (TOTP), and WebAuthn; passwords are off everywhere (feat-instagram-dm-sending P84: no password route, no password code path, every `password_hash` emptied and every `PASSWORD` auth method revoked by the `auth_passwords_off` migration) — and issues short-lived JWTs (RS256) backed by refreshable session rows. The domain is the source of truth for "who is making this request"; everything authorization-related (organization permissions) lives in [tenancy](src/domains/tenancy/).
+Owns identity proof and session establishment for the platform. Supports four credential types — email verification-code login, OAuth, MFA (TOTP), and WebAuthn; passwords are off everywhere (feat-instagram-dm-sending P84: no password route, no password code path, every `password_hash` emptied and every `PASSWORD` auth method revoked by the `auth_passwords_off` migration) — the four password routes are kept disabled behind `PASSWORD_ROUTES_ENABLED` (default off, 404; P251, marker `PASSWORD-ROUTES-DISABLED`, `handlers/auth-password.handlers.ts` + `sub-domains/auth-method/password-auth.service.ts`) — and issues short-lived JWTs (RS256) backed by refreshable session rows. The domain is the source of truth for "who is making this request"; everything authorization-related (organization permissions) lives in [tenancy](src/domains/tenancy/).
 
 What it owns:
 

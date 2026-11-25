@@ -10,9 +10,11 @@ import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
  * can filter by method (e.g. "every super_admin login via OAuth in the last
  * 24 h"). Provider-bound sources (OAuth) embed the provider id —
  * `oauth_google`, `oauth_apple` — to preserve that information without
- * adding a separate column.
+ * adding a separate column. `password` (PASSWORD-ROUTES-DISABLED) is the password login and the
+ * reset auto-login, reached only while `PASSWORD_ROUTES_ENABLED` is true.
  */
 export type LoginAuditSource =
+  | 'password'
   | 'email_code'
   | 'webauthn'
   | 'mfa_totp'

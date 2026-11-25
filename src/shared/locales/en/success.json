@@ -1,4 +1,5 @@
 {
   "verificationCodeSent": "If an account exists with this email, you will receive a sign-in code shortly.",
-  "webhookTestDelivery": "This is a test delivery from your webhook configuration."
+  "webhookTestDelivery": "This is a test delivery from your webhook configuration.",
+  "passwordResetEmailSent": "If an account exists with this email, you will receive a password reset link shortly."
 }

@@ -316,6 +316,27 @@ const BILLING_POLICY_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
+ * PASSWORD-ROUTES-DISABLED — the switch of the four password routes (owner instruction 2026-11-25,
+ * feat-instagram-dm-sending P251, superseding P84's "remove"): `POST /auth/login`,
+ * `/auth/password/forgot`, `/auth/password/reset` and `/auth/password/change` are registered only
+ * when `PASSWORD_ROUTES_ENABLED` is true; off, they are not registered and answer `404`.
+ * Category-A: the static default `false` is the production-safe value and the development value
+ * (`false` too — the owner keeps them disabled). Turning it on loosens no other guard: the password
+ * routes carry their own (argon2id, the lockout, the per-IP failed-login throttle, captcha and the
+ * per-email limit), so no refine pins it. Runtime code reads `env.PASSWORD_ROUTES_ENABLED` alone.
+ */
+const PASSWORD_ROUTE_VARS = {
+  PASSWORD_ROUTES_ENABLED: envVar({
+    schema: booleanString('false'),
+    meta: {
+      allowed: 'true | false (or 1 | 0)',
+      description:
+        'Registers the four password routes (POST /auth/login, /auth/password/forgot, /auth/password/reset, /auth/password/change). Off (the default), they are not registered and answer 404; sign-in is the email code, Google, Apple or a passkey.',
+    },
+  }),
+} satisfies Record<string, EnvVarSpec>;
+
+/**
  * The sending switch and the environment id (feat-instagram-dm-sending routes-final § 6 SN7, D20, P4,
  * P74). `SENDING_ENABLED` is the one flag for "this deployment may send": off, the send workers, the
  * tasks that call Meta and the repair duties are not registered and nothing is sent (the webhook
@@ -913,6 +934,8 @@ const envSchemaBase = z.object({
   BILLING_DUNNING_GRACE_DAYS: z.coerce.number().int().min(0).max(120).default(14),
   // Read-only mode for unpaid organizations — the BILLING_POLICY_VARS registry.
   ...toSchemaShape(BILLING_POLICY_VARS),
+  // The password routes' switch (PASSWORD-ROUTES-DISABLED) — the PASSWORD_ROUTE_VARS registry.
+  ...toSchemaShape(PASSWORD_ROUTE_VARS),
 
   // Sentry
   SENTRY_DSN: z.url().optional(),
@@ -2353,6 +2376,7 @@ export const envSchema = envSchemaBase
 export const ENV_VAR_REGISTRY: Readonly<Record<string, EnvVarSpec>> = {
   ...SERVER_VARS,
   ...BILLING_POLICY_VARS,
+  ...PASSWORD_ROUTE_VARS,
   ...META_VARS,
   ...SENDING_VARS,
   ...TEST_HARNESS_VARS,

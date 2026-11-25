@@ -132,6 +132,24 @@ export class UserRepository {
     return rows[0] ? mapResolverRowToUserRow(rows[0]) : null;
   }
 
+  /**
+   * PASSWORD-ROUTES-DISABLED: stores a new Argon2id `password_hash` and stamps
+   * `last_password_change_at` (the password reset and change routes, registered only when
+   * `PASSWORD_ROUTES_ENABLED` is true). Caller runs inside the owner's `withAppDatabaseContext`.
+   */
+  async updatePassword(publicId: string, passwordHash: string) {
+    const rows = await getRequestDatabase()
+      .update(users)
+      .set({
+        password_hash: passwordHash,
+        last_password_change_at: new Date(),
+        updated_at: databaseNowTimestamp,
+      })
+      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
+      .returning();
+    return rows[0] ?? null;
+  }
+
   async updateEmailVerified(publicId: string) {
     const rows = await getRequestDatabase()
       .update(users)
@@ -348,6 +366,54 @@ export class UserRepository {
       )
       .returning({ id: users.id });
     return rows.length > 0;
+  }
+
+  /**
+   * PASSWORD-ROUTES-DISABLED: sets the password-login failure counter and lock window (cleared by a
+   * correct password or a reset). Reached only through the password routes (`PASSWORD_ROUTES_ENABLED`).
+   */
+  async updateLoginAttempt(
+    publicId: string,
+    failedLoginCount: number,
+    accountLockedUntil: Date | null,
+  ) {
+    const rows = await getRequestDatabase()
+      .update(users)
+      .set({
+        failed_login_count: failedLoginCount,
+        account_locked_until: accountLockedUntil,
+        updated_at: databaseNowTimestamp,
+      })
+      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /**
+   * PASSWORD-ROUTES-DISABLED: atomically record one failed password login — increment
+   * `failed_login_count` in SQL (`count + 1`, never a read-modify-write) and, in the same statement,
+   * set the lockout window once the new count reaches `maxAttempts`. Computing both from the live
+   * row value eliminates the lost-update race where two simultaneous failures each read the same
+   * stale count and write back the same `+1`.
+   */
+  async incrementFailedLoginAttempt(
+    publicId: string,
+    options: { maxAttempts: number; lockoutMinutes: number },
+  ) {
+    const rows = await getRequestDatabase()
+      .update(users)
+      .set({
+        failed_login_count: sql`COALESCE(${users.failed_login_count}, 0) + 1`,
+        account_locked_until: sql`CASE
+          WHEN COALESCE(${users.failed_login_count}, 0) + 1 >= ${options.maxAttempts}
+          THEN now() + make_interval(mins => ${options.lockoutMinutes})
+          ELSE ${users.account_locked_until}
+        END`,
+        updated_at: databaseNowTimestamp,
+      })
+      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
+      .returning();
+    return rows[0] ?? null;
   }
 
   async updateMfaEnabled(publicId: string, enabled: boolean) {

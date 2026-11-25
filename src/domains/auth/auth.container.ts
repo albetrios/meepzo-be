@@ -13,6 +13,7 @@ import { AuthSessionRepository } from './sub-domains/auth-session/auth-session.r
 import { AuthService } from './auth.service.js';
 import { AuthMethodService } from './sub-domains/auth-method/auth-method.service.js';
 import { EmailLoginService } from './sub-domains/auth-method/email-login.service.js';
+import { PasswordAuthService } from './sub-domains/auth-method/password-auth.service.js';
 import { EmailConfirmationService } from './sub-domains/auth-method/email-confirmation.service.js';
 import { OAuthService } from './sub-domains/auth-method/oauth/oauth.service.js';
 import { MfaService } from './sub-domains/auth-mfa/auth-mfa.service.js';
@@ -29,6 +30,11 @@ export type AuthContainer = {
   authService: AuthService;
   authMethodService: AuthMethodService;
   emailLoginService: EmailLoginService;
+  /**
+   * PASSWORD-ROUTES-DISABLED: the four password routes' flows, built always but reached only when
+   * `PASSWORD_ROUTES_ENABLED` registers the routes (owner 2026-11-25, P251).
+   */
+  passwordAuthService: PasswordAuthService;
   /** Confirm your email (feat-instagram-dm-sending § 11.B): route 133 in the user routes, route 134 here. */
   emailConfirmationService: EmailConfirmationService;
   oauthService: OAuthService;
@@ -38,7 +44,7 @@ export type AuthContainer = {
   authMeContextService: AuthMeContextService;
 };
 
-/** Builds the auth-domain {@link AuthContainer}: instantiates auth-method, email verification-code, confirm-email, OAuth, MFA, WebAuthn, and session services with their repositories and Redis. */
+/** Builds the auth-domain {@link AuthContainer}: instantiates auth-method, email verification-code, password (PASSWORD-ROUTES-DISABLED), confirm-email, OAuth, MFA, WebAuthn, and session services with their repositories and Redis. */
 export function createAuthContainer({
   userService,
   organizationSettingsService,
@@ -90,6 +96,14 @@ export function createAuthContainer({
     authMethodService,
     redisConnection,
   );
+  const passwordAuthService = new PasswordAuthService(
+    userService,
+    authSessionService,
+    mfaService,
+    organizationSettingsService,
+    verificationTokenRepository,
+    redisConnection,
+  );
   const emailConfirmationService = new EmailConfirmationService(
     userService,
     verificationTokenRepository,
@@ -125,6 +139,7 @@ export function createAuthContainer({
     authService,
     authMethodService,
     emailLoginService,
+    passwordAuthService,
     emailConfirmationService,
     oauthService,
     mfaService,

@@ -16,15 +16,19 @@ import {
 import { createPerEmailRateLimitPreHandler } from '@/shared/middlewares/rate-limit/per-email-rate-limit.js';
 import { authenticateWhenBearerPresent } from '@/shared/middlewares/core/auth.middleware.js';
 import { OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
+import { getEnv } from '@/shared/config/env.config.js';
 import { createAuthController } from './auth.controller.js';
 import { OAUTH_LINK_INTENT } from '@/domains/auth/sub-domains/auth-method/oauth/oauth.types.js';
 import {
   AppleFormCallbackDto,
   authMethodPublicIdParamsDto,
+  ChangePasswordDto,
   CreateAuthMethodDto,
   EmailConfirmDto,
   EmailLoginDto,
   EmailSendCodeDto,
+  ForgotPasswordDto,
+  LoginDto,
   MfaEnrollConfirmDto,
   MfaEnrollDto,
   MfaLoginVerifyDto,
@@ -33,6 +37,7 @@ import {
   OauthCallbackQueryDto,
   oauthProviderParamsDto,
   OauthStartQueryDto,
+  ResetPasswordDto,
   sessionIdParamsDto,
   StepUpVerifyDto,
 } from './auth.dto.js';
@@ -43,7 +48,7 @@ import {
   webauthnRegisterVerifyDto,
 } from './sub-domains/auth-webauthn/webauthn.dto.js';
 
-/** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, the confirm-email link, OAuth, MFA, WebAuthn, sessions, and auth-method management (no password routes, P84). */
+/** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, the confirm-email link, OAuth, MFA, WebAuthn, sessions, and auth-method management; the four password routes only when `PASSWORD_ROUTES_ENABLED` is true (PASSWORD-ROUTES-DISABLED, P251). */
 export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   const controller = createAuthController(app.authDomain);
   const zodApplication = app.withTypeProvider<ZodTypeProvider>();
@@ -273,6 +278,67 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     },
     controller.switchToOrganization,
   );
+
+  /**
+   * PASSWORD-ROUTES-DISABLED — the four password routes (RC-98–RC-101), restored from R30 and kept
+   * disabled instead of removed (owner instruction 2026-11-25, P251, superseding P84). Registered
+   * only when `PASSWORD_ROUTES_ENABLED` is true; off (the default), they are not registered and
+   * answer 404. Sign-in otherwise is the email code, Google, Apple or a passkey.
+   */
+  if (getEnv().PASSWORD_ROUTES_ENABLED) {
+    zodApplication.post('/login', {
+      ...STRICT_PUBLIC_RATE_LIMIT,
+      preHandler: [perEmailRateLimit, captchaPreHandler],
+      schema: {
+        summary: 'Login with email and password',
+        description:
+          'PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true (404 otherwise). Authenticates a user with email and password credentials. Returns an access token and sets the session cookie on success; if MFA is enabled or the organization requires it, returns an mfa_required challenge instead. 401 for an unknown email, an account with no password or a wrong password (one uniform message); 429 once this IP has too many failed logins.',
+        tags: ['Password'],
+        body: LoginDto,
+      },
+      handler: controller.login,
+    });
+    zodApplication.post('/password/forgot', {
+      ...STRICT_PUBLIC_RATE_LIMIT,
+      preHandler: [perEmailRateLimit, captchaPreHandler],
+      schema: {
+        summary: 'Request password reset',
+        description:
+          'PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true (404 otherwise). Sends a password reset email to the user. Returns 200 with the same message even if the email is not registered (to prevent enumeration).',
+        tags: ['Password'],
+        body: ForgotPasswordDto,
+      },
+      handler: controller.forgotPassword,
+    });
+    zodApplication.post('/password/reset', {
+      ...STRICT_PUBLIC_RATE_LIMIT,
+      preHandler: [captchaPreHandler],
+      schema: {
+        summary: 'Reset password with token',
+        description:
+          'PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true (404 otherwise). Resets the user password using a valid reset token received via email, revokes all prior sessions, marks the email verified (the token proves email control), clears any failed-login lockout, and logs the user in immediately (returns an access token and sets the session cookie). MFA-enabled users receive an mfa_required challenge instead of a session.',
+        tags: ['Password'],
+        body: ResetPasswordDto,
+      },
+      handler: controller.resetPassword,
+    });
+    zodApplication.post(
+      '/password/change',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireRecentStepUpPreHandler],
+        ...STRICT_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Change current password',
+          description:
+            "PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true (404 otherwise). Changes the authenticated user's password after a recent step-up (the email code or MFA). Requires the current password for verification; every other session is signed out.",
+          tags: ['Password'],
+          body: ChangePasswordDto,
+        },
+      },
+      controller.changePassword,
+    );
+  }
 
   // Authenticated
   zodApplication.post(

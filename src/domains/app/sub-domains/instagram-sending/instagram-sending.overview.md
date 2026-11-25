@@ -183,7 +183,12 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   (WC-16 — `GET /<account>/live_media`, then the waiting Live replies of a Live off air or older than 240 min end
   `expired` · `live_ended` and the Live's `live_ended_at` is saved) and `waiting-estimate` every 10 min (WC-24, S29 —
   `computeInstagramWaitingEstimate`, plan §12.3, written to the slow lane's `estimate_*`). A down stop is tested with a
-  read-only profile read first (`probeAccount`, plan §33.5 rule 2). Two watches run in each worker process, not on the
+  read-only profile read first (`probeAccount`, plan §33.5 rule 2) — on the fast lane too since R62. After an
+  all-accounts stop (R62, plan §33.6 rules 2–3) the first lane or fast message that wakes takes the one test
+  (`SendingStateService.claimAllAccountsTest`, `testing_lane` on the row; an `instagram_down` stop reads the profile
+  first); a good test sets `all_release_started_at` and each lane goes back at its own place in the next 5 minutes
+  (`allAccountsReleaseAt`) at half speed for an hour; a bad test starts the stop again one step longer, an unclear one
+  the same step. Two watches run in each worker process, not on the
   schedule (worker-changes note 6): the clock against Postgres every minute (`worker-clock-watch.ts` — over 2 s and
   `mayTakeTickets` refuses, WC-23) and the "Redis lost" watch every 10 s (`worker-redis-watch.ts` — schedules
   re-registered and gate 1 rebuilt from the minute counts under one lock, WC-21). Readiness's `sending` part adds the

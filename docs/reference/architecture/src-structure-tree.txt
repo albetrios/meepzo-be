@@ -22,6 +22,7 @@ src/
     │   │   │   ├── instagram-intake-run.helper.ts
     │   │   │   ├── instagram-next-post-flow.e2e.test.ts
     │   │   │   ├── instagram-next-post-flow.helper.ts
+    │   │   │   ├── instagram-outage-recovery-flow.e2e.test.ts
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
     │   │   │   └── instagram-retention-erasure.helper.ts
     │   │   ├── integration/
@@ -519,6 +520,7 @@ src/
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
     │   │   │   │   │   ├── instagram-slow-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
+    │   │   │   │   │   ├── sending-state.all-accounts-test.db.unit.test.ts
     │   │   │   │   │   ├── sending-state.clock.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts

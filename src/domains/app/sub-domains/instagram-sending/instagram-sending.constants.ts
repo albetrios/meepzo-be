@@ -393,6 +393,13 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   accessTestMinutes: 60,
   /** The all-accounts `app_limit` stop, by its count (`APP_STOP_MINUTES`, plan §33.6). */
   appStopMinutes: [15, 30, 60],
+  /**
+   * After an all-accounts stop's good test the lanes are released over this many minutes
+   * (`RELEASE_SPREAD_MINUTES`, plan §33.6 rule 3), each at half speed for `halfSpeedHours`.
+   */
+  allReleaseSpreadMinutes: 5,
+  /** A lane that wakes while another takes the all-accounts test looks again this much later. */
+  allTestWaitSeconds: 30,
   /** `app_limit` from two accounts within this many minutes stops every account (`APP_LIMIT_WINDOW_MINUTES`). */
   appLimitWindowMinutes: 5,
   /** "No answer" or "try later" results in a row that stop an account (`DOWN_IN_A_ROW`). */

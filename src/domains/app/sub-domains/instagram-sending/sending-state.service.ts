@@ -113,6 +113,94 @@ export function decideSending({
 }
 
 /**
+ * What the all-accounts stop asks of a lane now (plan §33.5 rule 3, §33.6 rules 2–3; ROUTE row
+ * R62): `free`; `stopped` until its end; `test_due` — the stop is over and no lane took its one test
+ * yet; `testing` — another lane holds the test until `until`; `releasing` — the test passed at
+ * `releaseStartedAt` and the lanes go back one by one over the spread.
+ *
+ * @remarks
+ * Notes: decided by {@link decideAllAccountsGate}; the send core's hold reads it each turn.
+ */
+export type AllAccountsGate =
+  | { kind: 'free' }
+  | { kind: 'stopped'; reason: string; until: Date }
+  | { kind: 'test_due'; reason: string }
+  | { kind: 'testing'; reason: string; until: Date }
+  | { kind: 'releasing'; releaseStartedAt: Date };
+
+/**
+ * The gate of {@link AllAccountsGate} over the row's columns — pure, so the rules are tested
+ * without a database.
+ *
+ * @remarks
+ * Algorithm: no stop → `free`; its end ahead → `stopped`; no release yet → `testing` while a
+ * lane's test lease runs, else `test_due`; a release under its spread → `releasing`; else `free`.
+ * Failure modes: none. Side effects: none.
+ */
+export function decideAllAccountsGate({
+  state,
+  now,
+}: {
+  state: Pick<
+    SendingStateRow,
+    | 'all_stop_reason'
+    | 'all_stop_until'
+    | 'testing_lane'
+    | 'testing_until'
+    | 'all_release_started_at'
+  > | null;
+  now: Date;
+}): AllAccountsGate {
+  if (state?.all_stop_reason == null || state.all_stop_until === null) return { kind: 'free' };
+  const reason = state.all_stop_reason;
+  if (state.all_stop_until.getTime() > now.getTime()) {
+    return { kind: 'stopped', reason, until: state.all_stop_until };
+  }
+  const releaseStartedAt = state.all_release_started_at;
+  if (releaseStartedAt === null) {
+    return state.testing_until !== null && state.testing_until.getTime() > now.getTime()
+      ? { kind: 'testing', reason, until: state.testing_until }
+      : { kind: 'test_due', reason };
+  }
+  const spread = INSTAGRAM_SEND_CORE_SETTINGS.allReleaseSpreadMinutes * MILLISECONDS_PER_MINUTE;
+  return now.getTime() < releaseStartedAt.getTime() + spread
+    ? { kind: 'releasing', releaseStartedAt }
+    : { kind: 'free' };
+}
+
+/**
+ * When one lane goes again after the all-accounts test passed (plan §33.6 rule 3): the release
+ * start plus the lane's own place in the 5-minute spread — the same place for the same lane, the
+ * lanes of the app spread evenly by a hash of the account and the lane.
+ *
+ * @remarks
+ * Algorithm: a multiplicative hash of (account id, lane index) to a fraction of the spread.
+ * Failure modes: none. Side effects: none.
+ */
+export function allAccountsReleaseAt({
+  releaseStartedAt,
+  channelAccountId,
+  laneIndex,
+}: {
+  releaseStartedAt: Date;
+  channelAccountId: number;
+  laneIndex: number;
+}): Date {
+  const spread = INSTAGRAM_SEND_CORE_SETTINGS.allReleaseSpreadMinutes * MILLISECONDS_PER_MINUTE;
+  const hash = Math.imul(channelAccountId * 4 + laneIndex + 1, 2_654_435_761) >>> 0;
+  return new Date(releaseStartedAt.getTime() + Math.floor((hash / 2 ** 32) * spread));
+}
+
+/**
+ * How the all-accounts test ended (plan §33.4's table, applied to §33.6 rule 2).
+ *
+ * @remarks
+ * Notes: `good` releases the lanes, `bad` restarts the stop one step longer, `unclear` the same
+ * step, `none` frees the test for the next lane ({@link SendingStateService.finishAllAccountsTest}).
+ */
+export type AllAccountsTestOutcome = 'good' | 'bad' | 'unclear' | 'none';
+
+/**
  * The one global sending row (feat-instagram-dm-sending routes-final § 6 SN7, § 6.A.3, D20, D21,
  * P16, P95, S13): its creation by `prepareDatabase`, each release's settings versions, the "may this
  * server send" check every sender asks, the rollback's minimum lowering and Meta's app-level usage.
@@ -437,5 +525,97 @@ export class SendingStateService implements MetaAppUsageStore {
     return row.all_stop_until.getTime() > now.getTime()
       ? { reason: row.all_stop_reason, until: row.all_stop_until }
       : null;
+  }
+
+  /**
+   * The all-accounts gate now ({@link decideAllAccountsGate} over the row).
+   *
+   * @remarks
+   * Algorithm: one maintenance read. Failure modes: propagates. Side effects: none.
+   */
+  async readAllAccountsGate(now: Date = new Date()): Promise<AllAccountsGate> {
+    return decideAllAccountsGate({ state: await this.readSendingState(), now });
+  }
+
+  /**
+   * Takes the one all-accounts test for `lane` (plan §33.6 rule 2, ROUTE row R62): only while the
+   * gate is `test_due`, for `testLeaseMinutes`. Answers the stop's reason when this lane holds the
+   * test, else `null`.
+   *
+   * @remarks
+   * Algorithm: one maintenance unit with the row locked, the gate decided again under the lock.
+   * Failure modes: propagates. Side effects: `testing_lane`, `testing_until`.
+   */
+  async claimAllAccountsTest({
+    lane,
+    now = new Date(),
+  }: {
+    lane: string;
+    now?: Date;
+  }): Promise<string | null> {
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.SENDING_STATE,
+      callback: async (databaseHandle) => {
+        const repository = new SendingStateRepository(databaseHandle);
+        const gate = decideAllAccountsGate({ state: await repository.lockRow(), now });
+        if (gate.kind !== 'test_due') return null;
+        await repository.writeAllStopTest({
+          testingLane: lane,
+          testingUntil: new Date(
+            now.getTime() + INSTAGRAM_SEND_CORE_SETTINGS.testLeaseMinutes * MILLISECONDS_PER_MINUTE,
+          ),
+        });
+        return gate.reason;
+      },
+    });
+  }
+
+  /**
+   * Ends the all-accounts test (plan §33.6 rules 1–3 with §33.4's table, ROUTE row R62): `good` →
+   * the release starts now (the lanes go back over 5 minutes at half speed); `bad` → the stop again
+   * for its next step, counted; `unclear` → the same step again, not counted; `none` (nothing to
+   * send, a problem with that person or text) → the test is free for the next lane.
+   *
+   * @remarks
+   * Algorithm: one maintenance unit with the row locked; nothing when no stop is on the row.
+   * Failure modes: propagates. Side effects: the row's test, release and stop columns.
+   */
+  async finishAllAccountsTest({
+    outcome,
+    now = new Date(),
+  }: {
+    outcome: AllAccountsTestOutcome;
+    now?: Date;
+  }): Promise<void> {
+    await withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.SENDING_STATE,
+      callback: async (databaseHandle) => {
+        const repository = new SendingStateRepository(databaseHandle);
+        const row = await repository.lockRow();
+        if (row?.all_stop_reason == null) return;
+        const free = { testingLane: null, testingUntil: null };
+        if (outcome === 'good') {
+          await repository.writeAllStopTest({ ...free, releaseStartedAt: now });
+          return;
+        }
+        if (outcome === 'none') {
+          await repository.writeAllStopTest(free);
+          return;
+        }
+        const ladder =
+          row.all_stop_reason === 'app_limit'
+            ? INSTAGRAM_SEND_CORE_SETTINGS.appStopMinutes
+            : INSTAGRAM_SENDING_WATCH_SETTINGS.allDownStopMinutes;
+        const minutes = ladderStep({
+          ladder,
+          stopCount: outcome === 'bad' ? row.all_stop_count : Math.max(row.all_stop_count - 1, 0),
+        });
+        await repository.writeAllStopTest({
+          ...free,
+          stopUntil: new Date(now.getTime() + minutes * MILLISECONDS_PER_MINUTE),
+          isCountedAgain: outcome === 'bad',
+        });
+      },
+    });
   }
 }

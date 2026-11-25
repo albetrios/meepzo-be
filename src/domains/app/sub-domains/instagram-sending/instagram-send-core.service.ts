@@ -57,6 +57,7 @@ import { planStopHoldsLane } from './instagram-send-lane.util.js';
 import {
   FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_CORE_SETTINGS,
+  INSTAGRAM_SEND_LANES,
   INSTAGRAM_SEND_STOP_ENDED_BY,
   INSTAGRAM_SLOW_QUEUE_LANES,
   type InstagramSendLane,
@@ -82,7 +83,12 @@ import type {
 } from './instagram-sending.types.js';
 import { enqueueInstagramSendLaneTurn } from './queues/instagram-send-slow.queue.js';
 import { enqueueInstagramSendFastMessage } from './queues/instagram-send-fast.queue.js';
-import type { SendingStateService } from './sending-state.service.js';
+import {
+  type AllAccountsGate,
+  type AllAccountsTestOutcome,
+  allAccountsReleaseAt,
+  type SendingStateService,
+} from './sending-state.service.js';
 
 const SETTINGS = INSTAGRAM_SEND_CORE_SETTINGS;
 
@@ -101,6 +107,28 @@ const UNCLEAR_GROUPS: readonly InstagramSendResultGroup[] = [
   'no_answer',
   'try_later',
   'never_connected',
+];
+
+/** The all-accounts stop is over and its one test not yet taken (plan §33.6 rule 2, R62). */
+const ALL_TEST_DUE = 'all_test_due' as const;
+
+/**
+ * The all-accounts test's outcome from its send (plan §33.4's table, §33.6 rule 2): sent → good; a
+ * stop's group → bad; no clear answer → unclear; a refusal or that person or text → none.
+ */
+function allTestOutcomeOf(result: InstagramSendResult): AllAccountsTestOutcome {
+  if (result.kind === 'refused') return 'none';
+  if (result.status === 'sent' || result.group === 'sent') return 'good';
+  if (UNCLEAR_GROUPS.includes(result.group)) return 'unclear';
+  return ALL_TEST_BAD_GROUPS.includes(result.group) ? 'bad' : 'none';
+}
+
+/** Result groups that start a stop again — the all-accounts test was bad (plan §33.4). */
+const ALL_TEST_BAD_GROUPS: readonly InstagramSendResultGroup[] = [
+  'too_fast',
+  'app_limit',
+  'blocked',
+  'account_flagged',
 ];
 
 /** A test ticket whose account test is held by another lane comes back this much later (§33.4). */
@@ -165,7 +193,10 @@ export interface InstagramSendCoreDependencies {
     InstagramAttachmentService,
     'findOrUploadAttachment' | 'forgetAttachment'
   >;
-  sendingStateService: Pick<SendingStateService, 'recordAppLimit' | 'readAllAccountsStop'>;
+  sendingStateService: Pick<
+    SendingStateService,
+    'recordAppLimit' | 'readAllAccountsGate' | 'claimAllAccountsTest' | 'finishAllAccountsTest'
+  >;
   /** The plan's `message_month_limit` (billing, through `MessageMonthCountService.readMonthLimit`). */
   readMonthLimit(scope: OrganizationPrincipalDatabaseScope): Promise<number | null>;
   breakPort: InstagramSendBreakPort;
@@ -454,16 +485,38 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     const lane = turn.row.lane as InstagramSendLane;
     const now = new Date();
     const hold = await context.runInDatabaseSlot(() => this.readHold({ target, lane, now }));
-    if (hold !== null) {
+    // Plan §33.6 rule 2 (R62): the first lane that wakes after an all-accounts stop takes its test.
+    const allTestReason =
+      hold === ALL_TEST_DUE && !turn.isTest
+        ? await context.runInDatabaseSlot(() =>
+            this.dependencies.sendingStateService.claimAllAccountsTest({ lane, now }),
+          )
+        : null;
+    if (hold === ALL_TEST_DUE && allTestReason === null) {
+      if (turn.isTest) await this.endTest({ target, context });
+      return {
+        nextRunAt: new Date(now.getTime() + SETTINGS.allTestWaitSeconds * MILLISECONDS_PER_SECOND),
+        isHeld: false,
+        waitReason: 'stop',
+      };
+    }
+    if (hold !== null && hold !== ALL_TEST_DUE) {
       if (turn.isTest) await this.endTest({ target, context });
       return hold;
     }
+    const allTest = allTestReason === null ? null : { reason: allTestReason };
     const pace = await context.runInDatabaseSlot(() =>
       this.dependencies.accessService.readSendPace({ scope: target.scope, access, now }),
     );
     if (pace.pace === 'wait') {
       if (turn.isTest) await this.endTest({ target, context });
+      await this.finishAllTest({ allTest, outcome: 'none', context });
       return { nextRunAt: pace.waitUntil, isHeld: false, waitReason: 'box' };
+    }
+    if (await this.isAllDownTestUnclear({ target, access, allTest })) {
+      // §33.5 rule 2 for every account: Instagram still gives no clear answer — no person tested.
+      await this.finishAllTest({ allTest, outcome: 'unclear', context });
+      return { nextRunAt: null, isHeld: false, waitReason: null };
     }
     if (await this.isDownTestUnclear({ target, access, turn })) {
       // §33.5 rule 2: Instagram still gives no clear answer — no person is used as the test.
@@ -482,6 +535,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         })) ?? { key: null, nextRunAt: null, waitReason: null },
     );
     if (pick.key === null) {
+      await this.finishAllTest({ allTest, outcome: 'none', context });
       if (turn.isTest) {
         await this.extendTestedStop({
           target,
@@ -502,7 +556,44 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       context,
     });
     if (turn.isTest) await this.finishTest({ target, row: turn.row, result, context });
+    await this.finishAllTest({ allTest, outcome: allTestOutcomeOf(result), context });
     return this.turnEndAfter({ rules, row: turn.row, pick, result, pace: pace.pace, limits });
+  }
+
+  /**
+   * Whether the all-accounts test of an `instagram_down` stop met an unclear read-only call (plan
+   * §33.5 rule 2 with §33.6 rule 2, R62); no test, another reason or no probe → `false`.
+   */
+  private async isAllDownTestUnclear({
+    target,
+    access,
+    allTest,
+  }: {
+    target: InstagramSendLaneTarget;
+    access: InstagramSendAccess;
+    allTest: { reason: string } | null;
+  }): Promise<boolean> {
+    const probe = this.dependencies.probeAccount;
+    if (allTest?.reason !== 'instagram_down' || probe === undefined) return false;
+    return (await probe({ scope: target.scope, access })) === 'unclear';
+  }
+
+  /** Ends this turn's all-accounts test, when it holds one (plan §33.6 rules 2–3, R62). */
+  private async finishAllTest({
+    allTest,
+    outcome,
+    context,
+  }: {
+    allTest: { reason: string } | null;
+    outcome: AllAccountsTestOutcome;
+    context: InstagramSendTicketContext;
+  }): Promise<void> {
+    if (allTest === null) return;
+    await this.untilSaved({
+      context,
+      what: 'all-accounts test end',
+      callback: () => this.dependencies.sendingStateService.finishAllAccountsTest({ outcome }),
+    });
   }
 
   /**
@@ -586,7 +677,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     target: InstagramSendLaneTarget;
     lane: InstagramSendLane;
     now: Date;
-  }): Promise<TurnEnd | null> {
+  }): Promise<TurnEnd | typeof ALL_TEST_DUE | null> {
     const account = await withAppDatabaseContext({
       scope: target.scope,
       callback: () =>
@@ -603,10 +694,58 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     ) {
       return { nextRunAt: null, isHeld: true, waitReason: 'stop' };
     }
-    const allStop = await this.dependencies.sendingStateService.readAllAccountsStop(now);
-    return allStop === null
-      ? null
-      : { nextRunAt: allStop.until, isHeld: false, waitReason: 'stop' };
+    const gate = await this.dependencies.sendingStateService.readAllAccountsGate(now);
+    return this.holdOfAllAccountsGate({ target, lane, gate, now });
+  }
+
+  /**
+   * What the all-accounts gate holds (plan §33.5 rule 3, §33.6 rules 2–3; R62): a stop or another
+   * lane's test until its end; its test due → {@link ALL_TEST_DUE}; the release → this lane's place
+   * in the 5-minute spread, then half speed for an hour from the release; free → `null`.
+   */
+  private async holdOfAllAccountsGate({
+    target,
+    lane,
+    gate,
+    now,
+  }: {
+    target: InstagramSendLaneTarget;
+    lane: InstagramSendLane;
+    gate: AllAccountsGate;
+    now: Date;
+  }): Promise<TurnEnd | typeof ALL_TEST_DUE | null> {
+    switch (gate.kind) {
+      case 'free':
+        return null;
+      case 'stopped':
+      case 'testing':
+        return { nextRunAt: gate.until, isHeld: false, waitReason: 'stop' };
+      case 'test_due':
+        return ALL_TEST_DUE;
+      case 'releasing': {
+        const releaseAt = allAccountsReleaseAt({
+          releaseStartedAt: gate.releaseStartedAt,
+          channelAccountId: target.channelAccountId,
+          laneIndex: INSTAGRAM_SEND_LANES.indexOf(lane),
+        });
+        if (releaseAt.getTime() > now.getTime()) {
+          return { nextRunAt: releaseAt, isHeld: false, waitReason: 'stop' };
+        }
+        await withAppDatabaseContext({
+          scope: target.scope,
+          callback: () =>
+            new InstagramSendLaneRepository().raiseHalfSpeed({
+              organizationId: target.organizationId,
+              channelAccountId: target.channelAccountId,
+              lanes: [lane],
+              until: new Date(
+                gate.releaseStartedAt.getTime() + SETTINGS.halfSpeedHours * MILLISECONDS_PER_HOUR,
+              ),
+            }),
+        });
+        return null;
+      }
+    }
   }
 
   /**
@@ -651,12 +790,30 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     );
     if (ready.kind === 'later') await context.returnTicket(ready.delayMilliseconds);
     if (ready.kind !== 'go') return;
+    const allTest = ready.allTest ?? null;
     const pace = await context.runInDatabaseSlot(() =>
       this.dependencies.accessService.readSendPace({ scope, access, now }),
     );
     if (pace.pace === 'wait' && pace.waitUntil !== null) {
       if (ready.isTest) await this.endTest({ target, context });
+      await this.finishAllTest({ allTest, outcome: 'none', context });
       await context.returnTicket(Math.max(pace.waitUntil.getTime() - now.getTime(), 0));
+    }
+    if (await this.isAllDownTestUnclear({ target, access, allTest })) {
+      // §33.5 rule 2 for every account: no clear answer — the message waits, no person tested.
+      await this.finishAllTest({ allTest, outcome: 'unclear', context });
+      await context.returnTicket(SETTINGS.allTestWaitSeconds * MILLISECONDS_PER_SECOND);
+      return;
+    }
+    const testRow = ready.isTest ? ready.row : null;
+    if (
+      testRow !== null &&
+      (await this.isDownTestUnclear({ target, access, turn: { row: testRow, isTest: true } }))
+    ) {
+      // §33.5 rule 2 on the fast lane too (R62): the account's own profile first, no person used;
+      // the stop's end wakes the message again.
+      await this.extendTestedStop({ target, row: testRow, delayMilliseconds: null, context });
+      return;
     }
     const check =
       rules.checkFastMessage === undefined
@@ -666,6 +823,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
           );
     if (check.kind !== 'send') {
       if (ready.isTest) await this.endTest({ target, context });
+      await this.finishAllTest({ allTest, outcome: 'none', context });
       if (check.kind === 'later') await context.returnTicket(check.delayMilliseconds);
       return;
     }
@@ -674,6 +832,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     if (ready.isTest && ready.row !== null) {
       await this.finishTest({ target, row: ready.row, result, context });
     }
+    await this.finishAllTest({ allTest, outcome: allTestOutcomeOf(result), context });
     await this.afterFastResult({ ticket, result, context });
   }
 
@@ -731,7 +890,13 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     key: InstagramSendMessageKey;
     now: Date;
   }): Promise<
-    | { kind: 'go'; isTest: boolean; row: InstagramSendLaneRow | null }
+    | {
+        kind: 'go';
+        isTest: boolean;
+        row: InstagramSendLaneRow | null;
+        /** This message is the all-accounts test (R62). */
+        allTest?: { reason: string };
+      }
     | { kind: 'later'; delayMilliseconds: number }
     | { kind: 'drop' }
   > {
@@ -746,6 +911,25 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       return { kind: 'later', delayMilliseconds: message.not_before.getTime() - now.getTime() };
     }
     const hold = await this.readHold({ target, lane: 'fast', now });
+    if (hold === ALL_TEST_DUE) {
+      // Plan §33.6 rule 2 (R62): this fast message may be the one all-accounts test.
+      const reason = await this.dependencies.sendingStateService.claimAllAccountsTest({
+        lane: 'fast',
+        now,
+      });
+      if (reason === null) {
+        return {
+          kind: 'later',
+          delayMilliseconds: SETTINGS.allTestWaitSeconds * MILLISECONDS_PER_SECOND,
+        };
+      }
+      const ready = await this.claimFastTest({ target, now });
+      if (ready.kind !== 'go') {
+        await this.dependencies.sendingStateService.finishAllAccountsTest({ outcome: 'none' });
+        return ready;
+      }
+      return { ...ready, allTest: { reason } };
+    }
     if (hold !== null) {
       return hold.nextRunAt === null
         ? { kind: 'drop' }

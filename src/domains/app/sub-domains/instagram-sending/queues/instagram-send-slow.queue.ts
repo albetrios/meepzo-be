@@ -18,7 +18,7 @@ import {
 
 /**
  * BullMQ queue of the slow, reply and broadcast lane turns (feat-instagram-dm-sending SN2): one ticket
- * per lane turn, family `instagram-send` — run by the send service (SN24, P91).
+ * per lane turn, family `instagram` — run in the existing `worker` service (P140).
  */
 export const INSTAGRAM_SEND_SLOW_QUEUE_NAME = 'instagram-send-slow';
 

@@ -116,13 +116,13 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts the Instagram send and task queues on one database limiter, gated on sending (SN24)', () => {
+  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
     expect(sendingQueues.map((definition) => [definition.queueName, definition.family])).toEqual([
-      ['instagram-send-slow', 'instagram-send'],
-      ['instagram-send-fast', 'instagram-send'],
+      ['instagram-send-slow', 'instagram'],
+      ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
     ]);
     for (const definition of sendingQueues) {

@@ -266,5 +266,5 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `WORKER_CONCURRENCY_WEBHOOK` | — | — *(optional)* |  | — |
 | `WORKER_HEALTH_PORT` | — | `9090` |  | — |
 | `WORKER_HEALTH_STALL_TIMEOUT_MS` | — | `300000` |  | — |
-| `WORKER_INSTAGRAM_DATABASE_SLOTS` | — | `16` |  | — |
+| `WORKER_INSTAGRAM_DATABASE_SLOTS` | — | `3` |  | — |
 | `WORKER_QUEUE_FAMILIES` | — | `all` |  | — |

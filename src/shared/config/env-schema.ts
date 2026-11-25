@@ -1041,9 +1041,12 @@ const envSchemaBase = z.object({
    * The in-process database limiter of the Instagram send, intake and task workers (SN24, P91): how
    * many units of work of one process hold a Postgres connection at once. The worker connection
    * budget counts these slots once per process, not the job places above. A unit of work that waits
-   * 2 s for a slot puts its ticket back with no try used.
+   * 2 s for a slot puts its ticket back with no try used. Default 3 (P140): every queue runs in the
+   * one `worker` service, and its demand (61 + the slots) must fit the default pool of 80 with 25 %
+   * burst headroom; a deployment that raises the slots raises `DATABASE_POOL_MAX` with them
+   * (`docs/deployment/runbooks/resource-limits.md`).
    */
-  WORKER_INSTAGRAM_DATABASE_SLOTS: z.coerce.number().int().min(1).max(64).default(16),
+  WORKER_INSTAGRAM_DATABASE_SLOTS: z.coerce.number().int().min(1).max(64).default(3),
   /** HTTP port for worker GET /livez, /readyz, and optional /metrics (default 9090). */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
   /** Max age of throughput queue heartbeats before /readyz returns 503 (default 5 min). */
@@ -1055,8 +1058,9 @@ const envSchemaBase = z.object({
     .default(300_000),
   /**
    * Comma-separated BullMQ queue families this worker process runs: `mail`, `notify`,
-   * `webhook`, `stripe`, `instagram`, `instagram-send`, `retention`, `observability`, or `all`
-   * (default monolithic worker). The send service runs `instagram-send` alone (SN24, P91).
+   * `webhook`, `stripe`, `instagram`, `retention`, `observability`, or `all` (default monolithic
+   * worker). The Instagram send queues are family `instagram`: they run in the existing `worker`
+   * service, with no service of their own (P140).
    * Use split services in production so each process pool budget matches its registered workers.
    */
   WORKER_QUEUE_FAMILIES: z.string().min(1).default('all'),

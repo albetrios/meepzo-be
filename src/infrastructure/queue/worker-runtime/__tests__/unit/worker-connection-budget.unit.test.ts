@@ -185,22 +185,24 @@ describe('worker-connection-budget', () => {
       create: () => ({ close: async () => {} }),
     });
     MOCK_DEFINITIONS.push(
-      limiterQueue('instagram-send-slow', 'instagram-send'),
-      limiterQueue('instagram-send-fast', 'instagram-send'),
+      limiterQueue('instagram-send-slow', 'instagram'),
+      limiterQueue('instagram-send-fast', 'instagram'),
       limiterQueue('instagram-tasks', 'instagram'),
     );
     try {
       // Monolithic: the 19 of the other queues + the limiter's 16 once (not 3 × 16).
       expect(computeWorkerPostgresPoolDemand().peakPostgresConcurrency).toBe(35);
-      // The send service: its two queues share the one limiter of its process.
+      // The instagram family alone (P140 — no send service): all three queues share the one
+      // limiter of the process.
       getEnvMock.mockReturnValue({
         LOG_LEVEL: 'silent',
-        WORKER_QUEUE_FAMILIES: 'instagram-send',
+        WORKER_QUEUE_FAMILIES: 'instagram',
         WORKER_CONCURRENCY: 4,
       });
-      const sendService = computeWorkerPostgresPoolDemand();
-      expect(sendService.peakPostgresConcurrency).toBe(16);
-      expect(sendService.queues.map((entry) => entry.databaseSlotLimiterName)).toEqual([
+      const instagramFamily = computeWorkerPostgresPoolDemand();
+      expect(instagramFamily.peakPostgresConcurrency).toBe(16);
+      expect(instagramFamily.queues.map((entry) => entry.databaseSlotLimiterName)).toEqual([
+        'instagram-database',
         'instagram-database',
         'instagram-database',
       ]);

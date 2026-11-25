@@ -290,6 +290,10 @@ WC-44 ("next post" expiry, launch WC-6) → nothing, "my next post" never expire
     waits over 2 s for one goes back to wait its turn), and the connection budget counts that limiter, not
     how many pieces run at once. The arithmetic for now and for 1,000 accounts goes into the resource
     limits doc. Kickoff names the service and the settings. **Built (R37, [P408](decisions.md))**: the service `worker-send` (`WORKER_QUEUE_FAMILIES=instagram-send`), the limiter `WORKER_INSTAGRAM_DATABASE_SLOTS` (16; 2 s, then the ticket back), the places `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` / `_SEND_FAST` / `_TASKS`, the queue `instagram-tasks` for the task rows (handlers R40, R41, R46); the arithmetic in `resource-limits.md`.
+    **Changed ([P140](decisions.md), owner 2026-11-25)**: all background work runs in the existing `worker`
+    service — the send queues are family `instagram`, there is no `worker-send` and no new Railway service;
+    the limiter defaults to 3 slots so the one worker fits its default pool with burst headroom (raise
+    `DATABASE_POOL_MAX` with the slots; now: 16 slots, pool 100).
 13. **A rollback keeps sending** ([P95](decisions.md), S16): a server older than the minimum compatible
     settings version takes no send tickets; an older but compatible one does. The rollback step and how the
     host rolls several servers go into the path-to-production rollback.

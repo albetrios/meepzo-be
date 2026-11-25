@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { acquireDatabaseSuiteLock } from '@/tests/database-suite-lock.js';
+import { pointHarnessAtLocalTestDatabase } from '@/tests/helpers/local-test-database.js';
 import { PROJECT_SLUG } from '@/shared/constants/project-identity.constants.js';
 
 const TEST_DATABASE_URL = 'postgresql://lock-spec@localhost:5432/lock-spec';
@@ -115,6 +116,50 @@ describe('database suite lock', () => {
 
     process.env.DATABASE_URL = 'postgresql://chaos-login@127.0.0.1:25432/lock-spec';
     expect(() => acquireDatabaseSuiteLock()).toThrow(/Another test run is already using/);
+  });
+
+  it('keys each lane on its own suffixed test database, so lanes never block each other', () => {
+    // TEST_DATABASE_NAME_SUFFIX renames the test database; the lock follows the database the run
+    // reaches, so lane_b and lane_c hold two locks while a second lane_b run is still refused.
+    const savedKeys = [
+      'TEST_DATABASE_NAME_SUFFIX',
+      'DATABASE_OPERATOR_URL',
+      'DATABASE_MIGRATION_URL',
+      'DATABASE_MAINTENANCE_URL',
+      'GITHUB_ACTIONS',
+      'ALLOW_HOSTED_TEST_DATABASE',
+    ] as const;
+    const saved = savedKeys.map((key) => [key, process.env[key]] as const);
+    delete process.env.DATABASE_OPERATOR_URL;
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.ALLOW_HOSTED_TEST_DATABASE;
+    const laneLockPath = (suffix: string): string => {
+      process.env.TEST_DATABASE_NAME_SUFFIX = suffix;
+      process.env.DATABASE_URL = 'postgresql://lane@localhost:5432/anything';
+      pointHarnessAtLocalTestDatabase();
+      return lockPathFor(`local/${PROJECT_SLUG.replaceAll('-', '_')}_test_${suffix}`);
+    };
+    const laneBLock = laneLockPath('lane_b');
+    const laneCLock = laneLockPath('lane_c');
+    try {
+      writeFileSync(
+        laneBLock,
+        JSON.stringify({ pid: process.ppid, startedAt: new Date().toISOString(), command: 'b' }),
+      );
+      laneLockPath('lane_c');
+      const releaseLaneC = acquireDatabaseSuiteLock();
+      expect(existsSync(laneCLock)).toBe(true);
+      releaseLaneC();
+      laneLockPath('lane_b');
+      expect(() => acquireDatabaseSuiteLock()).toThrow(/Another test run is already using/);
+    } finally {
+      for (const path of [laneBLock, laneCLock]) if (existsSync(path)) unlinkSync(path);
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      process.env.DATABASE_URL = TEST_DATABASE_URL;
+    }
   });
 
   it('never leaves a run unable to start when the lock file is unreadable', () => {

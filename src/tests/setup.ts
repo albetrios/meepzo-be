@@ -10,8 +10,9 @@ import {
   REDIS_KEY_PREFIX_STEM,
 } from '@/shared/constants/project-identity.constants.js';
 import {
-  LOCAL_TEST_DATABASE_URL,
+  localTestDatabaseUrl,
   pointHarnessAtLocalTestDatabase,
+  pointHarnessAtTestRedisDatabase,
   pointWorkerAtItsOwnDatabase,
   testRedisKeyPrefix,
 } from '@/tests/helpers/local-test-database.js';
@@ -306,9 +307,11 @@ process.env.PORT ??= '3000';
 process.env.HTTP_BIND_HOST = '127.0.0.1';
 // Local fallback — tests run against the same Docker Postgres dev uses (see docker-compose.yml).
 // CI overrides DATABASE_URL to its ephemeral service-container Postgres.
-process.env.DATABASE_URL ??= LOCAL_TEST_DATABASE_URL;
-process.env.DATABASE_MAINTENANCE_URL ??= LOCAL_TEST_DATABASE_URL;
+process.env.DATABASE_URL ??= localTestDatabaseUrl();
+process.env.DATABASE_MAINTENANCE_URL ??= localTestDatabaseUrl();
 process.env.REDIS_URL ??= 'redis://localhost:6379';
+// A lane's own Redis database (TEST_REDIS_DATABASE), applied after every REDIS_URL source above.
+pointHarnessAtTestRedisDatabase();
 process.env.RUN_REDIS_TESTS ??= '1';
 process.env.SECRETS_ENCRYPTION_KEY ??= 'a'.repeat(64);
 process.env.METRICS_SCRAPE_TOKEN ??= 'test-metrics-bearer-token-min-32-chars';

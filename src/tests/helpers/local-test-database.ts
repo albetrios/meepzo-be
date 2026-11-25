@@ -11,21 +11,57 @@ import {
 } from '@/shared/constants/project-identity.constants.js';
 
 /**
+ * The shape a `TEST_DATABASE_NAME_SUFFIX` must have: lower-case letters, digits and underscores, at
+ * most 32 — it becomes part of a Postgres database name (63 characters at most with the
+ * `_worker_<pool id>` ending) and of the Redis test namespace.
+ */
+const TEST_DATABASE_NAME_SUFFIX_PATTERN = /^[a-z0-9_]{1,32}$/;
+
+/**
+ * The lane this run is isolated to: `TEST_DATABASE_NAME_SUFFIX`, or `undefined` when unset (one
+ * test stack per machine, the behaviour before lanes).
+ *
+ * @remarks
+ * Read at call time, not at module load, so a test can set it. Throws on a value that is not a
+ * safe name part rather than building a database name from it.
+ */
+export function testLaneSuffix(): string | undefined {
+  const suffix = process.env.TEST_DATABASE_NAME_SUFFIX;
+  if (suffix === undefined || suffix === '') return undefined;
+  if (!TEST_DATABASE_NAME_SUFFIX_PATTERN.test(suffix)) {
+    throw new Error(
+      `TEST_DATABASE_NAME_SUFFIX must be 1-32 lower-case letters, digits or underscores, received: ${suffix}`,
+    );
+  }
+  return suffix;
+}
+
+/**
  * The database the Vitest harness uses on a developer machine: `<project>_test` — the project slug
  * in snake_case, the same `<project>_` stem as the database roles — beside, never inside, the
- * database `pnpm dev` serves. It is the template every worker's own database is cloned from
- * (`<project>_test_worker_<pool id>`); no test runs on it.
+ * database `pnpm dev` serves; `<project>_test_<suffix>` when `TEST_DATABASE_NAME_SUFFIX` isolates
+ * this run to a lane. It is the template every worker's own database is cloned from
+ * (`<name>_worker_<pool id>`); no test runs on it.
  *
  * @remarks
  * Suites truncate every table with `RESTART IDENTITY` between files. Pointed at the `pnpm dev`
  * database, as the harness was before, every local `pnpm test` wiped the developer's data and
  * restarted its id counters while Redis, BullMQ and third-party idempotency stores still held the
  * old ids. CI keeps its own service-container database (see {@link pointHarnessAtLocalTestDatabase}).
+ * A lane suffix gives two checkouts on one machine two databases, so their runs no longer truncate
+ * each other's rows, and two suite locks (`src/tests/database-suite-lock.ts` keys the lock on the
+ * database a run reaches).
  */
-export const LOCAL_TEST_DATABASE_NAME = `${PROJECT_SLUG.replaceAll('-', '_')}_test`;
+export function localTestDatabaseName(): string {
+  const base = `${PROJECT_SLUG.replaceAll('-', '_')}_test`;
+  const suffix = testLaneSuffix();
+  return suffix === undefined ? base : `${base}_${suffix}`;
+}
 
-/** Compose-superuser URL of {@link LOCAL_TEST_DATABASE_NAME} — the harness fallback and migration login. */
-export const LOCAL_TEST_DATABASE_URL = `postgresql://${LOCAL_DATABASE_NAME}:${LOCAL_DATABASE_NAME}@localhost:5432/${LOCAL_TEST_DATABASE_NAME}`;
+/** Compose-superuser URL of {@link localTestDatabaseName} — the harness fallback and migration login. */
+export function localTestDatabaseUrl(): string {
+  return `postgresql://${LOCAL_DATABASE_NAME}:${LOCAL_DATABASE_NAME}@localhost:5432/${localTestDatabaseName()}`;
+}
 
 /** The `DATABASE_*URL`s the harness cannot run without; the operator URL is an optional pool. */
 const REQUIRED_DATABASE_URL_KEYS = new Set<string>([
@@ -48,7 +84,7 @@ export function isHarnessOnProvidedDatabase(): boolean {
 }
 
 /**
- * Points every database URL the harness reads at {@link LOCAL_TEST_DATABASE_NAME} on a developer
+ * Points every database URL the harness reads at {@link localTestDatabaseName} on a developer
  * machine.
  *
  * @remarks
@@ -71,10 +107,10 @@ export function pointHarnessAtLocalTestDatabase(): void {
   const operatorUrl = process.env.DATABASE_OPERATOR_URL;
   if (operatorUrl && isLocalDatabaseUrl(operatorUrl)) {
     process.env.DATABASE_URL = operatorUrl;
-    process.env.DATABASE_MIGRATION_URL ??= LOCAL_TEST_DATABASE_URL;
+    process.env.DATABASE_MIGRATION_URL ??= localTestDatabaseUrl();
   } else if (!isLocalDatabaseUrl(process.env.DATABASE_URL)) {
-    process.env.DATABASE_URL = LOCAL_TEST_DATABASE_URL;
-    process.env.DATABASE_MIGRATION_URL = LOCAL_TEST_DATABASE_URL;
+    process.env.DATABASE_URL = localTestDatabaseUrl();
+    process.env.DATABASE_MIGRATION_URL = localTestDatabaseUrl();
   }
 
   for (const key of DATABASE_URL_KEYS) {
@@ -82,14 +118,14 @@ export function pointHarnessAtLocalTestDatabase(): void {
     if (!value) continue;
     if (!isLocalDatabaseUrl(value)) {
       if (REQUIRED_DATABASE_URL_KEYS.has(key)) {
-        process.env[key] = LOCAL_TEST_DATABASE_URL;
+        process.env[key] = localTestDatabaseUrl();
       } else {
         delete process.env[key];
       }
       continue;
     }
     const url = new URL(value);
-    url.pathname = `/${LOCAL_TEST_DATABASE_NAME}`;
+    url.pathname = `/${localTestDatabaseName()}`;
     process.env[key] = url.toString();
   }
 }
@@ -101,7 +137,8 @@ export function pointHarnessAtLocalTestDatabase(): void {
  * - **Algorithm:** with `ALLOW_HOSTED_TEST_DATABASE=true`, passes. On a GitHub Actions runner,
  *   passes only when every `DATABASE_*URL` is on the runner itself (its service container, reached
  *   over loopback). Otherwise asks the server for `current_database()` and accepts only a worker's
- *   own database, `<{@link LOCAL_TEST_DATABASE_NAME}>_worker_<pool id>`.
+ *   own database, `<{@link localTestDatabaseName}>_worker_<pool id>` — this lane's own, so a
+ *   lane refuses another lane's clones and the unsuffixed ones.
  * - **Failure modes:** throws, naming the database or the env variable it refused, so no suite can
  *   `TRUNCATE` the database `pnpm dev` serves — or a remote one — whatever an env file or a
  *   workflow says. The restore drills once ran an integration suite on a runner against a restored
@@ -134,7 +171,7 @@ export async function assertConnectedToTestDatabase(
   if (!isWorkerTestDatabase(row?.name)) {
     throw new Error(
       `Refusing to wipe database "${String(row?.name)}": on a developer machine test cleanup only ` +
-        `runs against a worker's "${LOCAL_TEST_DATABASE_NAME}_worker_<n>". Check the DATABASE_*URL values in your env ` +
+        `runs against a worker's "${localTestDatabaseName()}_worker_<n>". Check the DATABASE_*URL values in your env ` +
         'files, or set ALLOW_HOSTED_TEST_DATABASE=true for a dedicated hosted test database.',
     );
   }
@@ -157,10 +194,10 @@ export function buildMigrationChildEnvironment(): NodeJS.ProcessEnv {
   return isHarnessOnProvidedDatabase() ? process.env : { ...process.env, NODE_ENV: 'local' };
 }
 
-/** Whether `name` is a worker's own clone of {@link LOCAL_TEST_DATABASE_NAME}: the only database the wipe guard accepts. */
+/** Whether `name` is a worker's own clone of {@link localTestDatabaseName}: the only database the wipe guard accepts. */
 function isWorkerTestDatabase(name: string | undefined): boolean {
   if (name === undefined) return false;
-  return new RegExp(`^${LOCAL_TEST_DATABASE_NAME}_worker_[0-9]+$`).test(name);
+  return new RegExp(`^${localTestDatabaseName()}_worker_[0-9]+$`).test(name);
 }
 
 /** This worker's Vitest pool id, or a thrown error when the code runs outside a Vitest worker. */
@@ -195,9 +232,41 @@ export function pointWorkerAtItsOwnDatabase(): void {
 }
 
 /**
- * The test Redis key prefix of this worker: `<stem>:worker-<pool id>:test:` — its own namespace,
- * still ending in `:test:`, which the Redis cleanup requires.
+ * The test Redis key prefix of this worker: `<stem>:worker-<pool id>:test:`, or
+ * `<stem>:<lane suffix>:worker-<pool id>:test:` in a lane ({@link testLaneSuffix}) — its own
+ * namespace, still ending in `:test:`, which the Redis cleanup requires.
+ *
+ * @remarks
+ * The BullMQ prefix is `<this prefix>bull` (`getBullMQKeyPrefix`), so a lane's queues move with it.
+ * The cleanup (`src/tests/helpers/test-redis.ts`) deletes keys under this prefix only — never
+ * FLUSHDB — so two lanes on one Redis database cannot clear each other's keys;
+ * {@link pointHarnessAtTestRedisDatabase} can also give each lane its own logical database.
  */
 export function testRedisKeyPrefix(stem: string): string {
-  return `${stem}:worker-${workerPoolId()}:test:`;
+  const suffix = testLaneSuffix();
+  const lane = suffix === undefined ? '' : `${suffix}:`;
+  return `${stem}:${lane}worker-${workerPoolId()}:test:`;
+}
+
+/**
+ * Points the harness's Redis at logical database `TEST_REDIS_DATABASE` when it is set — a lane's own
+ * Redis database, beside the dev stack's database 0.
+ *
+ * @remarks
+ * - **Algorithm:** rewrites the database path of `REDIS_URL` to `/<index>`. Applied after the env
+ *   files load, so a machine-local env file (layered with override) cannot put the run back on
+ *   the dev database. The harness removes `REDIS_BULLMQ_URL`, so BullMQ follows `REDIS_URL`.
+ * - **Failure modes:** throws on an index outside 0-15.
+ * - **Side effects:** rewrites `process.env.REDIS_URL` when both are set; a no-op otherwise.
+ */
+export function pointHarnessAtTestRedisDatabase(): void {
+  const index = process.env.TEST_REDIS_DATABASE;
+  const redisUrl = process.env.REDIS_URL;
+  if (index === undefined || index === '' || !redisUrl) return;
+  if (!/^(?:\d|1[0-5])$/.test(index)) {
+    throw new Error(`TEST_REDIS_DATABASE must be a Redis database index 0-15, received: ${index}`);
+  }
+  const url = new URL(redisUrl);
+  url.pathname = `/${index}`;
+  process.env.REDIS_URL = url.toString();
 }

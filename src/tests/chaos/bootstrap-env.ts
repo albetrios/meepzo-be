@@ -17,7 +17,11 @@ process.env.NODE_ENV = 'development';
 // Literal, not an import: this module must resolve BEFORE Vitest wires `@/` aliases,
 // and the import-paths policy forbids `../` in a `from` clause. It is instead a
 // generator target (see text-identity-rewrites.ts), so a rebrand rewrites it in place.
-process.env.REDIS_KEY_PREFIX = 'meepzo:test:';
+// A lane (TEST_DATABASE_NAME_SUFFIX) gets its own namespace, as testRedisKeyPrefix gives the main
+// suites; the value is validated by the harness's global setup before any worker starts.
+const chaosLaneSuffix = process.env.TEST_DATABASE_NAME_SUFFIX || undefined;
+process.env.REDIS_KEY_PREFIX =
+  chaosLaneSuffix === undefined ? 'meepzo:test:' : `meepzo:${chaosLaneSuffix}:test:`;
 // Skip process-level shared-singleton teardown under the per-worker Vitest harness.
 process.env.SHUTDOWN_SKIP_SHARED_TEARDOWN = 'true';
 // Disable the ioredis ready-check (read raw from process.env by the Redis/BullMQ clients).
@@ -79,16 +83,20 @@ process.env.BLOCK_DISPOSABLE_EMAIL ??= 'false';
  * The credentials are Compose's (the project's local database name as user and password); the CI
  * chaos job's Postgres service creates the same role. The database is this worker's own clone the
  * global setup made, `<test database>_worker_<pool id>` — the test database is the harness's own
- * `<project>_test` locally (keep it equal to LOCAL_TEST_DATABASE_NAME in
- * src/tests/helpers/local-test-database.ts, and the suffix equal to `workerDatabaseName` in
- * tooling/vitest/worker-databases.ts, which this alias-free file cannot import) and the service
- * container's primary one on CI. Chaos suites run cleanupDatabase() too, which must never truncate
- * the database `pnpm dev` serves, and only ever accepts a worker's own database.
+ * `<project>_test` locally, `<project>_test_<lane suffix>` in a lane (keep it equal to
+ * localTestDatabaseName in src/tests/helpers/local-test-database.ts, and the suffix equal to
+ * `workerDatabaseName` in tooling/vitest/worker-databases.ts, which this alias-free file cannot
+ * import) and the service container's primary one on CI. Chaos suites run cleanupDatabase() too,
+ * which must never truncate the database `pnpm dev` serves, and only ever accepts a worker's own
+ * database. A lane's `TEST_REDIS_DATABASE` picks the Redis database behind the proxy, as
+ * pointHarnessAtTestRedisDatabase does for the main suites.
  */
-const chaosTestDatabase = process.env.GITHUB_ACTIONS === 'true' ? 'meepzo' : 'meepzo_be_test';
+const localChaosTestDatabase =
+  chaosLaneSuffix === undefined ? 'meepzo_be_test' : `meepzo_be_test_${chaosLaneSuffix}`;
+const chaosTestDatabase = process.env.GITHUB_ACTIONS === 'true' ? 'meepzo' : localChaosTestDatabase;
 process.env.DATABASE_URL = `postgresql://meepzo:meepzo@127.0.0.1:25432/${chaosTestDatabase}_worker_${String(process.env.VITEST_POOL_ID)}`;
 
-process.env.REDIS_URL = 'redis://127.0.0.1:26379';
+process.env.REDIS_URL = `redis://127.0.0.1:26379/${process.env.TEST_REDIS_DATABASE || '0'}`;
 
 /**
  * The harness's elevated connection (`DATABASE_OPERATOR_URL`, which `cleanupDatabase()` uses) must

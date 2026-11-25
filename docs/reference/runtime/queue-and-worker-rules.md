@@ -152,8 +152,8 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    `webhook-delivery-reclaim` → `webhook`). A sweep may instead ride on the queue it backs up as a
    second job name its worker routes on `job.name` (`subscription-seat-reconcile` on
    `subscription-seat-sync`, `reclaim-pending-user-data-exports` on `user-data-export`,
-   `reclaim-instagram-webhook-events` on `instagram-webhook`) — no worker or connection budget of
-   its own.
+   `reclaim-instagram-webhook-events` and `sweep-instagram-missed-comments` on `instagram-webhook`)
+   — no worker or connection budget of its own.
 3. **Bounded and idempotent**: a fixed batch per run, oldest first, safe to run twice; a delete runs
    in batches with a per-run cap (`deleteInBatchesByCondition`, `BATCH_DELETE_MAX_BATCHES_PER_RUN`)
    and a savepoint per batch, so one blocked row never aborts the run.

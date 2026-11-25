@@ -17,14 +17,13 @@
 export const INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS = 5;
 
 /**
- * Minutes after which a waiting Instagram webhook event counts as stuck, and how long one claim
- * holds an event (WH12, WH15, D15) — one number for both.
+ * How long one intake claim holds an Instagram webhook event — the lease (WH12, D15).
  *
  * @remarks
- * The stuck-event pick-up (every minute) re-adds the processing job of an account whose event is
- * still `received` / `queued` this long after it arrived and was not claimed in as long; a claim
- * older than this no longer holds, so a run that crashed mid-event frees it. Rationale:
- * `src/POLICIES.md`.
+ * A claim older than this no longer holds, so a run that crashed mid-event frees it; the
+ * every-minute pick-up re-adds the intake job of an event that waited a minute
+ * (`INSTAGRAM_WEBHOOK_EVENT_PICK_UP_AFTER_MINUTES`, WH17 — R39) and is not leased this long.
+ * Rationale: `src/POLICIES.md`.
  */
 export const INSTAGRAM_WEBHOOK_EVENT_STUCK_AFTER_MINUTES = 5;
 

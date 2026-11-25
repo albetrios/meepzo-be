@@ -46,6 +46,8 @@ import {
   INSTAGRAM_CONTACT_PROFILE_READ_JOB_NAME,
   createInstagramContactProfileReadTaskHandler,
 } from './sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import { INSTAGRAM_MISSED_COMMENT_CHECK_JOB_NAME } from './sub-domains/instagram-webhook/workers/instagram-missed-comment-check.constants.js';
+import { createInstagramMissedCommentCheckTaskHandler } from './sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js';
 import { ContactTagEventRepository } from './sub-domains/contact/contact-tag-event/contact-tag-event.repository.js';
 import { ContactTagEventService } from './sub-domains/contact/contact-tag-event/contact-tag-event.service.js';
 import { ContactRepository } from './sub-domains/contact/contact.repository.js';
@@ -691,7 +693,8 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the one task handler is intake's profile read (R38) — R40, R41, R46 add theirs.
+ * rules yet (R43–R45); the task handlers are intake's profile read (R38) and the missed-comment look
+ * (R39) — R40, R41, R46 add theirs.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -726,6 +729,17 @@ function createInstagramSendWork(
         services: {
           instagramAccountService: container.instagramAccountService,
           contactService: container.contactService,
+        },
+      }),
+      // One account's missed-comment look, the round or the full pass after an outage (WC-26, R39).
+      [INSTAGRAM_MISSED_COMMENT_CHECK_JOB_NAME]: createInstagramMissedCommentCheckTaskHandler({
+        services: {
+          instagramAccountService: container.instagramAccountService,
+          instagramSendAccessService: container.instagramSendAccessService,
+          instagramAccountSettingsService: container.instagramAccountSettingsService,
+          automationService: container.automationService,
+          instagramMediaService: container.instagramMediaService,
+          instagramWebhookEventService: container.instagramWebhookEventService,
         },
       }),
     },

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * `instagram-webhook` queue on a **plain** BullMQ worker (never provider-pausable), the family's
  * concurrency, each payload validated (poison dead-lettered) before its processor sees it, the trace
  * propagated, the process's database limiter passed on, and the job names routed: the three kind
- * groups, the tag intake and the stuck-event pick-up.
+ * groups, the tag intake, the stuck-event pick-up and the missed-comment sweep (WH17).
  */
 
 const workerState = vi.hoisted(() => ({
@@ -16,14 +16,21 @@ const workerState = vi.hoisted(() => ({
   providerPausableCalls: 0,
 }));
 
-const { parseJobDataMock, intakeJobMock, tagIntakeJobMock, runReclaimJobMock, traceMock } =
-  vi.hoisted(() => ({
-    parseJobDataMock: vi.fn(),
-    intakeJobMock: vi.fn(),
-    tagIntakeJobMock: vi.fn(),
-    runReclaimJobMock: vi.fn(),
-    traceMock: vi.fn(),
-  }));
+const {
+  parseJobDataMock,
+  intakeJobMock,
+  tagIntakeJobMock,
+  runReclaimJobMock,
+  runSweepJobMock,
+  traceMock,
+} = vi.hoisted(() => ({
+  parseJobDataMock: vi.fn(),
+  intakeJobMock: vi.fn(),
+  tagIntakeJobMock: vi.fn(),
+  runReclaimJobMock: vi.fn(),
+  runSweepJobMock: vi.fn(),
+  traceMock: vi.fn(),
+}));
 
 vi.mock('bullmq', () => ({
   Worker: class {
@@ -92,6 +99,13 @@ vi.mock(
   '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.processor.js',
   () => ({
     runInstagramWebhookReclaimJob: (...arguments_: unknown[]) => runReclaimJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js',
+  () => ({
+    runInstagramMissedCommentSweepJob: (...arguments_: unknown[]) => runSweepJobMock(...arguments_),
   }),
 );
 
@@ -204,6 +218,16 @@ describe('instagram-webhook.worker', () => {
     expect(runReclaimJobMock).toHaveBeenCalledWith({ requestId: 'repeat:1' });
     expect(parseJobDataMock).not.toHaveBeenCalled();
     expect(intakeJobMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the missed-comment sweep on its job name, without a payload (WH17, WC-26)', async () => {
+    const job = { id: 'repeat:2', name: 'sweep-instagram-missed-comments', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runSweepJobMock).toHaveBeenCalledWith();
+    expect(runReclaimJobMock).not.toHaveBeenCalled();
+    expect(parseJobDataMock).not.toHaveBeenCalled();
   });
 
   it('never processes a poison payload — the dead-letter path throws first', async () => {

@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(35);
+    expect(scheduledJobs).toHaveLength(36);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -96,6 +96,9 @@ describe('infrastructure queue scheduler', () => {
       // launch-2026-11-20-ujai WH15: the stuck-event pick-up rides the Instagram processing queue
       // (job `reclaim-instagram-webhook-events`), every minute.
       'instagram-webhook',
+      // feat-instagram-dm-sending WH17: the missed-comment sweep rides the same queue
+      // (job `sweep-instagram-missed-comments`), every 30 minutes.
+      'instagram-webhook',
     ]);
   });
 
@@ -136,6 +139,18 @@ describe('infrastructure queue scheduler', () => {
       schedulerId: 'instagram-webhook-reclaim',
       jobName: 'reclaim-instagram-webhook-events',
       cronPattern: '* * * * *',
+    });
+  });
+
+  it('sweeps for missed Instagram comments every 30 minutes on the intake queue (WH17, WC-26)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.schedulerId === 'instagram-missed-comment-sweep',
+    );
+    expect(job).toMatchObject({
+      queueName: 'instagram-webhook',
+      jobName: 'sweep-instagram-missed-comments',
+      cronPattern: '*/30 * * * *',
     });
   });
 
@@ -226,15 +241,16 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(35);
-    // Each scheduled job opens one Queue for upsert (35) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
+    // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
     // unique queue name (35 — the seat reconcile, the export reclaim, the Instagram daily-check
-    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses), each closed in
+    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses, and the
+    // missed-comment sweep rides the pick-up's queue), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(70);
+    expect(queueCloseMock).toHaveBeenCalledTimes(71);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(70);
+    expect(queueCloseMock).toHaveBeenCalledTimes(71);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

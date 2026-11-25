@@ -772,8 +772,10 @@ sequenceDiagram
 - **A deadlock or lock timeout** → the transaction runs again, 3 times at most; **every path takes its locks in one order** — her contact, then the automation, then the runs (WH26, raced in `instagram-webhook-intake.processor.db.unit.test.ts`).
 - **Postgres unreachable** → the claim is given back without using a try and the job retries with backoff.
 - **Any other failure** → the try is kept, the lease ends and the group's job retries with backoff (only that group of that account waits); the 5th failed try marks the event `failed` with `next_attempt_at`; **a refusal** (an unreadable payload) fails it at once.
-- **An Instagram outage** → intake goes on (WH25): its only Meta calls are fail-open reads (a commented post not stored yet, a late comment's time from ROUTE row R39).
-- **A lost job** (a Redis refusal at the receiver, a crash mid-event) → the stuck-event pick-up re-adds the account's job of that kind group every minute once the event is 5 minutes old and its lease is over.
+- **An Instagram outage** → intake goes on (WH25): its only Meta calls are fail-open reads (a commented post not stored yet, a late comment's time — `createInstagramLateCommentTimeReader`, 3 s, R39).
+- **A lost job** (a Redis refusal at the receiver, a crash mid-event) → the stuck-event pick-up re-adds the account's job of that kind group every minute once the event waited 1 minute and no lease holds it (R39).
+- **A `failed` event** → the same pick-up sends it back to `received` (its 5 tries again) when `next_attempt_at` is due — an hour after each 5th failure — while its comment or message is under 7 days old; then it stays `failed` (R39, WH21).
+- **A comment Meta never delivered** (webhook off, an outage) → the 30-minute missed-comment sweep hands each account with a due watched post a look on `instagram-tasks` — the full pass at the lowest priority when two rounds were missed — which reads the post's comments back (25 posts, 7 days, stopping at 80 % / 60 % Meta usage) and saves the new ones through the receiver's store function, so a comment also delivered is saved once (R39, WH17, P93).
 - A skipped event is never taken in later, even when the switch is turned back on. Nobody is told about a failed event; it shows in route 62.
 
 ## instagram-comment-automation-flow

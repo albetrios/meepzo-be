@@ -678,6 +678,11 @@ erDiagram
   (`instagram_media_channel_account_fk` → `app.channel_accounts`, `ON DELETE RESTRICT`), `comments_checked_at`,
   `comments_next_check_at`, `last_comment_at`, `live_ended_at`; `media_product_type` adds `live`;
   `idx_instagram_media_comments_next_check` (partial). The launch migration changed in place (P29).
+- **Used R39 ([AS-BUILT](../AS-BUILT.md), [P313](decisions.md)):** intake starts the watch
+  (`comments_next_check_at` +30 min, `last_comment_at`) on a matched comment; the missed-comment look
+  writes `comments_checked_at`, `comments_next_check_at` (+30 min, or empty to stop) and
+  `last_comment_at`; the sweep reads due posts across organizations over the partial index. No column
+  added.
 
 ```mermaid
 erDiagram

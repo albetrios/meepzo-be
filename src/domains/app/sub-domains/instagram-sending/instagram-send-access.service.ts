@@ -89,15 +89,64 @@ export class InstagramSendAccessService {
     now?: Date | undefined;
   }): Promise<MetaUsageDecision> {
     if (access.channelConnectionPublicId === null) return { pace: 'normal', waitUntil: null };
-    const usage = await this.options.usageService.readConnectionUsage({
+    const usage = await this.readAccountUsage({
       scope,
       channelConnectionPublicId: access.channelConnectionPublicId,
+      access,
+      now,
+    });
+    return { pace: usage.pace, waitUntil: usage.waitUntil };
+  }
+
+  /**
+   * The highest Meta usage percentage of this account's and its business's entries (MC19, S13) —
+   * for the background reads that stop below the senders' 80 % (the missed-comment look: 80 % for
+   * the round, 60 % for the full pass after an outage, P51, P93). A `wait` pace reads as 100.
+   *
+   * @remarks
+   * Algorithm: the same one usage read as {@link InstagramSendAccessService.readSendPace}. Failure
+   * modes: a store failure propagates. Side effects: none. A connection that is gone reads 0.
+   */
+  async readUsagePercent({
+    scope,
+    access,
+    now,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    access: InstagramSendAccess;
+    now?: Date | undefined;
+  }): Promise<number> {
+    if (access.channelConnectionPublicId === null) return 0;
+    const usage = await this.readAccountUsage({
+      scope,
+      channelConnectionPublicId: access.channelConnectionPublicId,
+      access,
+      now,
+    });
+    if (usage.pace === 'wait') return 100;
+    return usage.entries.reduce((highest, entry) => Math.max(highest, entry.usagePercent), 0);
+  }
+
+  /** The connection's usage of the account's two assets: its Instagram user id and its business id. */
+  private readAccountUsage({
+    scope,
+    channelConnectionPublicId,
+    access,
+    now,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelConnectionPublicId: string;
+    access: InstagramSendAccess;
+    now: Date | undefined;
+  }) {
+    return this.options.usageService.readConnectionUsage({
+      scope,
+      channelConnectionPublicId,
       assetIds: [access.instagramUserId, access.clientBusinessId].filter(
         (assetId): assetId is string => assetId !== null,
       ),
       now,
     });
-    return { pace: usage.pace, waitUntil: usage.waitUntil };
   }
 
   /**

@@ -16,7 +16,9 @@ import {
 } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { runGlobalRetentionWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
+  createRetentionInstagramMediaRepository,
   InstagramMediaRepository,
   type InstagramMediaValues,
 } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
@@ -302,5 +304,118 @@ describe('InstagramMediaRepository (database)', () => {
 
     expect(rows[0]?.indexdef).toContain('(comments_next_check_at)');
     expect(rows[0]?.indexdef).toContain('WHERE (comments_next_check_at IS NOT NULL)');
+  });
+
+  /** Stores `count` posts of the account, each watched (next read due or not) and read at its own time. */
+  async function watchPosts({
+    account,
+    count,
+    isDue,
+    firstMediaNumber = 1,
+  }: {
+    account: ChannelAccountKey;
+    count: number;
+    isDue: boolean;
+    firstMediaNumber?: number;
+  }): Promise<string[]> {
+    const mediaIds: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const instagramMediaId = `1804000000000${String(firstMediaNumber + index).padStart(4, '0')}`;
+      await inOrganization(organization, async () => {
+        await repository.upsertForAccount(
+          mediaValues(account, { instagramMediaId, graphData: { id: instagramMediaId } }),
+        );
+        await repository.updateCommentWatch({
+          ...account,
+          instagramMediaId,
+          watch: {
+            // Index 0 never read; the others read longer ago the higher the index.
+            ...(index === 0 ? {} : { commentsCheckedAt: new Date(Date.now() - index * 60_000) }),
+            commentsNextCheckAt: new Date(Date.now() + (isDue ? -60_000 : 30 * 60_000)),
+          },
+        });
+      });
+      mediaIds.push(instagramMediaId);
+    }
+    return mediaIds;
+  }
+
+  it('lists at most 25 watched posts of the account, never read first then read longest ago, no Live (WC-26, P93)', async () => {
+    const mediaIds = await watchPosts({ account: channelAccount, count: 27, isDue: true });
+    await inOrganization(organization, () =>
+      repository.upsertForAccount(
+        mediaValues(channelAccount, {
+          instagramMediaId: '18049999999999999',
+          mediaProductType: 'live',
+          graphData: { id: '18049999999999999' },
+        }),
+      ),
+    );
+    await inOrganization(organization, () =>
+      repository.updateCommentWatch({
+        ...channelAccount,
+        instagramMediaId: '18049999999999999',
+        watch: { commentsNextCheckAt: new Date(Date.now() - 60_000) },
+      }),
+    );
+
+    const listed = await inOrganization(organization, () =>
+      repository.listWatchedPosts({ ...channelAccount, isDueOnly: false, limit: 25 }),
+    );
+
+    expect(listed).toHaveLength(25);
+    expect(listed.map((row) => row.instagram_media_id)).toEqual([
+      mediaIds[0],
+      ...mediaIds.slice(1).reverse().slice(0, 24),
+    ]);
+  });
+
+  it('lists only the due watched posts for the round, every watched one for the full pass', async () => {
+    const due = await watchPosts({ account: channelAccount, count: 2, isDue: true });
+    const notDue = await watchPosts({
+      account: channelAccount,
+      count: 2,
+      isDue: false,
+      firstMediaNumber: 10,
+    });
+
+    const round = await inOrganization(organization, () =>
+      repository.listWatchedPosts({ ...channelAccount, isDueOnly: true, limit: 25 }),
+    );
+    const fullPass = await inOrganization(organization, () =>
+      repository.listWatchedPosts({ ...channelAccount, isDueOnly: false, limit: 25 }),
+    );
+
+    expect(round.map((row) => row.instagram_media_id).sort()).toEqual([...due].sort());
+    expect(fullPass.map((row) => row.instagram_media_id).sort()).toEqual(
+      [...due, ...notDue].sort(),
+    );
+  });
+
+  it('the sweep reads, across organizations, each connected account that watches a post — once, with its last read and whether one is due', async () => {
+    await watchPosts({ account: channelAccount, count: 3, isDue: true });
+    const quiet = await connectAccount({ organization, instagramUserId: '17841400000000002' });
+    await watchPosts({ account: quiet, count: 1, isDue: false, firstMediaNumber: 50 });
+    const revoked = await connectAccount({ organization, instagramUserId: '17841400000000003' });
+    await watchPosts({ account: revoked, count: 1, isDue: true, firstMediaNumber: 60 });
+    await operatorQuery`
+      UPDATE app.channel_accounts SET connection_status = 'revoked', disconnected_at = now()
+      WHERE id = ${revoked.channelAccountId}`;
+
+    const accounts = await runGlobalRetentionWorkerJob((databaseHandle) =>
+      createRetentionInstagramMediaRepository(databaseHandle).listAccountsWithCommentWatches({
+        limit: 100,
+      }),
+    );
+
+    expect(
+      accounts.map((account) => ({ id: account.channelAccountId, isDue: account.isDue })),
+    ).toEqual([
+      { id: channelAccount.channelAccountId, isDue: true },
+      { id: quiet.channelAccountId, isDue: false },
+    ]);
+    expect(accounts[0]?.organizationPublicId).toBe(organization.public_id);
+    expect(accounts[0]?.lastCheckedAt).toBeInstanceOf(Date);
+    expect(accounts[1]?.lastCheckedAt).toBeNull();
   });
 });

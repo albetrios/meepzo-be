@@ -22,8 +22,11 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.job.schema.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from './instagram-webhook-reclaim.constants.js';
 import { runInstagramWebhookReclaimJob } from './instagram-webhook-reclaim.processor.js';
+import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from './instagram-missed-comment-check.constants.js';
+import { runInstagramMissedCommentSweepJob } from './instagram-missed-comment-check.processor.js';
 import {
   type InstagramContactProfileReadEnqueue,
+  type InstagramLateCommentTimeReader,
   type InstagramWebhookIntakeServices,
   processInstagramWebhookIntakeJob,
 } from './instagram-webhook-intake.processor.js';
@@ -44,16 +47,20 @@ export interface InstagramWebhookWorkerServices {
   intake: InstagramWebhookIntakeServices;
   tagIntake: InstagramTagEventIntakeServices;
   enqueueProfileRead: InstagramContactProfileReadEnqueue | null;
+  /** A late comment's own time from Meta (WH12 step 2, R39); absent — the received time. */
+  readLateCommentTime?: InstagramLateCommentTimeReader | undefined;
 }
 
 /**
  * BullMQ worker of Instagram intake (feat-instagram-dm-sending § 5 WH5, WH11–WH16, WH25; WC-1–WC-4):
- * the three kind groups' jobs, the tag-intake jobs and the every-minute stuck-event pick-up, on one
- * queue.
+ * the three kind groups' jobs, the tag-intake jobs, the every-minute stuck-event pick-up and the
+ * 30-minute missed-comment sweep (WH17), on one queue.
  *
  * @remarks
  * - **Algorithm:** routes on `job.name` — the pick-up ({@link INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME},
- *   no payload) runs {@link runInstagramWebhookReclaimJob}; `intake-tag-events` validates its payload
+ *   no payload) runs {@link runInstagramWebhookReclaimJob}; the missed-comment sweep
+ *   ({@link INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME}, no payload) runs
+ *   {@link runInstagramMissedCommentSweepJob}; `intake-tag-events` validates its payload
  *   and runs {@link processInstagramTagEventIntakeJob}; `intake-messages`, `intake-live` and
  *   `intake-comments` validate theirs and run {@link processInstagramWebhookIntakeJob} — every unit
  *   of work in a slot of the process's Instagram database limiter (`getInstagramDatabaseSlotLimiter`,
@@ -82,6 +89,10 @@ export function createInstagramWebhookWorker({
       // The every-minute pick-up rides this queue (no worker or pool of its own); no payload.
       if (job.name === INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME) {
         return runInstagramWebhookReclaimJob({ requestId: job.id });
+      }
+      // The 30-minute missed-comment sweep rides this queue too; its looks run on `instagram-tasks`.
+      if (job.name === INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME) {
+        return runInstagramMissedCommentSweepJob();
       }
       const jobId = job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME;
       if (job.name === INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME) {
@@ -126,6 +137,7 @@ export function createInstagramWebhookWorker({
             services: services.intake,
             jobId,
             enqueueProfileRead: services.enqueueProfileRead,
+            readLateCommentTime: services.readLateCommentTime,
             limiter,
           }),
       });

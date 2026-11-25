@@ -22,8 +22,9 @@ entry points with normalized kinds) → sub-domain 6 sends.
 
 Built: the nested `instagram-webhook-event/` — the day-split events and their key table, route 62
 (R16) — and, at this folder root, the receiver (routes 60–61, R17; launch R13), intake per kind and
-the tag intake (R38) with the stuck-event pick-up (launch R14; its 1-minute and hourly passes are
-R39). The root holds no table of its own and writes the events only through the nested sub-domain's
+the tag intake (R38) with the stuck-event pick-up — its 1-minute pass and the hourly retry of a
+`failed` event (R39) — and the missed-comment look: a 30-minute sweep, one look per watched account
+and the full pass after an outage (R39, WH17). The root holds no table of its own and writes the events only through the nested sub-domain's
 service.
 
 ## Layout
@@ -67,7 +68,18 @@ service.
   routes on `job.name`: `workers/instagram-webhook-intake.processor.ts` (a kind group's events,
   WH11–WH16), `workers/instagram-tag-event-intake.processor.ts` (WH15) and
   `workers/instagram-webhook-reclaim.processor.ts` (+ `.constants.ts`; the every-minute stuck-event
-  pick-up)
+  pick-up: a waiting event over 1 minute old and not leased → its intake job; a `failed` event whose
+  `next_attempt_at` is due → back to `received` with its tries from 0 while its trigger is under
+  7 days old, else its retry time emptied — WH17, WH21) and
+  `workers/instagram-missed-comment-check.processor.ts` (+ `.constants.ts`; the 30-minute sweep
+  `sweep-instagram-missed-comments`, WC-26)
+- `workers/instagram-missed-comment-check.processor.ts` — also the `missed-comment-check` task on
+  `instagram-tasks` (one account's look: its watched posts — the due ones for the round, every one
+  for the full pass after two missed rounds — at most 25, comments of the last 7 days, newest first
+  back to the last seen minus 10 minutes, one call a second, stopped at 80 % (round) / 60 % (full
+  pass) Meta usage; saved through `recordReceivedEvents` with key `comment:<id>`; then one
+  `intake-comments` job), `lookForMissedComments` (the full pass the subscription check asks for,
+  R40's port) and intake's late comment time read (`createInstagramLateCommentTimeReader`, 3 s)
 - `workers/instagram-contact-profile-read.processor.ts` — the `contact-profile` task on
   `instagram-tasks` (S11): a new contact's Instagram profile, read off intake at the lowest priority
 - [`instagram-webhook-event/`](instagram-webhook-event/instagram-webhook-event.overview.md) — the
@@ -158,9 +170,10 @@ stateDiagram-v2
     verified --> failed_answer: the store unit over 3 s or Postgres down — 503 / 500, nothing saved, Meta delivers again
     verified --> stored: each entry cleaned, its new keys, then each event once per account and key — received, or skipped with its reason
     stored --> handled: its kind group's intake job — claimed, checked, one transaction, marked processed / skipped
-    stored --> stored: a failure before the 5th try — the lease ends, the job retries; or not claimed 5 minutes after it arrived — the pick-up adds the job again
+    stored --> stored: a failure before the 5th try — the lease ends, the job retries; or waiting over 1 minute and not leased — the pick-up adds the job again
     stored --> failed: the 5th failed try (next_attempt_at +1 h) or a refusal (none)
-    failed --> stored: next_attempt_at due, while under 7 days — the pick-up's hourly pass (R39)
+    failed --> stored: next_attempt_at due, while under 7 days — the pick-up's hourly retry (R39)
+    [*] --> stored: a missed comment the look found — the same store function and key (R39)
     stored --> listed: route 62 — masked, newest first
     handled --> listed: route 62
     failed --> listed: route 62

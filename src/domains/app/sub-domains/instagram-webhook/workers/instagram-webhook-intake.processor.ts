@@ -62,6 +62,7 @@ import {
   INSTAGRAM_INTAKE_LOW_PRIORITY,
   INSTAGRAM_INTAKE_PRIORITY,
   INSTAGRAM_LATE_COMMENT_MINUTES,
+  INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES,
   INSTAGRAM_OWNER_CHAT_QUIET_HOURS,
   INSTAGRAM_WEBHOOK_EVENT_RETRY_AFTER_MINUTES,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.constants.js';
@@ -126,7 +127,10 @@ export interface InstagramWebhookIntakeServices {
     ContactService,
     'lockInboundContact' | 'recordInboundContactEvent' | 'recordContactOptOut'
   >;
-  instagramMediaService: Pick<InstagramMediaService, 'findStoredMedia' | 'upsertFromInstagram'>;
+  instagramMediaService: Pick<
+    InstagramMediaService,
+    'findStoredMedia' | 'upsertFromInstagram' | 'updateCommentWatch'
+  >;
   automationService: Pick<AutomationService, 'linkNextPostAutomations'>;
   automationRunService: Pick<
     AutomationRunService,
@@ -158,8 +162,9 @@ export type InstagramContactProfileReadEnqueue = (input: {
  * `metaGraphCircuit`, failing open to the received time. `null` → the received time.
  *
  * @remarks
- * The comment read lands with the missed-comment look (ROUTE row R39, WC-26); until then
- * {@link NO_LATE_COMMENT_TIME_READ} answers `null`, which is the fail-open path (WH25).
+ * Built by `createInstagramLateCommentTimeReader` (the missed-comment look's file, ROUTE row R39) and
+ * passed by the intake worker; {@link NO_LATE_COMMENT_TIME_READ} — `null`, the fail-open path
+ * (WH25) — is the default when none is given.
  */
 export type InstagramLateCommentTimeReader = (input: {
   scope: OrganizationPrincipalDatabaseScope;
@@ -169,7 +174,7 @@ export type InstagramLateCommentTimeReader = (input: {
 }) => Promise<Date | null>;
 
 /**
- * The {@link InstagramLateCommentTimeReader} until ROUTE row R39: always the received time.
+ * The default {@link InstagramLateCommentTimeReader} when none is given: always the received time.
  *
  * @remarks
  * Notes: the fail-open answer (WH25) — no Meta call is made.
@@ -515,7 +520,8 @@ async function readCommentedPost({
 /**
  * A comment's post and "next post" link (D18, AU15) inside the event's transaction: a post read
  * from Meta is stored in a savepoint, then the link in another — a failed store or link is logged
- * and the comment still matched. Answers the post's publish time for the engine's `between` scope.
+ * and the comment still matched. Answers the stored post (for its missed-comment watch) and its
+ * publish time for the engine's `between` scope.
  */
 async function linkCommentedPost({
   context,
@@ -527,7 +533,7 @@ async function linkCommentedPost({
   account: InstagramWebhookProcessingAccount;
   instagramMediaId: string;
   commentedPost: PreparedEvent['commentedPost'];
-}): Promise<Date | null> {
+}): Promise<InstagramMediaRow | null> {
   const { scope, services } = context;
   const channelAccount = {
     organizationId: account.instagramAccount.organizationId,
@@ -567,7 +573,58 @@ async function linkCommentedPost({
       'app.instagram_webhook.next_post_link_failed',
     );
   }
-  return publishedAt;
+  return storedPost;
+}
+
+/** The engine's answers that leave a post unwatched: no automation took the comment (WH17). */
+const UNWATCHED_COMMENT_OUTCOMES: ReadonlySet<AutomationRunHandlingOutcome> = new Set([
+  'nothing_matched',
+  'account_unavailable',
+]);
+
+/**
+ * Starts a post's missed-comment watch (WH17, WC-26) the first time one of its comments reaches a
+ * live comment automation: `comments_next_check_at` 30 minutes on and the comment as its last seen,
+ * in a savepoint of the event's transaction — written once per watch (a watched post's later
+ * comments do not touch the row), a failure logged and the comment still taken in. A Live is not
+ * watched (its comments are not read back).
+ */
+async function startCommentWatch({
+  context,
+  account,
+  storedPost,
+  occurredAt,
+}: {
+  context: ClaimedEventContext;
+  account: InstagramWebhookProcessingAccount;
+  storedPost: InstagramMediaRow;
+  occurredAt: Date;
+}): Promise<void> {
+  if (storedPost.comments_next_check_at !== null || storedPost.media_product_type === 'live')
+    return;
+  try {
+    await withSavepoint(() =>
+      context.services.instagramMediaService.updateCommentWatch({
+        scope: context.scope,
+        channelAccount: {
+          organizationId: account.instagramAccount.organizationId,
+          channelAccountId: account.channelAccountId,
+        },
+        instagramMediaId: storedPost.instagram_media_id,
+        watch: {
+          commentsNextCheckAt: new Date(
+            Date.now() + INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES * ONE_MINUTE_MILLISECONDS,
+          ),
+          lastCommentAt: occurredAt,
+        },
+      }),
+    );
+  } catch (error) {
+    logger.warn(
+      { ...eventLogFields(context), failure: describeInstagramWebhookIntakeError(error) },
+      'app.instagram_webhook.comment_watch_start_failed',
+    );
+  }
 }
 
 /** The run engine's entry point for the dispatched kind (WH13, WH27; 4.B.10). */
@@ -588,13 +645,14 @@ async function callRunEngine({
   switch (dispatch.inboundKind) {
     case 'comment':
     case 'live_comment': {
-      const mediaPublishedAt = await linkCommentedPost({
+      const storedPost = await linkCommentedPost({
         context,
         account: prepared.account,
         instagramMediaId: dispatch.instagramMediaId,
         commentedPost: prepared.commentedPost,
       });
-      return automationRunService.startCommentRun({
+      const mediaPublishedAt = storedPost?.published_at ?? null;
+      const handled = await automationRunService.startCommentRun({
         ...trigger,
         kind:
           dispatch.inboundKind === 'live_comment'
@@ -611,6 +669,15 @@ async function callRunEngine({
         text: dispatch.text,
         commenterUsername: dispatch.username,
       });
+      if (storedPost !== null && !UNWATCHED_COMMENT_OUTCOMES.has(handled.outcome)) {
+        await startCommentWatch({
+          context,
+          account: prepared.account,
+          storedPost,
+          occurredAt: prepared.occurredAt,
+        });
+      }
+      return handled;
     }
     case 'message':
     case 'story_reply':

@@ -52,6 +52,7 @@ import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
+import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -120,11 +121,17 @@ const DEFAULT_USER_DATA_EXPORT_RECLAIM_CRON = '*/5 * * * *';
 /** Hourly: lost seat-sync enqueues and lapsed dunning entitlements. */
 const DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON = '17 * * * *';
 /**
- * Every minute (launch-2026-11-20-ujai WH15, worker-changes WC-2): the Instagram accounts whose
- * events still wait 5 minutes after they arrived go back to event processing. A fixed cadence, not a
- * setting.
+ * Every minute (feat-instagram-dm-sending WH17, worker-changes WC-12): the Instagram accounts whose
+ * events still wait a minute after they arrived go back to intake, and the `failed` events whose
+ * hourly retry is due go back to `received`. A fixed cadence, not a setting.
  */
 const DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON = '* * * * *';
+/**
+ * Every 30 minutes (feat-instagram-dm-sending WH17, worker-changes WC-26,
+ * `INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES`): one missed-comment look per watched account, spread
+ * over the round; the full pass for an account whose rounds were missed. A fixed cadence.
+ */
+const DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON = '*/30 * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 /**
  * Daily at 03:00 (UTC with `SCHEDULER_TIMEZONE=UTC`): the 30-day clean-up of the Instagram webhook
@@ -388,6 +395,17 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
         schedulerId: 'instagram-webhook-reclaim',
         jobName: INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON,
+      },
+    }),
+    // The missed-comment sweep rides the same queue (run by its worker); its looks go to
+    // `instagram-tasks`.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'instagram-missed-comment-sweep',
+        jobName: INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON,
       },
     }),
   ];

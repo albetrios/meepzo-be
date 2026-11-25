@@ -32,6 +32,8 @@ import {
   readInstagramAccountProfile,
   readMetaAppSecret,
   readInstagramMediaItem,
+  listInstagramMediaComments,
+  readInstagramCommentTime,
   readInstagramUserProfile,
   replyToInstagramComment,
   sendInstagramMessage,
@@ -340,6 +342,79 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
         instagramMediaId: '18000000000000001',
       }),
     ).resolves.toEqual({ id: '18000000000000001', caption: 'hello' });
+  });
+
+  it("lists a post's comments newest first, 50 a page, with Meta's cursor (WC-26)", async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/18000000000000001/comments`)
+      .query(
+        withProof({
+          fields: 'id,text,timestamp,username,from,parent_id',
+          limit: '50',
+          after: 'c1',
+        }),
+      )
+      .reply(200, {
+        data: [{ id: '17900000000000001', text: 'price?' }, { text: 'no id' }],
+        paging: { cursors: { after: 'c2' }, next: 'https://graph.facebook.com/next' },
+      });
+
+    await expect(
+      listInstagramMediaComments({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramMediaId: '18000000000000001',
+        isRepliesIncluded: false,
+        after: 'c1',
+      }),
+    ).resolves.toEqual({
+      items: [{ id: '17900000000000001', text: 'price?' }],
+      nextCursor: 'c2',
+    });
+  });
+
+  it('asks for the replies only when comment replies are on (D64), and a list without data is an outage', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/18000000000000001/comments`)
+      .query(
+        withProof({
+          fields:
+            'id,text,timestamp,username,from,parent_id,replies{id,text,timestamp,username,from,parent_id}',
+          limit: '50',
+        }),
+      )
+      .reply(200, { error_free: true });
+
+    await expect(
+      listInstagramMediaComments({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramMediaId: '18000000000000001',
+        isRepliesIncluded: true,
+      }),
+    ).rejects.toMatchObject({ errorClass: 'outage' });
+  });
+
+  it("reads a comment's own time; an answer without a readable time is null", async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/17900000000000001`)
+      .query(withProof({ fields: 'timestamp' }))
+      .reply(200, { timestamp: '2026-11-20T10:00:00+0000', id: '17900000000000001' });
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/17900000000000002`)
+      .query(withProof({ fields: 'timestamp' }))
+      .reply(200, { id: '17900000000000002' });
+
+    await expect(
+      readInstagramCommentTime({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramCommentId: '17900000000000001',
+      }),
+    ).resolves.toEqual(new Date('2026-11-20T10:00:00Z'));
+    await expect(
+      readInstagramCommentTime({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramCommentId: '17900000000000002',
+      }),
+    ).resolves.toBeNull();
   });
 
   it("reads a person's profile and follow status in one call", async () => {

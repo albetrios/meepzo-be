@@ -268,7 +268,7 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
 
 - **Value**: 5 minutes
 - **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
-- **Rationale**: One number for two rules (WH12, WH15, D15): an Instagram webhook event still `received` / `queued` this long after it arrived and not claimed in as long is "stuck" — the every-minute pick-up re-adds its account's processing job — and a claim holds its event this long (the lease), so a run that died mid-event frees it. A temporary failure ends the lease at once (the attempt kept) so the job's own backoff retry does not wait it out.
+- **Rationale**: The lease (WH12, D15): a claim holds its event this long, so a run that died mid-event frees it; the every-minute pick-up re-adds the intake job of an event that waited `INSTAGRAM_WEBHOOK_EVENT_PICK_UP_AFTER_MINUTES` (1, WH17 — R39) and is not leased this long. A temporary failure ends the lease at once (the attempt kept) so the job's own backoff retry does not wait it out.
 - **Consequences of change**:
   - Decreasing → a slow but live handling (many sends with their 200–1000 ms pauses) can lose its lease to another run; the claim's attempt-count guard keeps that run's marks from landing, but the event is handled twice up to the engine's own idempotency.
   - Increasing → an event whose job was lost (a Redis refusal at the receiver, a crash) waits longer before it is picked up.

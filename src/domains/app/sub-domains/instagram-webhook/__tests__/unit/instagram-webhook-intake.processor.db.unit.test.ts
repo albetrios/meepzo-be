@@ -47,6 +47,11 @@ import {
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import {
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -281,6 +286,66 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
     expect(await readCommentLogRows(organization.id)).toHaveLength(1);
     // Intake sends nothing: the hello waits for sub-domain 6 (AC-16.7).
     expect(port.steps()).toEqual(['hello']);
+  });
+
+  /** Stores the account's post, as the pickers or an earlier comment's read would have. */
+  async function storePost(instagramMediaId: string): Promise<void> {
+    await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id }),
+      callback: () =>
+        new InstagramMediaRepository().upsertForAccount({
+          organizationId: organization.id,
+          channelAccountId: processingAccount.channelAccountId,
+          instagramMediaId,
+          shortcode: null,
+          mediaType: 'image',
+          mediaProductType: 'feed',
+          caption: null,
+          mediaUrl: null,
+          thumbnailUrl: null,
+          permalink: null,
+          publishedAt: new Date(Date.now() - 60 * 60_000),
+          commentsCount: 0,
+          likeCount: 0,
+          isCommentEnabled: undefined,
+          graphData: { id: instagramMediaId },
+        }),
+    });
+  }
+
+  async function readWatch(instagramMediaId: string) {
+    const [row] = await operatorQuery<
+      Array<{ comments_next_check_at: Date | null; last_comment_at: Date | null }>
+    >`
+      SELECT comments_next_check_at, last_comment_at FROM app.instagram_media
+      WHERE organization_id = ${organization.id} AND instagram_media_id = ${instagramMediaId}`;
+    return row;
+  }
+
+  it('a comment a live automation takes starts its post’s missed-comment watch, once; an unmatched one does not (WH17)', async () => {
+    await liveAutomation({ keywords: ['link'] });
+    const watchedPost = nextInstagramObjectId();
+    const quietPost = nextInstagramObjectId();
+    await storePost(watchedPost);
+    await storePost(quietPost);
+    await storeComment({ text: 'link please', postId: watchedPost });
+    await storeComment({ text: 'nice photo', postId: quietPost });
+
+    const before = Date.now();
+    await runJob('comments');
+
+    const watch = await readWatch(watchedPost);
+    expect(watch?.comments_next_check_at?.getTime()).toBeGreaterThanOrEqual(before + 29 * 60_000);
+    expect(watch?.last_comment_at).toBeInstanceOf(Date);
+    expect(await readWatch(quietPost)).toEqual({
+      comments_next_check_at: null,
+      last_comment_at: null,
+    });
+
+    // A later comment on the watched post leaves the row as it is (no hot row write per comment).
+    await storeComment({ text: 'link again', postId: watchedPost });
+    await runJob('comments');
+    expect(await readWatch(watchedPost)).toEqual(watch);
   });
 
   it('the tap on that opening message continues the run, in the message group’s job', async () => {

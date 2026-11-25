@@ -73,6 +73,7 @@ import {
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
 import { enqueueInstagramContactProfileRead } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import { createInstagramLateCommentTimeReader } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
@@ -422,6 +423,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
             automationRunService: appDomain.automationRunService,
           },
           enqueueProfileRead: enqueueInstagramContactProfileRead,
+          readLateCommentTime: createInstagramLateCommentTimeReader({
+            instagramSendAccessService: appDomain.instagramSendAccessService,
+          }),
         },
       });
     },

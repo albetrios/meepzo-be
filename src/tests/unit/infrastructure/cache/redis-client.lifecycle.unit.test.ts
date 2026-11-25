@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { REDIS_KEY_PREFIX_STEM } from '@/shared/constants/project-identity.constants.js';
+import { testRedisKeyPrefix } from '@/tests/helpers/local-test-database.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface RedisConstructorCall {
@@ -76,7 +77,7 @@ describe('redis client lifecycle (mocked ioredis)', () => {
     await expect(connectRedis()).rejects.toThrow('ECONNREFUSED');
   });
 
-  it('redisConnection uses keyPrefix from env (<stem>:worker-<pool id>:test: set by the test harness)', async () => {
+  it('redisConnection uses keyPrefix from env (<stem>[:<lane>]:worker-<pool id>:test: set by the test harness)', async () => {
     await importRedisClient();
 
     expect(redisConstructorCalls).toHaveLength(1);
@@ -85,7 +86,7 @@ describe('redis client lifecycle (mocked ioredis)', () => {
       lazyConnect: true,
       enableOfflineQueue: false,
       maxRetriesPerRequest: null,
-      keyPrefix: `${REDIS_KEY_PREFIX_STEM}:worker-${process.env.VITEST_POOL_ID}:test:`,
+      keyPrefix: testRedisKeyPrefix(REDIS_KEY_PREFIX_STEM),
     });
     expect(typeof options.retryStrategy).toBe('function');
   });

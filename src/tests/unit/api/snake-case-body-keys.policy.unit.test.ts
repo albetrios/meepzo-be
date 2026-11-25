@@ -36,6 +36,7 @@ const EXEMPT_KEYS_BY_FILE: Record<string, ReadonlySet<string>> = {
   // `serializeLane` / `serializeInstagramSendingStatus` / `serializeAppUsage` and their type
   // literals — read to build the snake_case body, never emitted as response keys.
   'src/domains/app/sub-domains/instagram-sending/instagram-sending.serializer.ts': new Set([
+    'hasLiveAccount',
     'waitingCount',
     'openStops',
     'planStopReason',

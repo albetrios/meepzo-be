@@ -1,4 +1,4 @@
-import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
+import { signInWithEmailCode, generateTestToken } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -11,7 +11,6 @@ import {
 } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
-import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import type { FastifyInstance } from 'fastify';
 
 const ONBOARDING_PERMISSIONS = ['subscription:read', 'organization:read', 'membership:read'];

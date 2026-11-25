@@ -41,7 +41,7 @@ stateDiagram-v2
 
 ## Failure modes
 
-- **Token expired** → 401 `errors:invalidOrExpiredVerificationCode` (or matching key for the token type).
+- **Token expired** → 401 `errors:emailCodeExpired` (an email sign-in code; each token type has its own key).
 - **Token reused** → 401 (atomic consume returned no row); the confirm-email link answers `400 email_confirm_token_invalid` for an unknown, spent or expired token.
 - **Disposable email blocked on send** → 400 `errors:disposableEmail`.
 - **OAuth state mismatch on callback** → 400; CSRF defence engaged.

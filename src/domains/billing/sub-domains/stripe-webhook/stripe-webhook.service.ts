@@ -9,7 +9,6 @@ import type { SubscriptionService } from '@/domains/billing/sub-domains/subscrip
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { captureMessage } from '@/infrastructure/observability/sentry/sentry.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { env } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
@@ -50,6 +49,7 @@ import {
 import { STRIPE_WEBHOOK_MAX_PROCESSING_ATTEMPTS } from '@/shared/constants/billing.constants.js';
 import {
   MAINTENANCE_SCOPE,
+  PRINCIPAL_SCOPE,
   withMaintenanceDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 

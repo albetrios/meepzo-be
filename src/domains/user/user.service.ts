@@ -2,6 +2,8 @@ import {
   PRINCIPAL_SCOPE,
   MAINTENANCE_SCOPE,
   withMaintenanceDatabaseContext,
+  withAppDatabaseContext,
+  type UserPrincipalDatabaseScope,
 } from '@/infrastructure/database/contexts/database-context.js';
 import {
   ConflictError,
@@ -37,10 +39,6 @@ import type { UserDataExportService } from '@/domains/user/sub-domains/user-data
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import {
-  withAppDatabaseContext,
-  type UserPrincipalDatabaseScope,
-} from '@/infrastructure/database/contexts/database-context.js';
 
 const ALLOWED_AVATAR_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 

@@ -33,10 +33,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
 import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
-import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 

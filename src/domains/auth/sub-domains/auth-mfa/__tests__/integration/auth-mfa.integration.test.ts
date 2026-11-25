@@ -1,4 +1,8 @@
-import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
+import {
+  signInWithEmailCode,
+  generateTestToken,
+  generateTestTokenAndSession,
+} from '@/tests/helpers/test-auth.js';
 import { generate as generateTotpCode } from 'otplib';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -9,7 +13,6 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
-import { generateTestToken, generateTestTokenAndSession } from '@/tests/helpers/test-auth.js';
 import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';

@@ -257,7 +257,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-tsdoc-export-guard/SKILL.md",
-      "computedHash": "dc765cb4a966da2d4e314b9a514e402251e90399fe046185d2de171d987570de"
+      "computedHash": "8de537eb7a7d40a648f26aae854996948f63cb8728469392e45d5442e1c0ac6e"
     },
     "be-workers-events": {
       "source": "local",

@@ -56,3 +56,34 @@ lane B P223 / P224), so most conflicts are two resolutions of the same rows ([P1
 - R47 bug: migration `20261125210000_app_repair_sweep_arms.sql` — the sweep arm on
   `app.contact_activities` and `app.automation_reply_states` (WC-17 skipped every waiting DM, WC-18
   never trimmed, under the RLS-subject role); `rls-table-scope-map` updated.
+
+## Lane B ← main d08b70f (round 2 + R50, P144 / P145)
+
+"ours" is `lane-b/tenancy-auth` (c86eeb0: the password routes disabled P251, R60 P252), "theirs" main d08b70f.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `AS-BUILT.md` › Rows | ours: R53, R47 (+ R60's fix line), lane C × lane B merge, the owner change (password routes), R60; theirs: the same R53 / R47 / lane C rows plus the round-2 rows, R50 and P145's fix on R53 | theirs' rows; R47 = theirs + R60's fix line; ours' stale R53 dropped (theirs carries P145's fix); the owner-change and R60 rows appended | low |
+| `AS-BUILT.md` › Standing deviations | ours: "Password routes"; theirs: the R49 × main, acceptance-two and post-merge gates rows | union | none |
+| `plans/decisions.md` | ours: P251, P252; theirs: P141–P145, P414 | union (theirs first) | none |
+| `instagram-reconnect-flow.e2e.test.ts` (no conflict; typecheck) | P145 made `jobScopeFor` a required repair dependency | the test passes `PRINCIPAL_SCOPE.JOB` as the repair worker does | none |
+
+## Lane B ← lane E e3cc504 (R57, R58 P501, R59, the Free-row fix P502)
+
+"ours" is `lane-b/tenancy-auth` (9f54163), "theirs" `lane-e/flows` at e3cc504 (base b87c4c9).
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/acceptance.md` (AC-22.1–AC-25.7) | ours: AC-25.* filled (R60); theirs: AC-22–AC-24 filled (R57–R59) | per row the filled side; no row filled on both | none |
+| `KICKOFF.md` | Status cells R57–R60 | most-advanced (`kickoffmerge.py`) | none |
+| `AS-BUILT.md` | rows on both sides; theirs' fix lines on R52, R53 (R57–R59) beside ours' main-merged rows | union (`resolve.py ours`); the six rows both edited (R46–R48, R51–R53) merged per row 3-way from b87c4c9 — theirs' fix lines applied on ours' text | low |
+| `plans/decisions.md` | ours: P141–P145, P414, P251, P252; theirs: P501, P502 | union | none |
+| `src-structure-tree.txt` | generated | regenerated | none |
+
+## Main ← lane B f72b1b1 (password routes P251, R60, OAuth 409 doc, lane E R57–R59 + Free-row fix P502) — 2026-11-25
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `KICKOFF.md` | main R61 done; lane B R57–R60 done | `kickoffmerge.py`: most-advanced Status per row (R57–R61 all done) | none |
+| `AS-BUILT.md` | main appended R6 × R61 fix + R61; lane B appended the password owner change, R60, R57, R58, R59 | union, main's rows first | none |
+| `plans/acceptance.md` | main filled AC-26.*; lane B filled AC-22.*–AC-25.* | per row: AC-26.* from main, the rest from lane B (no row filled on both) | none |

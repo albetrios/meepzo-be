@@ -485,6 +485,9 @@ src/
     │   │   │   └── instagram-account.types.ts
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
+    │   │   │   │   ├── e2e/
+    │   │   │   │   │   ├── instagram-month-limit.e2e.test.ts
+    │   │   │   │   │   └── instagram-reconnect-flow.e2e.test.ts
     │   │   │   │   ├── factories/
     │   │   │   │   │   ├── instagram-lane-harness.factory.ts
     │   │   │   │   │   └── instagram-sending.factory.ts
@@ -809,6 +812,7 @@ src/
     │   │   │   ├── login-restores-last-organization.integration.test.ts
     │   │   │   ├── logout-revokes-token.integration.test.ts
     │   │   │   ├── organization-mfa-enforcement.integration.test.ts
+    │   │   │   ├── password-routes.integration.test.ts
     │   │   │   ├── refresh-preserves-active-organization.integration.test.ts
     │   │   │   ├── refresh-reuse-detection.integration.test.ts
     │   │   │   ├── refresh-rotates-token-hash.integration.test.ts
@@ -839,6 +843,7 @@ src/
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
     │   │   ├── auth-oauth.handlers.ts
+    │   │   ├── auth-password.handlers.ts
     │   │   ├── auth-session.handlers.ts
     │   │   └── auth-webauthn.handlers.ts
     │   ├── seed/
@@ -918,6 +923,7 @@ src/
     │   │   │   ├── auth-method.types.ts
     │   │   │   ├── email-confirmation.service.ts
     │   │   │   ├── email-login.service.ts
+    │   │   │   ├── password-auth.service.ts
     │   │   │   └── verification-code.ts
     │   │   ├── auth-mfa/
     │   │   │   ├── __tests__/
@@ -2559,6 +2565,7 @@ src/
     │   │   ├── field-secret-encryption.util.ts
     │   │   ├── image-location.util.ts
     │   │   ├── jwt.util.ts
+    │   │   ├── password.util.ts
     │   │   ├── response-encryption-keyring.util.ts
     │   │   ├── safe-webhook-url-for-logs.util.ts
     │   │   ├── secrets-sub-key.util.ts
@@ -2710,8 +2717,10 @@ src/
     │   ├── billing-onboarding.e2e.test.ts
     │   ├── data-export-deletion.e2e.test.ts
     │   ├── e2e.overview.md
+    │   ├── plan-move-down.e2e.test.ts
     │   ├── signup-flow.e2e.test.ts
-    │   └── tenancy-billing-organization.e2e.test.ts
+    │   ├── tenancy-billing-organization.e2e.test.ts
+    │   └── trial.e2e.test.ts
     ├── factories/
     │   ├── mfa-method.factory.ts
     │   ├── notification.factory.ts
@@ -2812,6 +2821,7 @@ src/
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts
+    │   ├── stripe-subscription-event.helper.ts
     │   ├── test-api-prefix.helper.ts
     │   ├── test-app.ts
     │   ├── test-auth.ts
@@ -3456,6 +3466,7 @@ src/
     │   │   │   ├── image-location.util.unit.test.ts
     │   │   │   ├── jwt-key-material.unit.test.ts
     │   │   │   ├── jwt.util.unit.test.ts
+    │   │   │   ├── password.util.unit.test.ts
     │   │   │   ├── response-encryption-keyring.util.unit.test.ts
     │   │   │   ├── secrets-sub-key.util.unit.test.ts
     │   │   │   ├── sensitive-redaction.util.unit.test.ts

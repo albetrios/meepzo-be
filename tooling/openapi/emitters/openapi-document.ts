@@ -169,6 +169,7 @@ export function buildOpenApiDocument(localeStrings: OpenApiLocaleStrings): OpenA
         'Auth',
         'Email Login',
         'OAuth',
+        'Password',
         'Email Verification',
         'MFA',
         'Token',

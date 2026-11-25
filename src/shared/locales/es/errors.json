@@ -121,7 +121,8 @@
     "broadcastStartAutomationUnknown": "Esta automatización no es una automatización activa de esta cuenta",
     "broadcastScheduledAtForMode": "scheduled_at va con el modo scheduled, y solo con él",
     "broadcastOpenWaitDaysForMode": "open_wait_days va con el modo when_chat_opens, y solo con él",
-    "broadcastScheduledAtRange": "La hora debe ser futura y como máximo 30 días adelante"
+    "broadcastScheduledAtRange": "La hora debe ser futura y como máximo 30 días adelante",
+    "passwordComplexity": "La contraseña debe incluir al menos 3 de: minúsculas, mayúsculas, números, símbolos"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -370,5 +371,8 @@
     "messages_missing": "Añade al menos un mensaje.",
     "audience_missing": "Elige quién la recibe: un segmento o condiciones.",
     "file_not_usable": "Este archivo no está subido o no se puede enviar."
-  }
+  },
+  "invalidEmailOrPassword": "Correo o contraseña no válidos",
+  "passwordAuthNotEnabled": "Autenticación por contraseña no habilitada",
+  "currentPasswordIncorrect": "Contraseña actual incorrecta"
 }

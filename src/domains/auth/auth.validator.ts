@@ -2,6 +2,10 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import { ValidationError } from '@/shared/errors/index.js';
 import { validatePublicIdParam } from '@/shared/utils/identity/public-id-param.util.js';
 import type {
+  LoginInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+  ChangePasswordInput,
   EmailSendCodeInput,
   EmailLoginInput,
   MfaVerifyInput,
@@ -15,6 +19,10 @@ import type {
   RequestEmailConfirmationInput,
 } from './auth.dto.js';
 import {
+  LoginDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  ChangePasswordDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
@@ -27,6 +35,26 @@ import {
   EmailConfirmDto,
   RequestEmailConfirmationDto,
 } from './auth.dto.js';
+
+/** PASSWORD-ROUTES-DISABLED — validates the `POST /api/v1/auth/login` request body against {@link LoginDto}; throws {@link ValidationError} with field errors on failure. */
+export function validateLogin(body: unknown): LoginInput {
+  return parseWithSchema({ schema: LoginDto, data: body });
+}
+
+/** PASSWORD-ROUTES-DISABLED — validates the `POST /api/v1/auth/password/forgot` request body against {@link ForgotPasswordDto}. */
+export function validateForgotPassword(body: unknown): ForgotPasswordInput {
+  return parseWithSchema({ schema: ForgotPasswordDto, data: body });
+}
+
+/** PASSWORD-ROUTES-DISABLED — validates the `POST /api/v1/auth/password/reset` request body against {@link ResetPasswordDto}. */
+export function validateResetPassword(body: unknown): ResetPasswordInput {
+  return parseWithSchema({ schema: ResetPasswordDto, data: body });
+}
+
+/** PASSWORD-ROUTES-DISABLED — validates the authenticated `POST /api/v1/auth/password/change` request body against {@link ChangePasswordDto}. */
+export function validateChangePassword(body: unknown): ChangePasswordInput {
+  return parseWithSchema({ schema: ChangePasswordDto, data: body });
+}
 
 /** Validates the `POST /api/v1/auth/email/send-code` request body against {@link EmailSendCodeDto}. */
 export function validateEmailSendCode(body: unknown): EmailSendCodeInput {

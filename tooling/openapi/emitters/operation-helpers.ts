@@ -58,7 +58,7 @@ export function getRequestBodySchema(
  *
  * @remarks
  * These carry no `app.authenticate` onRequest hook (route-catalog access `PUBLIC`): the public auth
- * forms (email-login/oauth/webauthn-authenticate/mfa-login; refresh is NOT here —
+ * forms (email-login/oauth/webauthn-authenticate/mfa-login, and the disabled password login/forgot/reset; refresh is NOT here —
  * it authenticates via the session cookie and advertises `sessionCookie`) and
  * the Stripe-signed webhooks (verified via `Stripe-Signature`, not a JWT), and Meta's Instagram
  * callbacks (verified via the form's `signed_request`). The `Health` and
@@ -69,6 +69,11 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   'GET /livez',
   'GET /readyz',
   'POST /api/v1/auth/mfa/login',
+  // PASSWORD-ROUTES-DISABLED: the three public password forms, registered only when
+  // PASSWORD_ROUTES_ENABLED=true (owner 2026-11-25).
+  'POST /api/v1/auth/login',
+  'POST /api/v1/auth/password/forgot',
+  'POST /api/v1/auth/password/reset',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/email/login',
   // The confirm-email link (feat-instagram-dm-sending route 134): the emailed token is the key.

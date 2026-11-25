@@ -428,6 +428,64 @@ export class UserService {
   }
 
   /**
+   * PASSWORD-ROUTES-DISABLED: stores a new password hash for the user under the owner's database
+   * context (the password reset and change routes, registered only when `PASSWORD_ROUTES_ENABLED`).
+   */
+  async updatePassword({
+    public_id,
+    password_hash,
+  }: {
+    public_id: string;
+    password_hash: string;
+  }): Promise<UserAuthRecord | null> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
+      callback: () => this.repository.updatePassword(public_id, password_hash),
+    });
+  }
+
+  /**
+   * PASSWORD-ROUTES-DISABLED: sets the password-login failure counter and lock window.
+   *
+   * @remarks
+   * Login is pre-session, but the TARGET public_id is known after the email resolver, so it pins
+   * the owner context — the owner WITH CHECK authorizes the lockout-counter write under FORCE RLS.
+   */
+  async updateLoginAttempt({
+    public_id,
+    failed_login_count,
+    account_locked_until,
+  }: {
+    public_id: string;
+    failed_login_count: number;
+    account_locked_until: Date | null;
+  }): Promise<UserAuthRecord | null> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
+      callback: () =>
+        this.repository.updateLoginAttempt(public_id, failed_login_count, account_locked_until),
+    });
+  }
+
+  /**
+   * PASSWORD-ROUTES-DISABLED: atomically records one failed password login (SQL `count + 1` plus a
+   * conditional lockout once the threshold is reached), so concurrent failures cannot lose
+   * increments; pins the owner database context like {@link UserService.updateLoginAttempt}.
+   */
+  async registerFailedLoginAttempt({
+    public_id,
+    options,
+  }: {
+    public_id: string;
+    options: { maxAttempts: number; lockoutMinutes: number };
+  }): Promise<UserAuthRecord | null> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
+      callback: () => this.repository.incrementFailedLoginAttempt(public_id, options),
+    });
+  }
+
+  /**
    * Remembers the organization the user just switched to as their login default.
    *
    * @remarks

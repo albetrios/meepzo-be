@@ -360,10 +360,10 @@ The plan's Part F (§44–47), all in this iteration ([P28](decisions.md)) excep
 | RC-109 | CHANGED | POST | `/api/v1/tenancy/organizations` | AUTH · X-Idempotency-Key required | `createOrganization` — `slug` becomes optional: onboarding sends the name only, and the slug is made from it (kebab, unique with a short suffix); the tile colour is picked from the name (TN7) | plan:L7808, L7903; routes-final § 9, route 141 | R27 — route 141 ([AS-BUILT](../AS-BUILT.md)) |
 | RC-110 | CHANGED | GET | `/api/v1/tenancy/organization` | AUTH | `getOrganization` — adds `logo_color` (the tile colour; tones include `lavender`, [P81](decisions.md)) | plan:L7903–L7906; routes-final § 9, route 142 | R27 — route 142 ([AS-BUILT](../AS-BUILT.md)) |
 | RC-111 | CHANGED | POST | `/api/v1/uploads/{upload_id}/confirm` | AUTH | `confirmUpload` — adds the audio magic-byte checks (AAC, M4A, WAV), and a message file's every type must be checkable; still no scan ([P34](decisions.md), UP4) | plan:L8443; routes-final § 12, route 150 | R12 — [AS-BUILT](../AS-BUILT.md) |
-| RC-98 | REMOVED | POST | `/api/v1/auth/login` | was PUBLIC | `login` — passwords are off everywhere, the password code paths removed with the four routes ([P84](decisions.md)); replaced by the email code (`/auth/email/login`), Google and Apple | plan:L7613; routes-final § 10 | R30 — removed (route, handler, DTO, `AuthService.login`), 404 ([AS-BUILT](../AS-BUILT.md)) |
-| RC-99 | REMOVED | POST | `/api/v1/auth/password/forgot` | was PUBLIC | `forgotPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 | R30 — removed (route, handler, DTO, service, reset mail), 404 ([AS-BUILT](../AS-BUILT.md)) |
-| RC-100 | REMOVED | POST | `/api/v1/auth/password/reset` | was PUBLIC | `resetPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 | R30 — removed (route, handler, DTO, service), 404 ([AS-BUILT](../AS-BUILT.md)) |
-| RC-101 | REMOVED | POST | `/api/v1/auth/password/change` | was AUTH | `changePassword` — no passwords; step-up uses the email code (RC-76) | plan:L7613; routes-final § 10 | R30 — removed (route, handler, DTO, service; the password step-up too), 404 ([AS-BUILT](../AS-BUILT.md), [P205](decisions.md)) |
+| RC-98 | REMOVED | POST | `/api/v1/auth/login` | was PUBLIC | `login` — passwords are off everywhere, the password code paths removed with the four routes ([P84](decisions.md)); replaced by the email code (`/auth/email/login`), Google and Apple | plan:L7613; routes-final § 10 | R30 — removed; **owner change 2026-11-25: disabled behind `PASSWORD_ROUTES_ENABLED`** (restored, registered only when the flag is true — default `false` → 404; `PasswordAuthService.login`, marker `PASSWORD-ROUTES-DISABLED`) ([AS-BUILT](../AS-BUILT.md), [P251](decisions.md)) |
+| RC-99 | REMOVED | POST | `/api/v1/auth/password/forgot` | was PUBLIC | `forgotPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 | R30 — removed; **owner change 2026-11-25: disabled behind `PASSWORD_ROUTES_ENABLED`** (restored with the reset mail; default `false` → 404) ([AS-BUILT](../AS-BUILT.md), [P251](decisions.md)) |
+| RC-100 | REMOVED | POST | `/api/v1/auth/password/reset` | was PUBLIC | `resetPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 | R30 — removed; **owner change 2026-11-25: disabled behind `PASSWORD_ROUTES_ENABLED`** (restored; default `false` → 404) ([AS-BUILT](../AS-BUILT.md), [P251](decisions.md)) |
+| RC-101 | REMOVED | POST | `/api/v1/auth/password/change` | was AUTH | `changePassword` — no passwords; step-up uses the email code (RC-76) | plan:L7613; routes-final § 10 | R30 — removed; **owner change 2026-11-25: disabled behind `PASSWORD_ROUTES_ENABLED`** (restored after a recent step-up by the email code or MFA; the password step-up stays removed; default `false` → 404) ([AS-BUILT](../AS-BUILT.md), [P205](decisions.md), [P251](decisions.md)) |
 
 **Out of scope (P39)** — the referral program moves to a later iteration ([P39](decisions.md)); these
 proposed routes leave the plan:
@@ -444,7 +444,9 @@ RC-113 for a reconnect), under `/social/channel-connections/…` (P41); RC-98
 (`POST /auth/login`) → the email code, Google and Apple; RC-99 and RC-100 (forgot, reset) → nothing;
 RC-101 (change password) → nothing, step-up by email code (RC-76). The four password routes go in this
 iteration with their code paths; the `password_hash` column stays, emptied ([P28](decisions.md),
-[P84](decisions.md)).
+[P84](decisions.md)). **Owner change 2026-11-25 ([P251](decisions.md), supersedes P84's "remove"):** the four
+password routes are **disabled, not removed** — restored with their code and registered only when the env flag
+`PASSWORD_ROUTES_ENABLED` is true (default `false`: not registered, `404`, so the served count above is unchanged).
 
 ## Findings
 

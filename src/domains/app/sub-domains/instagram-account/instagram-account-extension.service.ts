@@ -152,20 +152,14 @@ export class InstagramAccountExtensionService {
    * as not subscribed until the set-up succeeds again. Returns whether a stamp was cleared.
    *
    * @remarks
-   * Algorithm: one guarded update (only a stamped row). Failure modes: none. Side effects: at most
-   * one row written.
+   * Algorithm: the same guarded stamp clear as a revoke (`clearOnRevoke` — one write path, reuse
+   * rule). Failure modes: none. Side effects: at most one row written.
    */
-  async recordWebhookSubscriptionLost({
-    scope,
-    instagramAccount,
-  }: {
+  async recordWebhookSubscriptionLost(input: {
     scope: OrganizationPrincipalDatabaseScope;
     instagramAccount: InstagramAccountKey;
   }): Promise<boolean> {
-    return withAppDatabaseContext({
-      scope,
-      callback: () => this.accountRepository.clearWebhookSubscription(instagramAccount),
-    });
+    return this.clearOnRevoke(input);
   }
 
   /**

@@ -13,6 +13,7 @@ This is intentionally a small suite. The bulk of regression coverage lives in do
 ## Test types
 
 - **User journey tests** — onboarding, data export, deletion, etc., each in its own file.
+- **Plan flows** — `plan-move-down.e2e.test.ts` (a move down at the period end: route 103, the signed Stripe webhook, the app's plan-change task).
 
 ## How to run
 

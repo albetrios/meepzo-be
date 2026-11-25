@@ -1,7 +1,13 @@
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
+import {
+  type OrganizationPrincipalDatabaseScope,
+  PRINCIPAL_SCOPE,
+} from '@/infrastructure/database/contexts/database-context.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
+import { BILLING_FRONTEND_PATH } from '@/domains/billing/sub-domains/subscription/workers/subscription-plan-state-check.constants.js';
 import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 import { PLAN_STATE_CHANGE } from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
+import type { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
 import type { AutomationBackfillService } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.service.js';
 import type { BroadcastService } from '@/domains/app/sub-domains/broadcast/broadcast.service.js';
 import {
@@ -59,6 +65,8 @@ export interface InstagramPlanChangeServices {
   laneService: Pick<InstagramSendLaneService, 'wakeLaneTurns'>;
   broadcastService: Pick<BroadcastService, 'cancelBroadcastsForPlanFeatureOff'>;
   automationBackfillService: Pick<AutomationBackfillService, 'failOpenBackfillsForPlanFeatureOff'>;
+  /** The move down's "steps off on your plan" count (AC-23.8); absent — no notice (a test plug). */
+  automationService?: Pick<AutomationService, 'countAutomationsWithQuestionStepsOn'> | undefined;
 }
 
 /**
@@ -74,6 +82,8 @@ export interface InstagramPlanChangeResult {
   wokenCount: number;
   cancelledBroadcastCount: number;
   failedBackfillCount: number;
+  /** The automations named in the move down's notice (0 — no notice). */
+  questionStepsOffCount: number;
 }
 
 /**
@@ -114,7 +124,7 @@ export async function runInstagramPlanChangeTask({
   runInDatabaseSlot: <T>(callback: () => Promise<T>) => Promise<T>;
 }): Promise<InstagramPlanChangeResult> {
   const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
-  const { organizationId, features, moves } = await runInDatabaseSlot(() =>
+  const { organizationId, features, planName, moves } = await runInDatabaseSlot(() =>
     services.channelAccountService.applyOrganizationPlanStops({
       scope,
       keptChannelAccountPublicIds: taskInput.keptChannelAccountPublicIds,
@@ -138,6 +148,17 @@ export async function runInstagramPlanChangeTask({
       );
     }
   }
+  const questionStepsOffCount = MOVE_DOWN_CHANGES.has(taskInput.change)
+    ? await runInDatabaseSlot(() =>
+        tellQuestionStepsOff({
+          services,
+          scope,
+          organizationId,
+          features,
+          planName,
+        }),
+      )
+    : 0;
   const woken = moves.filter((move) => isWeakerPlanStop(move));
   const spreadMilliseconds = INSTAGRAM_PLAN_WAKE_SPREAD_MINUTES * MILLISECONDS_PER_MINUTE;
   for (const [index, move] of woken.entries()) {
@@ -157,7 +178,55 @@ export async function runInstagramPlanChangeTask({
     wokenCount: woken.length,
     cancelledBroadcastCount,
     failedBackfillCount,
+    questionStepsOffCount,
   };
   logger.info({ organizationPublicId, ...result }, 'app.plan_change.completed');
   return result;
+}
+
+/**
+ * The move down's notice (WC-38 "the owner, notice and email once"; plan §10 line 26, AC-23.8):
+ * "Moved to Free: email and phone steps are off in 3 automations" — once per move.
+ *
+ * @remarks
+ * - **Algorithm:** only when the new plan lacks the email or the phone ask; the automations (not
+ *   deleted, any status) with either step on are counted; none — nothing is told. Else one
+ *   `subscription.updated` notice of the `billing` kind (Owner and Admin, the email always on),
+ *   keyed `plan-moved-down:<plan>:<UTC day>` so a repeated task (a replayed event, the job's one
+ *   retry) tells nothing twice.
+ * - **Failure modes:** a read or notify failure propagates (the task fails; the stops are already
+ *   committed and a re-run changes nothing but the notice).
+ * - **Side effects:** notification and outbox rows.
+ * - **Notes:** the steps stay saved; the engine skips them per job (AUC10).
+ */
+async function tellQuestionStepsOff({
+  services,
+  scope,
+  organizationId,
+  features,
+  planName,
+}: {
+  services: InstagramPlanChangeServices;
+  scope: OrganizationPrincipalDatabaseScope;
+  organizationId: number;
+  features: { feature_switches: { email_ask?: boolean; phone_ask?: boolean } } | null;
+  planName: string | null;
+}): Promise<number> {
+  const switches = features?.feature_switches;
+  if (services.automationService === undefined) return 0;
+  if (switches?.email_ask === true && switches.phone_ask === true) return 0;
+  const count = await services.automationService.countAutomationsWithQuestionStepsOn({
+    scope,
+    organizationId,
+  });
+  if (count === 0) return 0;
+  await notifyOrganizationKind({
+    scope,
+    type: 'subscription.updated',
+    copy: { key: 'planMovedDownQuestionStepsOff', values: { planName: planName ?? '', count } },
+    dedupeKey: `plan-moved-down:${planName ?? 'none'}:${new Date().toISOString().slice(0, 10)}`,
+    actionPath: BILLING_FRONTEND_PATH,
+    data: { automations_count: count, plan_name: planName },
+  });
+  return count;
 }

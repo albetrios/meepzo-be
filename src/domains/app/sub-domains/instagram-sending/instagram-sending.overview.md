@@ -167,7 +167,9 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   the plan through `ChannelAccountService.applyOrganizationPlanStops` (over the limit → `plan_downgrade`, the kept and
   then the oldest stay; a move up lets `plan_downgrade` back; every account in the plan takes the organization's own
   stop — `plan_ended`, else `plan_limit`, else none), on a move down or a trial end cancels the scheduled and waiting
-  broadcasts and fails the unfinished past-comment reads (`plan_feature_off`) when the new plan lacks the switch, then
+  broadcasts and fails the unfinished past-comment reads (`plan_feature_off`) when the new plan lacks the switch, tells
+  the billing people once "Moved to Free: email and phone steps are off in N automations" when the new plan lacks
+  either ask (`subscription.updated`, key `plan-moved-down:<plan>:<day>`; R58, AC-23.8), then
   wakes the accounts whose stop got weaker, spread over 5 minutes. `workers/instagram-sending-repair.*` — the repair
   queue `instagram-sending-repair` (SN6, one repeat job per duty; R47's eleven and R48's watches beside them): `repair-month-wake` every minute
   (organizations holding `plan_limit` since before their month turned, their time zone) and `repair-plan-stops` every

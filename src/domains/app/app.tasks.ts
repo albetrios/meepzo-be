@@ -48,6 +48,7 @@ import {
 import { createInstagramRetryFailedTaskHandler } from './sub-domains/instagram-sending/workers/instagram-retry-failed.processor.js';
 import { createInstagramAttachmentUploadTaskHandler } from './sub-domains/instagram-sending/workers/instagram-attachment-upload.processor.js';
 import type { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
+import type { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
 import type { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
 import {
   INSTAGRAM_MONTH_WAKE_JOB_NAME,
@@ -273,6 +274,7 @@ export interface AppTaskServices {
   instagramSendLaneService: Pick<InstagramSendLaneService, 'wakeLanes' | 'wakeLaneTurns'>;
   channelAccountService: Pick<ChannelAccountService, 'applyOrganizationPlanStops'>;
   automationBackfillService: Pick<AutomationBackfillService, 'failOpenBackfillsForPlanFeatureOff'>;
+  automationService: Pick<AutomationService, 'countAutomationsWithQuestionStepsOn'>;
 }
 
 /** The plan change and the month wake (WC-37, WC-38 — ROUTE row R52): one handler, two job names. */
@@ -287,6 +289,7 @@ function createInstagramPlanChangeTaskHandler(services: AppTaskServices): Instag
           laneService: services.instagramSendLaneService,
           broadcastService: services.broadcastService,
           automationBackfillService: services.automationBackfillService,
+          automationService: services.automationService,
         },
         organizationPublicId,
         taskInput: taskInput as InstagramPlanChangeTaskInput,

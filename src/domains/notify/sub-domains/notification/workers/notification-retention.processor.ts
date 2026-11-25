@@ -24,7 +24,7 @@ export async function runNotificationRetentionJob(databaseHandle: WorkerDatabase
 }> {
   const retentionDays = env.NOTIFICATION_RETENTION_DAYS;
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - retentionDays);
 
   logger.info(
     { retentionDays, cutoffDate: cutoffDate.toISOString() },

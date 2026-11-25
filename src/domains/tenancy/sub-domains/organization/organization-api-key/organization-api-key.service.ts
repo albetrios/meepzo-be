@@ -184,7 +184,7 @@ export class OrganizationApiKeyService {
           expiresAt = options.expiresAtOverride;
         } else if (parsed.expires_in_days) {
           expiresAt = new Date();
-          expiresAt.setDate(expiresAt.getDate() + parsed.expires_in_days);
+          expiresAt.setUTCDate(expiresAt.getUTCDate() + parsed.expires_in_days);
         } else {
           expiresAt = null;
         }

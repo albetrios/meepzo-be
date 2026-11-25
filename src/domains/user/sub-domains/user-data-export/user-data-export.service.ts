@@ -48,7 +48,7 @@ function buildExportS3Key({
 
 function computeArtifactExpiresAt(): Date {
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + USER_DATA_EXPORT_ARTIFACT_TTL_DAYS);
+  expiresAt.setUTCDate(expiresAt.getUTCDate() + USER_DATA_EXPORT_ARTIFACT_TTL_DAYS);
   return expiresAt;
 }
 

@@ -27,9 +27,9 @@ export function generateBulkSubscriptionWindow(faker: Faker): BulkSubscriptionWi
   const current_period_start = faker.date.recent({ days: 30 });
   const current_period_end = new Date(current_period_start);
   if (billing_cycle === 'YEARLY') {
-    current_period_end.setFullYear(current_period_end.getFullYear() + 1);
+    current_period_end.setUTCFullYear(current_period_end.getUTCFullYear() + 1);
   } else {
-    current_period_end.setMonth(current_period_end.getMonth() + 1);
+    current_period_end.setUTCMonth(current_period_end.getUTCMonth() + 1);
   }
   return { billing_cycle, current_period_start, current_period_end };
 }

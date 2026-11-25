@@ -143,3 +143,8 @@ Owner items 1–27) onto lane C's R54 / R55. "ours" is `lane-c/flows`, "theirs" 
 | --- | --- | --- | --- |
 | `AS-BUILT.md` (R42 row) | ours the Close fix line (send-core / gate helpers); theirs R54's fix line on the same row | theirs' row plus ours' fix line appended | none |
 | `instagram-send-core.service.ts` | ours the Sonar helper split (`takeTurnHold`, `isFastDownTestUnclear`, `checkFastMessageSendable`); theirs R54's `bad_text` stop in `applyStops` | auto-merged, kept both; typecheck + lint pass; the full Close verification ran on this merged tree | low |
+
+## Main ← lane D b3a75bb (UTC pinning P146, read-only switch rename P145) — 2026-11-25
+
+No conflicts (`AS-BUILT.md` auto-merged). Checked after the merge: no old switch name left in `src/`,
+`docs/`, `.env.example` or `tooling/`; no local-time `Date` method left in runtime `src/`.

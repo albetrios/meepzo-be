@@ -36,7 +36,7 @@ export async function runUploadTombstoneRetentionJob(
 ): Promise<StoredObjectPurgeResult> {
   const retentionDays = env.TOMBSTONE_RETENTION_DAYS;
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - retentionDays);
+  cutoff.setUTCDate(cutoff.getUTCDate() - retentionDays);
 
   logger.info(
     { retentionDays, cutoffDate: cutoff.toISOString() },

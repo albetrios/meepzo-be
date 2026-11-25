@@ -31,7 +31,7 @@ export async function runWebhookDeliveryAttemptRetentionJob(
 }> {
   const retentionDays = env.WEBHOOK_DELIVERY_ATTEMPT_RETENTION_DAYS;
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - retentionDays);
 
   logger.info(
     { retentionDays, cutoffDate: cutoffDate.toISOString() },

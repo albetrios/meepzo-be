@@ -297,7 +297,7 @@ const SERVER_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
- * Billing behaviour switches. `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` turns on read-only mode (owner decision D3,
+ * Billing behaviour switches. `LAPSED_PLAN_READ_ONLY_ENABLED` turns on read-only mode (owner decision D3,
  * 2026-10-17; routes-final BL3, BL4): an organization whose PAID plan lapsed keeps writing through
  * its dunning grace, then reports `plan_access` `read_only`; a cancelled paid plan reads `read_only`
  * from its period end. Free never ends, so an organization that never paid is always `active`.
@@ -305,12 +305,12 @@ const SERVER_VARS = {
  * paid plan reaches `read_only`, and the owner can always choose a plan — so no refine pins it.
  */
 const BILLING_POLICY_VARS = {
-  ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING: envVar({
+  LAPSED_PLAN_READ_ONLY_ENABLED: envVar({
     schema: booleanString('true'),
     meta: {
       allowed: 'true | false (or 1 | 0)',
       description:
-        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active.',
+        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active.',
     },
   }),
 } satisfies Record<string, EnvVarSpec>;
@@ -1250,8 +1250,8 @@ const envSchemaBase = z.object({
     .optional()
     .default('true')
     .transform((value) => value !== 'false' && value !== '0'),
-  /** Interpret cron patterns in this IANA timezone; omit for server default. */
-  SCHEDULER_TIMEZONE: z.string().min(1).optional(),
+  /** Interpret cron patterns in this IANA time zone; defaults to UTC so a schedule never follows the host's zone. */
+  SCHEDULER_TIMEZONE: z.string().min(1).default('UTC'),
   AUDIT_RETENTION_CRON: z.string().min(1).optional(),
   NOTIFICATION_RETENTION_CRON: z.string().min(1).optional(),
   AUTH_SESSION_CLEANUP_CRON: z.string().min(1).optional(),

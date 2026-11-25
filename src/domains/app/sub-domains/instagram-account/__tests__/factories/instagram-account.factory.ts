@@ -285,7 +285,7 @@ export async function createPersonalOrganizationWithInstagramCodes({
 
 /**
  * Ends a team's paid plan without it paying on (routes-final BL3): a paid plan's subscription,
- * cancelled, whose period ended yesterday — with `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` on, its plan is
+ * cancelled, whose period ended yesterday — with `LAPSED_PLAN_READ_ONLY_ENABLED` on, its plan is
  * read-only (AQ8, D27). Free never ends, so only a lapsed or cancelled paid plan gets here.
  */
 export async function endPaidPlanWithoutPaying(organizationId: number): Promise<void> {

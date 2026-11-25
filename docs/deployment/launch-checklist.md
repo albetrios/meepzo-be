@@ -10,7 +10,7 @@ snapshots; the frontend's half of this list is
 
 - [ ] **A lapsed plan turns read-only after a grace period.** Decided 2026-10-17 (D3): 14 days of
       grace, then read-only; the owner and admins are never suspended and no data is deleted.
-      **Built, switched off:** behind `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` (default `false`) — a TEAM
+      **Built, switched off:** behind `LAPSED_PLAN_READ_ONLY_ENABLED` (default `false`) — a TEAM
       organization without a paid plan gets 14 days from its creation (or
       `BILLING_DUNNING_GRACE_DAYS` after a lapsed subscription's period), then every write behind
       the product write guard (`SubscriptionService.assertOrganizationWritable`) answers 403

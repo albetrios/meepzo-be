@@ -50,7 +50,7 @@ export async function runAuditRetentionJob(databaseHandle: WorkerDatabaseHandle)
 }> {
   const retentionDays = env.AUDIT_RETENTION_DAYS;
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - retentionDays);
 
   logger.info({ retentionDays, cutoffDate: cutoffDate.toISOString() }, 'audit-retention.starting');
 
@@ -78,8 +78,8 @@ export async function runAuditRetentionJob(databaseHandle: WorkerDatabaseHandle)
   // past-expiry rows is byte-equivalent at the auth layer; the benefit is
   // bounded growth, smaller indexes, and shorter plaintext-email retention.
   const verificationTokenCutoffDate = new Date();
-  verificationTokenCutoffDate.setDate(
-    verificationTokenCutoffDate.getDate() - VERIFICATION_TOKEN_RETENTION_GRACE_DAYS,
+  verificationTokenCutoffDate.setUTCDate(
+    verificationTokenCutoffDate.getUTCDate() - VERIFICATION_TOKEN_RETENTION_GRACE_DAYS,
   );
   const {
     deletedCount: verificationTokenDeletedCount,

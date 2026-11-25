@@ -322,7 +322,7 @@ sequenceDiagram
 - `subscriptions.status` transitions: `active` → `past_due` (and back, or onward to `canceled`).
 - Each transition is a `subscription.updated` (the final one a `subscription.cancelled`) to the organization's subscribed webhooks.
 - **Losing the paid entitlement keeps the team.** Once a cancel, expiry, pause or never-paid status commits, `billing.entitlement_lost` is logged and no member is suspended (owner decision, 2026-10-17: suspending everyone past the Free allowance locked an organization's team out mid-day). The end of a dunning grace (`current_period_end + BILLING_DUNNING_GRACE_DAYS`) has no Stripe event, so the 15-minute plan-state check (`subscription-plan-state-check`, feat-instagram-dm-sending R52, WC-59) emits `plan_ended` for it, and the app's plan-change task stops every channel account with `plan_ended`. The seat sync and its hourly reconcile are off (`BILLING_SEAT_SYNC_ENABLED`, BL9, WC-65): members are unlimited and no plan change suspends anyone.
-- **Then read-only, not lock-out.** With `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` on, an organization whose entitlement has lapsed keeps writing until `current_period_end + BILLING_DUNNING_GRACE_DAYS`, then turns read-only — see [unpaid-organization-read-only-flow](#unpaid-organization-read-only-flow).
+- **Then read-only, not lock-out.** With `LAPSED_PLAN_READ_ONLY_ENABLED` on, an organization whose entitlement has lapsed keeps writing until `current_period_end + BILLING_DUNNING_GRACE_DAYS`, then turns read-only — see [unpaid-organization-read-only-flow](#unpaid-organization-read-only-flow).
 
 ### Failure modes
 
@@ -333,7 +333,7 @@ sequenceDiagram
 
 ### Trigger
 
-A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled (past its period end) while `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` is on (owner decision D3, 2026-10-17; **on by default** since routes-final BL4 — Free never ends, so an organization that never paid is never read-only). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; a product write guard checks it with `SubscriptionService.assertOrganizationWritable` — the app domain's `app-plan-access.ts` preHandler, on the automation writes only (`POST /app/automations`, `PATCH` and `DELETE /app/automations/{automation_id}`; launch D27).
+A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled (past its period end) while `LAPSED_PLAN_READ_ONLY_ENABLED` is on (owner decision D3, 2026-10-17; **on by default** since routes-final BL4 — Free never ends, so an organization that never paid is never read-only). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; a product write guard checks it with `SubscriptionService.assertOrganizationWritable` — the app domain's `app-plan-access.ts` preHandler, on the automation writes only (`POST /app/automations`, `PATCH` and `DELETE /app/automations/{automation_id}`; launch D27).
 
 ### Sequence
 
@@ -371,7 +371,7 @@ sequenceDiagram
 ### Failure modes
 
 - **The plan access read fails** → the write fails with the error (no write goes through unchecked); `GET /auth/me/context` fails the same way.
-- **`ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` off** → every organization reads `active`; the plan and its features are still read (one query).
+- **`LAPSED_PLAN_READ_ONLY_ENABLED` off** → every organization reads `active`; the plan and its features are still read (one query).
 - **Switching the flag on** → every lapsed or cancelled paid plan already past its grace turns read-only at once; the grace counts from `current_period_end`, not from the day the flag was switched on.
 
 ## organization-resource-webhook-flow

@@ -16,7 +16,7 @@ export type AppPlanAccessGuardService = Pick<SubscriptionService, 'assertOrganiz
  * - **Failure modes:** `ForbiddenError` (`errors:organizationReadOnly`, reason
  *   `organization_read_only`); `401` / `403` from the scope accessor when the request carries no
  *   organization; a plan-access read failure propagates — no write goes through unchecked.
- * - **Side effects:** none — with `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` off nothing is read.
+ * - **Side effects:** none — with `LAPSED_PLAN_READ_ONLY_ENABLED` off nothing is read.
  * - **Notes:** attached to the automation writes only — create, edit, delete (routes 12, 14, 15).
  *   The app domain's other writes stay open (D27): a read-only team can still connect or disconnect
  *   Instagram, change its settings and erase a contact's personal data. Listed FIRST in a route's

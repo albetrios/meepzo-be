@@ -1,4 +1,14 @@
-import { and, eq, getTableColumns, inArray, isNull, notInArray, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  notInArray,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -586,7 +596,7 @@ export class BroadcastRepository {
     broadcastId,
   }: BroadcastKey): Promise<Pick<
     BroadcastRow,
-    'public_id' | 'name' | 'sent' | 'created_by_user_id'
+    'public_id' | 'name' | 'sent' | 'skipped' | 'replies' | 'created_by_user_id'
   > | null> {
     const [row] = await this.db()
       .update(broadcasts)
@@ -606,6 +616,8 @@ export class BroadcastRepository {
         public_id: broadcasts.public_id,
         name: broadcasts.name,
         sent: broadcasts.sent,
+        skipped: broadcasts.skipped,
+        replies: broadcasts.replies,
         created_by_user_id: broadcasts.created_by_user_id,
       });
     return row ?? null;
@@ -613,7 +625,7 @@ export class BroadcastRepository {
 
   /**
    * The account's live "when her chat opens" broadcasts still inside their days (BC17 — intake's
-   * hook, `idx_broadcasts_account_waiting_for_chats`), with the copy of their audience.
+   * hook, `idx_broadcasts_account_waiting_for_chats`), with the copy of their audience, oldest first.
    */
   async listWaitingForChats({
     organizationId,
@@ -622,18 +634,22 @@ export class BroadcastRepository {
     organizationId: number;
     channelAccountId: number;
   }): Promise<Pick<BroadcastRow, 'id' | 'conditions'>[]> {
-    return this.db()
-      .select({ id: broadcasts.id, conditions: broadcasts.conditions })
-      .from(broadcasts)
-      .where(
-        and(
-          eq(broadcasts.organization_id, organizationId),
-          eq(broadcasts.channel_account_id, channelAccountId),
-          eq(broadcasts.status, 'waiting_for_chats'),
-          isNull(broadcasts.deleted_at),
-          sql`${broadcasts.ends_at} > now()`,
-        ),
-      );
+    return (
+      this.db()
+        .select({ id: broadcasts.id, conditions: broadcasts.conditions })
+        .from(broadcasts)
+        .where(
+          and(
+            eq(broadcasts.organization_id, organizationId),
+            eq(broadcasts.channel_account_id, channelAccountId),
+            eq(broadcasts.status, 'waiting_for_chats'),
+            isNull(broadcasts.deleted_at),
+            sql`${broadcasts.ends_at} > now()`,
+          ),
+        )
+        // The oldest first (plan §27.15 rule 5): the one she gets when several match.
+        .orderBy(asc(broadcasts.created_at), asc(broadcasts.id))
+    );
   }
 
   /**

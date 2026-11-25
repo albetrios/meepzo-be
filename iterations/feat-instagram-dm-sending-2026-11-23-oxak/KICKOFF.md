@@ -242,7 +242,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R53 | Notices and emails: the month 80 % and 100 % notices, owner problem emails, the weekly summary, the grouped "new contact details" note, the "past comments done" notice — § 11.D (UNC9, UNC10); WC-56–WC-58, WC-63 | background | R36, R42 | `/be-build-requirement` | AC-10.3–AC-10.6, AC-10.8, AC-14.8, AC-14.9, AC-8.8 | Rimeet Mavani | done |
 | R54 | Flow — a comment becomes a DM: intake, the match, the opening DM by lane, public reply and hide, the replacement rule | flow | R38, R43, R44 | `/be-build-requirement` | AC-19.* | Rimeet Mavani | open |
 | R55 | Flow — every other way to start: DMs, taps, story replies, mentions, refs, Live comments, tags | flow | R38, R40, R44 | `/be-build-requirement` | AC-20.* | Rimeet Mavani | open |
-| R56 | Flow — a broadcast from draft to done | flow | R45, R46, R47 | `/be-build-requirement` | AC-21.* | Rimeet Mavani | open |
+| R56 | Flow — a broadcast from draft to done | flow | R45, R46, R47 | `/be-build-requirement` | AC-21.* | Rimeet Mavani | done |
 | R57 | Flow — the month limit: 80 %, 100 %, the new month | flow | R52, R53 | `/be-build-requirement` | AC-22.* | Rimeet Mavani | open |
 | R58 | Flow — a move down at the period end | flow | R25, R52 | `/be-build-requirement` | AC-23.* | Rimeet Mavani | open |
 | R59 | Flow — a trial from start to its end | flow | R52, R58 | `/be-build-requirement` | AC-24.* | Rimeet Mavani | open |

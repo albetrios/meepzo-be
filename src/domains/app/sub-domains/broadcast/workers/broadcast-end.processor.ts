@@ -78,7 +78,10 @@ async function settleCancelledPiece({
   };
 }
 
-/** A finished broadcast's `done` and its in-app notice ("broadcast done", UN kind 12). */
+/**
+ * A finished broadcast's `done` and its in-app notice ("broadcast done", UN kind 12) with its sent,
+ * skipped and replies (AC-21.8).
+ */
 async function endFinished({
   broadcast,
   databaseHandle,
@@ -96,11 +99,19 @@ async function endFinished({
   await (services.notifyDone ?? notifyOrganizationKind)({
     scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: broadcast.organization_public_id }),
     type: 'broadcast.done',
-    copy: { key: 'broadcastDone', values: { broadcastName: done.name, sentCount: done.sent } },
+    copy: {
+      key: 'broadcastDone',
+      values: {
+        broadcastName: done.name,
+        sentCount: done.sent,
+        skippedCount: done.skipped,
+        replyCount: done.replies,
+      },
+    },
     dedupeKey: `broadcast-done:${done.public_id}`,
     actionPath: `/broadcasts/${done.public_id}`,
     subjectUserId: done.created_by_user_id,
-    data: { sent: done.sent },
+    data: { sent: done.sent, skipped: done.skipped, replies: done.replies },
   });
   return 1;
 }

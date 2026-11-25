@@ -194,6 +194,31 @@ export class BroadcastRecipientRepository {
   }
 
   /**
+   * Whether she holds a `waiting` recipient row of any broadcast (plan §27.15 rule 5 — ROUTE row
+   * R56): one broadcast at a time, so several "when her chat opens" ones send her only the oldest.
+   */
+  async hasWaitingRecipient({
+    organizationId,
+    contactId,
+  }: {
+    organizationId: number;
+    contactId: number;
+  }): Promise<boolean> {
+    const [row] = await this.db()
+      .select({ id: broadcast_recipients.id })
+      .from(broadcast_recipients)
+      .where(
+        and(
+          eq(broadcast_recipients.organization_id, organizationId),
+          eq(broadcast_recipients.contact_id, contactId),
+          eq(broadcast_recipients.status, 'waiting'),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
    * One piece of a broadcast's audience (WC-40): up to `limit` contacts (id and public id) after
    * `afterContactId`, in id order, that match the copy of its conditions, are not left out (BC13, 7.10) and whose chat
    * is open now.

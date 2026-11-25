@@ -769,6 +769,9 @@ function createAutomationServices({
     countService: automationCountService,
     replyStateService: automationReplyStateService,
     sendingPorts: channelSendingPorts,
+    // Plan §27.15 rule 1 (R56): her run's end makes her "when her chat opens" recipient row.
+    runEndedHook: (input) =>
+      broadcastRecipientService.handleChatOpened({ ...input, isOwnerChatting: false }),
   });
   automationOpenRunCancelSteps.push((input) =>
     automationRunService.cancelAutomationOpenRuns(input),

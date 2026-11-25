@@ -20,7 +20,7 @@
     "weeklySummaryTitle": "Tu semana en Instagram",
     "weeklySummaryMessage": "Esto es lo que hicieron tus automatizaciones la semana pasada. {{lines}}",
     "broadcastDoneTitle": "Difusión enviada",
-    "broadcastDoneMessage": "{{broadcastName}} terminó: {{sentCount}} mensajes enviados.",
+    "broadcastDoneMessage": "{{broadcastName}} terminó: {{sentCount}} enviados, {{skippedCount}} omitidos, {{replyCount}} respuestas.",
     "automationBackfillDoneTitle": "Comentarios anteriores listos",
     "automationBackfillDoneMessage": "{{automationName}} terminó de leer comentarios anteriores: {{found}} encontrados, {{matched}} coincidieron, {{queuedCount}} respuestas en cola.",
     "billingTrialEndingTitle": "Tu prueba termina pronto",

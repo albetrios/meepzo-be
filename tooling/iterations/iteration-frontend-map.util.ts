@@ -37,6 +37,15 @@ const FROZEN_STATUS = 'frozen';
 /** The public API prefix the catalog prints and the map drops. */
 const API_PREFIX = '/api/v1';
 
+/** The product (`app`) domain's segment, which the route review leaves out of its paths. */
+const APP_PREFIX = '/app';
+
+/**
+ * The domain segments the route review may leave out: the team routes (`/tenancy`) and
+ * every product route (`/app`).
+ */
+const REVIEW_OMITTED_PREFIXES: readonly string[] = ['/tenancy', APP_PREFIX];
+
 /** Summaries for the routes the OpenAPI document leaves out or names by their path only. */
 const SUMMARY_FALLBACKS: Readonly<Record<string, string>> = {
   'GET /internal/ops/circuit-breakers': 'List the outbound circuit breakers (operations only)',
@@ -73,8 +82,15 @@ interface RouteModule {
   readonly holds: (path: string) => boolean;
 }
 
-/** The modules of the generated list, in order; the last one takes every route left. */
+/**
+ * The modules of the generated list, in order; the last one takes every route left.
+ *
+ * A module is one API domain (session and account are `auth` + `users`): a route is placed by its
+ * domain segment, the first one after `/api/v1`, so a product route under `/app/` sits in the app
+ * module, never in the catch-all.
+ */
 const ROUTE_MODULES: readonly RouteModule[] = [
+  { name: 'App (the product)', holds: (path) => path.startsWith(`${APP_PREFIX}/`) },
   {
     name: 'Session and account',
     holds: (path) => path.startsWith('/auth/') || path.startsWith('/users/me'),
@@ -113,8 +129,17 @@ export function frontendMapRoutes(catalog: string): FrontendMapRoute[] {
 }
 
 /**
+ * A route review path in the catalog's spelling: `/api/v1` dropped and `{param}` segments written
+ * `:param` (a path already written `:param` stays as it is).
+ */
+export function normalizeReviewPath(path: string): string {
+  const withoutApiPrefix = path.startsWith(`${API_PREFIX}/`) ? path.slice(API_PREFIX.length) : path;
+  return withoutApiPrefix.replace(/\{([a-z_]+)\}/g, ':$1');
+}
+
+/**
  * Reads the route review's route tables into `METHOD path` → its number (`5.3` — sub-domain 5,
- * route 3), with `{param}` segments written `:param` as the catalog writes them.
+ * route 3), each path normalised by {@link normalizeReviewPath}.
  *
  * @remarks
  * The first table that names a route wins: a sub-domain's summary table and its nested sections
@@ -131,7 +156,7 @@ export function parseRouteReviewNumbers(review: string): ReadonlyMap<string, str
     }
     const row = REVIEW_ROUTE_ROW.exec(line);
     if (!(row?.[1] && row[2] && row[3]) || section === '') continue;
-    const key = `${row[2]} ${row[3].replace(/\{([a-z_]+)\}/g, ':$1')}`;
+    const key = `${row[2]} ${normalizeReviewPath(row[3])}`;
     if (numbers.has(key)) continue;
     numbers.set(key, row[1].includes('.') ? row[1] : `${section}.${row[1]}`);
   }
@@ -142,7 +167,12 @@ export function parseRouteReviewNumbers(review: string): ReadonlyMap<string, str
  * The route review number of a catalog route, or `''` when the review does not name it.
  *
  * @remarks
- * The review writes the team routes without `/tenancy`, so both spellings are tried.
+ * Matching rule: the review's paths are normalised by {@link normalizeReviewPath} (no `/api/v1`,
+ * `:param`), and a catalog route is looked up by its own path first, then — when it starts with one
+ * of the domain segments the review may leave out (`/tenancy` for the team routes, `/app` for every
+ * product route: `/app/social/channel-accounts/:channel_account_id` is reviewed as
+ * `/social/channel-accounts/{channel_account_id}`) — by the path without that segment. The own
+ * spelling wins, so a review that writes the full path is never shadowed.
  */
 export function routeReviewNumber(lookup: {
   readonly numbers: ReadonlyMap<string, string>;
@@ -150,7 +180,9 @@ export function routeReviewNumber(lookup: {
 }): string {
   const { method, path } = lookup.route;
   const spellings = [path];
-  if (path.startsWith('/tenancy/')) spellings.push(path.slice('/tenancy'.length));
+  for (const prefix of REVIEW_OMITTED_PREFIXES) {
+    if (path.startsWith(`${prefix}/`)) spellings.push(path.slice(prefix.length));
+  }
   for (const spelling of spellings) {
     const number = lookup.numbers.get(`${method} ${spelling}`);
     if (number !== undefined) return number;

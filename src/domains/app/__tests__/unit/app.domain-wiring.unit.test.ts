@@ -89,6 +89,14 @@ describe('app domain wiring', () => {
     expect(Object.keys(application.appDomain.instagramSendWork.taskHandlers)).toContain(
       'contact-profile',
     );
+    // The past-comments read and the "next post" linking are tasks too (WC-41, WC-43, ROUTE row R41).
+    expect(Object.keys(application.appDomain.instagramSendWork.taskHandlers)).toEqual(
+      expect.arrayContaining(['automation-backfill-read', 'next-post-linking']),
+    );
+    // The past-comments read and the "next post" linking are tasks too (WC-41, WC-43, ROUTE row R41).
+    expect(Object.keys(application.appDomain.instagramSendWork.taskHandlers)).toEqual(
+      expect.arrayContaining(['automation-backfill-read', 'next-post-linking']),
+    );
     // Instagram's sending port is its message service (AU35, ROUTE row R19).
     expect(application.appDomain.channelSendingPorts.instagram).toBe(
       application.appDomain.instagramMessageService,

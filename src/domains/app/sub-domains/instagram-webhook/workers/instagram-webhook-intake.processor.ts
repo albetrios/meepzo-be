@@ -182,12 +182,14 @@ export type InstagramLateCommentTimeReader = (input: {
 export const NO_LATE_COMMENT_TIME_READ: InstagramLateCommentTimeReader = async () => null;
 
 /**
- * The launch's read of a commented post intake has not stored yet (D18, IA17) — kept for "next post"
- * linking until ROUTE row R41 moves it (WC-43): outside any transaction, through `metaGraphCircuit`
- * per call, failing open. The real client by default; tests pass fakes.
+ * The launch's read of a commented post intake has not stored yet (D18, IA17): outside any
+ * transaction, through `metaGraphCircuit` per call, failing open. The real client by default; tests
+ * pass fakes.
  *
  * @remarks
- * Notes: not one of WH25's two reads — recorded as a difference (P312).
+ * Notes: not one of WH25's two reads — kept at R41 beside the 15-minute "next post" linking (WC-43),
+ * because the stored post's publish time serves the `between` scope and its row the missed-comment
+ * watch (WH17); a difference (P312, P315).
  */
 export interface InstagramWebhookIntakeInstagramClient {
   readInstagramMediaItem: typeof readInstagramMediaItem;
@@ -480,7 +482,8 @@ async function failOnTokenRefusal({
 
 /**
  * A comment's post (D18, IA17): the stored row, else one fail-open Meta read of it (no lock held) —
- * "next post" linking needs its publish time until ROUTE row R41 (WC-43).
+ * its publish time for the `between` scope and "next post" linking, its row for the missed-comment
+ * watch (P315).
  */
 async function readCommentedPost({
   context,

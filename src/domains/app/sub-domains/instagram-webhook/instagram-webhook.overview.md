@@ -80,6 +80,18 @@ service.
   pass) Meta usage; saved through `recordReceivedEvents` with key `comment:<id>`; then one
   `intake-comments` job), `lookForMissedComments` (the full pass the subscription check asks for,
   R40's port) and intake's late comment time read (`createInstagramLateCommentTimeReader`, 3 s)
+- `workers/instagram-past-comment-read.processor.ts` — the `automation-backfill-read` task on
+  `instagram-tasks` (WC-41, R41): an automation's past-comments read — its post(s) (one post, a
+  linked "next post", a `between` window's posts, the newest 50 with comments for "any post", an ad's
+  post), each post's comments of the last 1–7 days (never older than 7 days minus 30 minutes) saved
+  through `recordReceivedEvents` and handed to `intake-comments` at the low priority; 1 call a
+  second, a 15-minute wait at 80 % Meta usage, Meta retried after 1, 5, 15, 60 minutes; the read's
+  row through `AutomationBackfillService` (one read at a time per account); also the read queue
+  `INSTAGRAM_PAST_COMMENT_READ_QUEUE` route 38 and the watch wake it with
+- `workers/instagram-next-post-linking.processor.ts` — the `next-post-linking` task (WC-43, R41):
+  one account's posts since its oldest waiting go-live, stored and offered to its waiting "my next
+  post" automations oldest first, a linked post's missed-comment watch started; the enqueue the
+  automations' 15-minute sweep calls
 - `workers/instagram-contact-profile-read.processor.ts` — the `contact-profile` task on
   `instagram-tasks` (S11): a new contact's Instagram profile, read off intake at the lowest priority
 - [`instagram-webhook-event/`](instagram-webhook-event/instagram-webhook-event.overview.md) — the
@@ -152,8 +164,8 @@ service.
   `skipped account_disconnected`, the switch off → `skipped automation_disabled`; an `error` account
   is taken in, WH3), the flood count (more than 20 of her message events a minute → `skipped flood`,
   WH16; a stop word still opts her out), the owner's quiet time (an echo of hers in 6 hours that is
-  not ours, WH10), a commented post not stored yet (fail-open Meta read for "next post" linking until
-  R41), a late comment's time (R39's reader, failing open). A new contact's profile is a
+  not ours, WH10), a commented post not stored yet (fail-open Meta read — its publish time for `between` and
+  "next post", its row for the missed-comment watch; kept at R41, P315), a late comment's time (R39's reader, failing open). A new contact's profile is a
   `contact-profile` task after the commit (S11).
 - **Failures** (WH12): a deadlock or lock timeout retries the transaction 3 times; Postgres
   unreachable gives the claim back without a try; a refusal fails the event at once (no

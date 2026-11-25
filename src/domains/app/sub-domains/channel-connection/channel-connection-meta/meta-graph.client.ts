@@ -1192,3 +1192,30 @@ export async function listMetaAdAccountAds({
   const hasNextPage = readAnswerText(answer.paging?.next) !== null;
   return { items, nextCursor: hasNextPage ? readAnswerText(answer.paging?.cursors?.after) : null };
 }
+
+/**
+ * Reads the Instagram post an ad runs (`GET /{ad_id}?fields=creative{effective_instagram_media_id}`)
+ * — the post a past-comments read of an ad-comment automation reads (feat-instagram-dm-sending
+ * § 4.C AU32, WC-41).
+ *
+ * @remarks
+ * - **Algorithm:** one Graph read with the token in `Authorization` and `appsecret_proof`.
+ * - **Failure modes:** `MetaGraphApiError` (`refused` for an ad the token cannot read).
+ * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
+ * - **Notes:** `null` when the ad's creative names no Instagram post.
+ */
+export async function readMetaAdInstagramMediaId({
+  encryptedAccessToken,
+  adId,
+  requestId,
+  recordUsage,
+}: MetaConnectionReadOptions & { adId: string }): Promise<string | null> {
+  const answer = await callMetaGraphWithToken<Record<string, unknown>>({
+    encryptedAccessToken,
+    path: encodeURIComponent(adId),
+    query: { fields: 'creative{effective_instagram_media_id}' },
+    requestId,
+    recordUsage,
+  });
+  return readAnswerId(readAnswerObject(answer.creative).effective_instagram_media_id);
+}

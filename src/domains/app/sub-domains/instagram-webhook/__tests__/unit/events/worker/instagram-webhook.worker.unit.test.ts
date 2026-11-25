@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * `instagram-webhook` queue on a **plain** BullMQ worker (never provider-pausable), the family's
  * concurrency, each payload validated (poison dead-lettered) before its processor sees it, the trace
  * propagated, the process's database limiter passed on, and the job names routed: the three kind
- * groups, the tag intake, the stuck-event pick-up and the missed-comment sweep (WH17).
+ * groups, the tag intake, the stuck-event pick-up, the missed-comment sweep (WH17) and the
+ * automations' past-comments watch and "next post" linking sweep (WC-41, WC-43 — R41).
  */
 
 const workerState = vi.hoisted(() => ({
@@ -22,8 +23,12 @@ const {
   tagIntakeJobMock,
   runReclaimJobMock,
   runSweepJobMock,
+  runWatchJobMock,
+  runLinkingSweepMock,
   traceMock,
 } = vi.hoisted(() => ({
+  runWatchJobMock: vi.fn(),
+  runLinkingSweepMock: vi.fn(),
   parseJobDataMock: vi.fn(),
   intakeJobMock: vi.fn(),
   tagIntakeJobMock: vi.fn(),
@@ -106,6 +111,33 @@ vi.mock(
   '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js',
   () => ({
     runInstagramMissedCommentSweepJob: (...arguments_: unknown[]) => runSweepJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.processor.js',
+  () => ({
+    runAutomationBackfillWatchJob: (...arguments_: unknown[]) => runWatchJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-past-comment-read.processor.js',
+  () => ({
+    INSTAGRAM_PAST_COMMENT_READ_QUEUE: { enqueueAutomationBackfillRead: vi.fn() },
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-next-post-linking.processor.js',
+  () => ({ createInstagramNextPostLinkingEnqueue: () => vi.fn() }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js',
+  () => ({
+    runAutomationNextPostLinkingSweepJob: (...arguments_: unknown[]) =>
+      runLinkingSweepMock(...arguments_),
   }),
 );
 
@@ -228,6 +260,30 @@ describe('instagram-webhook.worker', () => {
     expect(runSweepJobMock).toHaveBeenCalledWith();
     expect(runReclaimJobMock).not.toHaveBeenCalled();
     expect(parseJobDataMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the past-comments watch with the Instagram read queue, without a payload (WC-41, R41)', async () => {
+    const job = { id: 'repeat:3', name: 'watch-automation-backfill-reads', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runWatchJobMock).toHaveBeenCalledWith({
+      readQueue: { enqueueAutomationBackfillRead: expect.any(Function) },
+    });
+    expect(parseJobDataMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the "next post" linking sweep with the Instagram enqueue only, without a payload (WC-43, R41)', async () => {
+    const job = { id: 'repeat:4', name: 'sweep-next-post-linking', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runLinkingSweepMock).toHaveBeenCalledWith({
+      enqueueByChannel: { instagram: expect.any(Function) },
+    });
+    expect(parseJobDataMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
   });
 
   it('never processes a poison payload — the dead-letter path throws first', async () => {

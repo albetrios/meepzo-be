@@ -372,13 +372,27 @@ export interface InstagramMissedCommentLookResult {
   foundCommentCount: number;
 }
 
+/**
+ * The post a read comment sits on, as the comment change carries it: its Instagram media id, its
+ * product type (stored lowercase) and, for an ad's post, the ad (`media.ad_id` — intake's
+ * `ad_comment`).
+ *
+ * @remarks
+ * Notes: a stored post gives the first two; a past-comments read of an ad passes the ad id.
+ */
+export interface InstagramReadCommentMedia {
+  instagramMediaId: string;
+  mediaProductType: string | null;
+  adId?: string | null | undefined;
+}
+
 /** The comment change a webhook would have delivered for this comment (WH9): `comments`, its value. */
 function toCommentChangeItem({
   comment,
-  post,
+  media,
 }: {
   comment: InstagramCommentGraphItem;
-  post: InstagramMediaRow;
+  media: InstagramReadCommentMedia;
 }): Record<string, unknown> {
   return {
     field: 'comments',
@@ -391,22 +405,31 @@ function toCommentChangeItem({
         username: comment.from?.username ?? comment.username,
       },
       media: {
-        id: post.instagram_media_id,
-        ...(post.media_product_type === null
+        id: media.instagramMediaId,
+        ...(media.mediaProductType === null
           ? {}
-          : { media_product_type: post.media_product_type.toUpperCase() }),
+          : { media_product_type: media.mediaProductType.toUpperCase() }),
+        ...(media.adId === null || media.adId === undefined ? {} : { ad_id: media.adId }),
       },
       ...(comment.parent_id === undefined ? {} : { parent_id: comment.parent_id }),
     },
   };
 }
 
-/** A comment's own time, or `null` when Meta sent none it can read. */
-function commentTimeOf(comment: InstagramCommentGraphItem): Date | null {
+/**
+ * A read comment's own time, or `null` when Meta sent none it can read.
+ *
+ * @remarks
+ * Notes: pure; shared by the missed-comment look and the past-comments read.
+ */
+export function readInstagramCommentTimeOf(comment: InstagramCommentGraphItem): Date | null {
   if (comment.timestamp === undefined) return null;
   const time = new Date(comment.timestamp);
   return Number.isNaN(time.getTime()) ? null : time;
 }
+
+/** A comment's own time, or `null` when Meta sent none it can read. */
+const commentTimeOf = readInstagramCommentTimeOf;
 
 /** The comments read from one post: the new-enough ones and the newest time seen. */
 interface PostRead {
@@ -514,24 +537,29 @@ async function readPostComments(context: PostReadContext): Promise<PostRead> {
 }
 
 /**
- * The comments a look found, as the webhook would have saved them (WH9, WH17): each through the one
- * classifier (key `comment:<id>`), the account's own comments dropped, the comment's own time as its
- * Meta time (its key's day, WH20).
+ * Comments read from Meta, as the webhook would have saved them (WH9, WH17) — the missed-comment
+ * look and the past-comments read (WC-41): each through the one classifier (key `comment:<id>`),
+ * the account's own comments dropped, the comment's own time as its Meta time (its key's day,
+ * WH20).
+ *
+ * @remarks
+ * Notes: pure; the caller saves them through `recordReceivedEvents` (a key already used is not
+ * saved again).
  */
-function toNewCommentEvents({
+export function toInstagramCommentEvents({
   comments,
-  post,
+  media,
   instagramUserId,
 }: {
   comments: readonly InstagramCommentGraphItem[];
-  post: InstagramMediaRow;
+  media: InstagramReadCommentMedia;
   instagramUserId: string;
 }): NewInstagramWebhookEvent[] {
   return comments.flatMap((comment) => {
     const time = commentTimeOf(comment);
     const classified = classifyInstagramWebhookItem({
       source: 'changes',
-      item: toCommentChangeItem({ comment, post }),
+      item: toCommentChangeItem({ comment, media }),
       accountIds: { instagramUserId },
       entryTime: time === null ? undefined : Math.floor(time.getTime() / 1000),
     });
@@ -819,9 +847,12 @@ async function runMissedCommentLook({
       result.outcome = 'paused';
       break;
     }
-    const events = toNewCommentEvents({
+    const events = toInstagramCommentEvents({
       comments: read.comments,
-      post,
+      media: {
+        instagramMediaId: post.instagram_media_id,
+        mediaProductType: post.media_product_type,
+      },
       instagramUserId: access.instagramUserId,
     });
     const savedCount = await runInDatabaseSlot(async () => {

@@ -999,6 +999,9 @@ erDiagram
   `days`, `status`, `posts_read`, `found`, `matched`, `queued_count`, `fail_reason`, `last_error`,
   `requested_by_user_id`, `started_at`, `done_at`, `created_at`, `updated_at`; + two plain indexes for the
   foreign keys ([AS-BUILT](../AS-BUILT.md), [P311](decisions.md)).
+- **R41:** no schema change — the read job uses `idx_automation_backfills_account_queued` (the next read)
+  and `idx_automation_backfills_watch` (the 10-minute watch, retention arm), and the advisory lock `ABFR`
+  per account ([P314](decisions.md)).
 
 ```mermaid
 erDiagram

@@ -1060,8 +1060,8 @@ export class AutomationService {
    * @remarks
    * Algorithm: in the caller's organization scope (a caller's open unit is joined): the
    * organization's `AUTOMATION_NEXT_POST` advisory lock, then one conditional `UPDATE`. Failure
-   * modes: a database error propagates. Side effects: the linked rows; safe to repeat. Notes: the
-   * 15-minute linking sweep (WC-43) is ROUTE row R41's.
+   * modes: a database error propagates. Side effects: the linked rows; safe to repeat. Notes: called
+   * by intake for a commented post and by the 15-minute linking sweep's task (WC-43, R41).
    */
   async linkNextPostAutomations({
     scope,

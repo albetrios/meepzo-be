@@ -48,6 +48,15 @@ import {
 } from './sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
 import { INSTAGRAM_MISSED_COMMENT_CHECK_JOB_NAME } from './sub-domains/instagram-webhook/workers/instagram-missed-comment-check.constants.js';
 import { createInstagramMissedCommentCheckTaskHandler } from './sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js';
+import {
+  createInstagramNextPostLinkingTaskHandler,
+  INSTAGRAM_NEXT_POST_LINKING_JOB_NAME,
+} from './sub-domains/instagram-webhook/workers/instagram-next-post-linking.processor.js';
+import {
+  createInstagramPastCommentReadTaskHandler,
+  INSTAGRAM_PAST_COMMENT_READ_JOB_NAME,
+  INSTAGRAM_PAST_COMMENT_READ_QUEUE,
+} from './sub-domains/instagram-webhook/workers/instagram-past-comment-read.processor.js';
 import { ContactTagEventRepository } from './sub-domains/contact/contact-tag-event/contact-tag-event.repository.js';
 import { ContactTagEventService } from './sub-domains/contact/contact-tag-event/contact-tag-event.service.js';
 import { ContactRepository } from './sub-domains/contact/contact.repository.js';
@@ -608,13 +617,14 @@ function createAutomationServices({
     new AutomationReplyStateRepository(),
   );
   const automationRepository = new AutomationRepository();
-  // Past comments (4.C, R15): routes 38–39 and the automation object's open read; the read job
-  // (WC-41) is enqueued once ROUTE row R41 passes its queue here.
+  // Past comments (4.C, R15): routes 38–39 and the automation object's open read; route 38 wakes
+  // the account's read job (WC-41, R41 — Instagram's `automation-backfill-read` task) after commit.
   const automationBackfillService = new AutomationBackfillService(
     new AutomationBackfillRepository(),
     automationRepository,
     channelAccountService,
     organizationService,
+    INSTAGRAM_PAST_COMMENT_READ_QUEUE,
   );
   const automationService = new AutomationService(
     automationRepository,
@@ -693,8 +703,8 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the task handlers are intake's profile read (R38) and the missed-comment look
- * (R39) — R40, R41, R46 add theirs.
+ * rules yet (R43–R45); the task handlers are intake's profile read (R38), the missed-comment look
+ * (R39), the past-comments read and the "next post" linking (R41) — R40, R46 add theirs.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -740,6 +750,23 @@ function createInstagramSendWork(
           automationService: container.automationService,
           instagramMediaService: container.instagramMediaService,
           instagramWebhookEventService: container.instagramWebhookEventService,
+        },
+      }),
+      // One account's past-comments read (WC-41, R41) — the automation's read row, Instagram's reads.
+      [INSTAGRAM_PAST_COMMENT_READ_JOB_NAME]: createInstagramPastCommentReadTaskHandler({
+        services: {
+          instagramSendAccessService: container.instagramSendAccessService,
+          instagramAccountSettingsService: container.instagramAccountSettingsService,
+          automationBackfillService: container.automationBackfillService,
+          instagramWebhookEventService: container.instagramWebhookEventService,
+        },
+      }),
+      // One account's "my next post" linking (WC-43, R41).
+      [INSTAGRAM_NEXT_POST_LINKING_JOB_NAME]: createInstagramNextPostLinkingTaskHandler({
+        services: {
+          instagramSendAccessService: container.instagramSendAccessService,
+          instagramMediaService: container.instagramMediaService,
+          automationService: container.automationService,
         },
       }),
     },

@@ -24,6 +24,12 @@ import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from './instagram-webhook-reclaim.
 import { runInstagramWebhookReclaimJob } from './instagram-webhook-reclaim.processor.js';
 import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from './instagram-missed-comment-check.constants.js';
 import { runInstagramMissedCommentSweepJob } from './instagram-missed-comment-check.processor.js';
+import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
+import { runAutomationBackfillWatchJob } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.processor.js';
+import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
+import { runAutomationNextPostLinkingSweepJob } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js';
+import { createInstagramNextPostLinkingEnqueue } from './instagram-next-post-linking.processor.js';
+import { INSTAGRAM_PAST_COMMENT_READ_QUEUE } from './instagram-past-comment-read.processor.js';
 import {
   type InstagramContactProfileReadEnqueue,
   type InstagramLateCommentTimeReader,
@@ -53,14 +59,17 @@ export interface InstagramWebhookWorkerServices {
 
 /**
  * BullMQ worker of Instagram intake (feat-instagram-dm-sending § 5 WH5, WH11–WH16, WH25; WC-1–WC-4):
- * the three kind groups' jobs, the tag-intake jobs, the every-minute stuck-event pick-up and the
- * 30-minute missed-comment sweep (WH17), on one queue.
+ * the three kind groups' jobs, the tag-intake jobs, the every-minute stuck-event pick-up, the
+ * 30-minute missed-comment sweep (WH17) and the automations' 10-minute past-comments watch and
+ * 15-minute "next post" linking sweep (WC-41, WC-43), on one queue.
  *
  * @remarks
  * - **Algorithm:** routes on `job.name` — the pick-up ({@link INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME},
  *   no payload) runs {@link runInstagramWebhookReclaimJob}; the missed-comment sweep
  *   ({@link INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME}, no payload) runs
- *   {@link runInstagramMissedCommentSweepJob}; `intake-tag-events` validates its payload
+ *   {@link runInstagramMissedCommentSweepJob}; the watch ({@link AUTOMATION_BACKFILL_WATCH_JOB_NAME})
+ *   and the linking sweep ({@link AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME}) run their
+ *   channel-neutral processors with Instagram's task enqueues; `intake-tag-events` validates its payload
  *   and runs {@link processInstagramTagEventIntakeJob}; `intake-messages`, `intake-live` and
  *   `intake-comments` validate theirs and run {@link processInstagramWebhookIntakeJob} — every unit
  *   of work in a slot of the process's Instagram database limiter (`getInstagramDatabaseSlotLimiter`,
@@ -93,6 +102,17 @@ export function createInstagramWebhookWorker({
       // The 30-minute missed-comment sweep rides this queue too; its looks run on `instagram-tasks`.
       if (job.name === INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME) {
         return runInstagramMissedCommentSweepJob();
+      }
+      // The automations' two channel-neutral sweeps ride this queue too (R41): the 10-minute
+      // past-comments watch (WC-41) and the 15-minute "next post" linking (WC-43); their work runs
+      // as Instagram's tasks on `instagram-tasks`.
+      if (job.name === AUTOMATION_BACKFILL_WATCH_JOB_NAME) {
+        return runAutomationBackfillWatchJob({ readQueue: INSTAGRAM_PAST_COMMENT_READ_QUEUE });
+      }
+      if (job.name === AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME) {
+        return runAutomationNextPostLinkingSweepJob({
+          enqueueByChannel: { instagram: createInstagramNextPostLinkingEnqueue() },
+        });
       }
       const jobId = job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME;
       if (job.name === INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME) {

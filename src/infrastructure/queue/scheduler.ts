@@ -55,6 +55,8 @@ import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/in
 import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
+import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
+import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env } from '@/shared/config/env.config.js';
 
@@ -132,6 +134,17 @@ const DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON = '* * * * *';
  * over the round; the full pass for an account whose rounds were missed. A fixed cadence.
  */
 const DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON = '*/30 * * * *';
+/**
+ * Every 10 minutes (feat-instagram-dm-sending AU32, worker-changes WC-41): the past-comments watch
+ * wakes the read of every account whose read had no new page for 30 minutes or whose queued read's
+ * job was lost. A fixed cadence.
+ */
+const DEFAULT_AUTOMATION_BACKFILL_WATCH_CRON = '*/10 * * * *';
+/**
+ * Every 15 minutes (feat-instagram-dm-sending AU6, worker-changes WC-43): one "next post" linking
+ * task per account with a live waiting "my next post" automation — Meta sends no new-post event.
+ */
+const DEFAULT_AUTOMATION_NEXT_POST_LINKING_CRON = '*/15 * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 /**
  * Daily at 03:00 (UTC with `SCHEDULER_TIMEZONE=UTC`): the 30-day clean-up of the Instagram webhook
@@ -406,6 +419,26 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
         schedulerId: 'instagram-missed-comment-sweep',
         jobName: INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON,
+      },
+    }),
+    // The automations' past-comments watch and "next post" linking sweep ride the same queue (run by
+    // its worker, R41); their work goes to `instagram-tasks`.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'automation-backfill-watch',
+        jobName: AUTOMATION_BACKFILL_WATCH_JOB_NAME,
+        cronPattern: DEFAULT_AUTOMATION_BACKFILL_WATCH_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'automation-next-post-linking',
+        jobName: AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_AUTOMATION_NEXT_POST_LINKING_CRON,
       },
     }),
   ];

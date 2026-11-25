@@ -122,3 +122,6 @@ export const INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8;
  * Rationale: `src/POLICIES.md`.
  */
 export const INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS = 3_000;
+
+/** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
+export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;

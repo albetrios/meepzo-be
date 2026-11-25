@@ -14,6 +14,7 @@ import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/p
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import { env } from '@/shared/config/env.config.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -27,6 +28,7 @@ import {
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
+  endPaidPlanWithoutPaying,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   readStagedAuditRows,
@@ -43,6 +45,15 @@ import {
   channelAccountPath,
   readChannelAccountRows,
 } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import {
+  AUTOMATIONS_PATH,
+  automationActionPath,
+  commentAutomationBody,
+} from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import {
+  readLaneRows,
+  readStopRows,
+} from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 
 let accountSequence = 0;
 
@@ -498,6 +509,100 @@ describe('Channel account routes', () => {
         payload: { force: true },
       });
       expect(refused.statusCode).toBe(400);
+    });
+  });
+
+  describe('a read-only plan (P10, AC-2.9)', () => {
+    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+
+    afterEach(() => {
+      env.BILLING_READ_ONLY_ENFORCED = enforced;
+    });
+
+    it('lets the owner pause, resume and disconnect — the lanes stay, wake, then stop — while other writes are refused', async () => {
+      const account = nextAccount();
+      const { ids } = await connect([account]);
+      const id = ids[0] ?? '';
+      const [row] = await readChannelAccountRows(team.organization.id);
+      const channelAccountId = Number(row?.id);
+      // The plan ended: the account holds `plan_ended` and its lanes are stopped, as R24 leaves it.
+      await endPaidPlanWithoutPaying(team.organization.id);
+      env.BILLING_READ_ONLY_ENFORCED = true;
+      await operatorQuery`
+        UPDATE app.channel_accounts SET plan_stop_reason = 'plan_ended', plan_stopped_at = now()
+        WHERE id = ${channelAccountId}`;
+      await operatorQuery`
+        UPDATE app.instagram_send_lanes SET state = 'stopped', wait_reason = 'stop', next_run_at = NULL
+        WHERE channel_account_id = ${channelAccountId}`;
+      await operatorQuery`
+        INSERT INTO app.instagram_send_stops (organization_id, channel_account_id, lane, reason)
+        VALUES (${team.organization.id}, ${channelAccountId}, 'all', 'plan_ended')`;
+      const stopped = await readLaneRows(channelAccountId);
+      expect(stopped.map((lane) => lane.state)).toEqual([
+        'stopped',
+        'stopped',
+        'stopped',
+        'stopped',
+      ]);
+
+      // The plan is read-only: a draft still saves (R13, P10), but its go-live is refused.
+      const draft = await injectAuthenticated(app, {
+        method: 'POST',
+        url: AUTOMATIONS_PATH,
+        token: team.ownerToken,
+        payload: commentAutomationBody({ channelAccountPublicId: id }),
+        headers: { 'x-idempotency-key': `read-only-${randomUUID()}` },
+      });
+      expect(draft.statusCode, draft.body).toBe(200);
+      const refused = await injectAuthenticated(app, {
+        method: 'POST',
+        url: automationActionPath({
+          automationPublicId: dataOf<{ id: string }>(draft).id,
+          action: 'go-live',
+        }),
+        token: team.ownerToken,
+        headers: { 'x-idempotency-key': `read-only-${randomUUID()}` },
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(errorOf(refused).reason).toBe('organization_read_only');
+
+      // Route 9: paused; the lanes are left as they were (every turn reads the account, SN12).
+      const paused = await act({ channelAccountPublicId: id, action: 'pause' });
+      expect(paused.statusCode, paused.body).toBe(200);
+      expect(dataOf<ChannelAccountAnswer>(paused)).toMatchObject({
+        is_paused: true,
+        plan_stop_reason: 'plan_ended',
+      });
+      expect(await readLaneRows(channelAccountId)).toEqual(stopped);
+
+      // Route 10: the pause cleared, the plan stop kept (still open), each lane gets one turn again.
+      const resumed = await act({ channelAccountPublicId: id, action: 'resume' });
+      expect(resumed.statusCode, resumed.body).toBe(200);
+      expect(dataOf<ChannelAccountAnswer>(resumed)).toMatchObject({
+        is_paused: false,
+        plan_stop_reason: 'plan_ended',
+      });
+      const woken = await readLaneRows(channelAccountId);
+      for (const [index, lane] of woken.entries()) {
+        expect(lane.state).toBe('ready');
+        expect(Number(lane.turn_number)).toBe(Number(stopped[index]?.turn_number) + 1);
+      }
+      expect(await readStopRows(channelAccountId)).toEqual([
+        { lane: 'all', reason: 'plan_ended', ended_at: null, ended_by: null },
+      ]);
+
+      // Route 8: revoked, the lanes stopped, the token erased with the connection's last account.
+      mockInstagramUnsubscribe({ instagramUserId: account.id });
+      expect((await disconnect(id)).statusCode).toBe(204);
+      expect((await readChannelAccountRows(team.organization.id))[0]?.connection_status).toBe(
+        'revoked',
+      );
+      for (const lane of await readLaneRows(channelAccountId)) {
+        expect(lane).toMatchObject({ state: 'stopped', working_turn: null, next_run_at: null });
+      }
+      expect(
+        await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
+      ).toHaveLength(0);
     });
   });
 

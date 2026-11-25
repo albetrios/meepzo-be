@@ -2563,6 +2563,35 @@ export class MembershipService {
   }
 
   /**
+   * The internal user ids of every ACTIVE member of the scope's organization — the cross-domain
+   * SERVICE entry point over {@link MembershipRepository.findActiveUserIds}.
+   *
+   * @remarks
+   * - **Algorithm:** one read in the caller's organization scope (joining the caller's open unit
+   *   of work for the same organization): resolve the organization, then its active members.
+   * - **Failure modes:** `NotFoundError('Organization')` when the scope's organization does not
+   *   resolve.
+   * - **Side effects:** none — read-only.
+   * - **Notes:** the notify domain's recipients resolver reads the "every member" rule here
+   *   (feat-instagram-dm-sending UN2).
+   */
+  async findActiveUserIds({
+    scope,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<number[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        return this.membershipRepository.findActiveUserIds(organization.id);
+      },
+    });
+  }
+
+  /**
    * F2: suspends the most-recently-joined non-owner ACTIVE members until the org's active headcount
    * fits `ceiling`; returns how many were suspended. Cross-domain entry point billing's
    * `SubscriptionService` calls after a downgrade commits.

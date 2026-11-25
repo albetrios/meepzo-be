@@ -1,7 +1,8 @@
 /**
  * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
  * § 1.6), the channel account (§ 1B.6), the Instagram account settings (§ 2.B.6), the
- * contact (§ 2.6), the automation (§ 4.A.6) and the Instagram webhook event (§ 4.B.6).
+ * contact (§ 2.6), the automation (§ 4.A.6), the Instagram webhook event (§ 4.B.6) and the
+ * segment (§ 7.B.6).
  */
 import {
   AUTOMATION_ALSO_START_FROM_VALUES,
@@ -849,6 +850,45 @@ const automationCountsSchema = {
   },
 };
 
+// ── Automation backfill (feat-instagram-dm-sending § 4.C — routes 38–39) ──
+
+export const automationBackfillSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', example: 'abf_q7w2e9r4t1y6u3i8a1b2c' },
+    automation_id: { type: 'string', example: 'aut_m4q8x2k7p9r3t1v5a1b2c' },
+    days: { type: 'integer', minimum: 1, maximum: 7 },
+    status: { type: 'string', enum: ['queued', 'reading', 'done', 'failed'] },
+    posts_read: { type: 'integer', minimum: 0 },
+    found: { type: 'integer', minimum: 0 },
+    matched: { type: 'integer', minimum: 0 },
+    queued_count: { type: 'integer', minimum: 0 },
+    fail_reason: { type: 'string', enum: ['meta_error', 'plan_feature_off'], nullable: true },
+    requested_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    started_at: { type: 'string', format: 'date-time', nullable: true },
+    done_at: { type: 'string', format: 'date-time', nullable: true },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const automationBackfillExample = {
+  id: 'abf_q7w2e9r4t1y6u3i8a1b2c',
+  automation_id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
+  days: 3,
+  status: 'queued',
+  posts_read: 0,
+  found: 0,
+  matched: 0,
+  queued_count: 0,
+  fail_reason: null,
+  requested_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-21T09:00:00.000Z',
+  started_at: null,
+  done_at: null,
+  updated_at: '2026-11-21T09:00:00.000Z',
+};
+
 export const automationSchema = {
   type: 'object',
   properties: {
@@ -892,7 +932,7 @@ export const automationSchema = {
     cancelled_before_at: { type: 'string', format: 'date-time', nullable: true },
     counts: automationCountsSchema,
     pro_parts_off: { type: 'array', items: { type: 'string' } },
-    open_backfill: { type: 'object', nullable: true },
+    open_backfill: { ...automationBackfillSchema, nullable: true },
     last_triggered_at: { type: 'string', format: 'date-time', nullable: true },
     created_by_user_id: { type: 'string', nullable: true },
     updated_by_user_id: { type: 'string', nullable: true },
@@ -1233,4 +1273,131 @@ export const appUsageExample = {
   direct_messages: { used: 820, limit: 1000, resets_on: '2026-12-01', state: 'nearly' },
   channel_accounts: { used: 1, maximum: 1 },
   notices: [{ kind: 'direct_message_limit_nearly', ends_on: '2026-12-01' }],
+};
+
+// ── Segment (feat-instagram-dm-sending routes-final § 7.B.6) ──
+// Mirrors serializeSegment key for key. `conditions` is the BC12 tree, documented on the request.
+export const segmentSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel_account_id: { type: 'string' },
+    name: { type: 'string' },
+    conditions: {
+      type: 'object',
+      properties: {
+        op: { type: 'string', enum: ['and', 'or'] },
+        items: { type: 'array', items: { type: 'object' } },
+      },
+    },
+    condition_count: { type: 'integer', minimum: 1 },
+    created_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const segmentExample = {
+  id: 'seg_p3k8x2m7q9r4t1v5a1b2c',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'VIPs who commented this week',
+  conditions: {
+    op: 'and',
+    items: [
+      { field: 'tags', match: 'any', values: ['vip'] },
+      { field: 'commented', post: 'any', days: 7 },
+    ],
+  },
+  condition_count: 2,
+  created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-24T10:00:00.000Z',
+  updated_at: '2026-11-24T10:00:00.000Z',
+};
+
+// Mirrors serializeSegmentAudienceCount (route 82, BC14): null numbers while counting.
+export const segmentAudienceCountSchema = {
+  type: 'object',
+  properties: {
+    matched: { type: 'integer', minimum: 0, nullable: true },
+    can_receive_now: { type: 'integer', minimum: 0, nullable: true },
+    is_counting: { type: 'boolean' },
+    counted_at: { type: 'string', format: 'date-time', nullable: true },
+  },
+};
+
+export const segmentAudienceCountExample = {
+  matched: 1240,
+  can_receive_now: 312,
+  is_counting: false,
+  counted_at: '2026-11-24T10:00:00.000Z',
+};
+
+// ── Broadcast (feat-instagram-dm-sending routes-final § 7.A.6) ──
+// Mirrors serializeBroadcast key for key. `conditions` is the BC12 tree and `messages` the automation
+// message list, both documented on the request.
+export const broadcastSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel_account_id: { type: 'string' },
+    name: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['draft', 'scheduled', 'sending', 'waiting_for_chats', 'done', 'cancelled'],
+    },
+    mode: { type: 'string', enum: ['now', 'scheduled', 'when_chat_opens'] },
+    segment_id: { type: 'string', nullable: true },
+    conditions: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        op: { type: 'string', enum: ['and', 'or'] },
+        items: { type: 'array', items: { type: 'object' } },
+      },
+    },
+    messages: { type: 'array', maxItems: 3, items: { type: 'object' } },
+    start_automation_id: { type: 'string', nullable: true },
+    scheduled_at: { type: 'string', format: 'date-time', nullable: true },
+    ends_at: { type: 'string', format: 'date-time', nullable: true },
+    started_at: { type: 'string', format: 'date-time', nullable: true },
+    finished_at: { type: 'string', format: 'date-time', nullable: true },
+    cancelled_at: { type: 'string', format: 'date-time', nullable: true },
+    cancel_reason: { type: 'string', enum: ['owner', 'plan_feature_off'], nullable: true },
+    numbers: {
+      type: 'object',
+      properties: {
+        matched: { type: 'integer', minimum: 0 },
+        sent: { type: 'integer', minimum: 0 },
+        skipped: { type: 'integer', minimum: 0 },
+        failed: { type: 'integer', minimum: 0 },
+        replies: { type: 'integer', minimum: 0 },
+        taps: { type: 'integer', minimum: 0 },
+      },
+    },
+    created_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const broadcastExample = {
+  id: 'brc_q8w2e4r6t1y3u5i7o9p0a',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'Black Friday drop',
+  status: 'sending',
+  mode: 'now',
+  segment_id: 'seg_p3k8x2m7q9r4t1v5a1b2c',
+  conditions: { op: 'and', items: [{ field: 'tags', match: 'any', values: ['vip'] }] },
+  messages: [{ kind: 'text', wait_minutes: 0, text: 'The drop is live — 30% off today only.' }],
+  start_automation_id: null,
+  scheduled_at: null,
+  ends_at: null,
+  started_at: '2026-11-25T10:00:00.000Z',
+  finished_at: null,
+  cancelled_at: null,
+  cancel_reason: null,
+  numbers: { matched: 312, sent: 120, skipped: 4, failed: 1, replies: 18, taps: 7 },
+  created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-25T09:30:00.000Z',
+  updated_at: '2026-11-25T10:00:00.000Z',
 };

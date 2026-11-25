@@ -13,7 +13,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import enErrors from '@/shared/locales/en/errors.json' with { type: 'json' };
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { database } from '@/infrastructure/database/connection.js';
+import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { sessions } from '@/domains/auth/sub-domains/auth-session/auth-session.schema.js';
 
 describe('Auth Session Sub-Domain — Integration', () => {
@@ -93,11 +93,13 @@ describe('Auth Session Sub-Domain — Integration', () => {
       const { sessionPublicId: countryOnlySessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await database
+      // Fixture rows are planted over the operator connection: the pool under test may be the
+      // row-level-security subject `meepzo_be_app`, which sees no session without a context.
+      await getOperatorDatabase()
         .update(sessions)
         .set({ place_city: 'Mumbai', place_country: 'IN' })
         .where(eq(sessions.public_id, placedSessionPublicId));
-      await database
+      await getOperatorDatabase()
         .update(sessions)
         .set({ place_country: 'DE' })
         .where(eq(sessions.public_id, countryOnlySessionPublicId));

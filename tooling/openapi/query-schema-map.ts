@@ -24,6 +24,8 @@ import {
   deleteAutomationQueryDto,
   listAutomationsQueryDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import { listBroadcastsQueryDto } from '@/domains/app/sub-domains/broadcast/broadcast.dto.js';
+import { listSegmentsQueryDto } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.dto.js';
 import { OauthCallbackQueryDto, OauthStartQueryDto } from '@/domains/auth/auth.dto.js';
 import { listInvoicesQueryDto } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 import { listNotificationsQueryDto } from '@/domains/notify/sub-domains/notification/notification.dto.js';
@@ -37,7 +39,7 @@ import {
   listMemberRolesQueryDto,
 } from '@/domains/tenancy/sub-domains/member-roles/member-role.dto.js';
 import { listOrganizationApiKeysQueryDto } from '@/domains/tenancy/sub-domains/organization/organization-api-key/organization-api-key.dto.js';
-import { listOrganizationsQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
+import { listOrganizationChooserQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
 import { ListUsersDto } from '@/domains/user/user.dto.js';
 import { listMyMembershipInvitationsQueryDto } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
 import { ListInstagramMediaQueryDto } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.dto.js';
@@ -47,7 +49,7 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/audit/logs': ListAuditLogsQueryDto,
   'GET /api/v1/users': ListUsersDto,
   'GET /api/v1/billing/invoices': listInvoicesQueryDto,
-  'GET /api/v1/users/me/organizations': listOrganizationsQueryDto,
+  'GET /api/v1/users/me/organizations': listOrganizationChooserQueryDto,
   'GET /api/v1/users/me/membership-invitations': listMyMembershipInvitationsQueryDto,
   'GET /api/v1/tenancy/organization/audit-logs': ListAuditLogsQueryDto,
   'GET /api/v1/tenancy/organization/api-keys': listOrganizationApiKeysQueryDto,
@@ -86,6 +88,10 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   // App: automations (routes-final § 3.A.8, routes 11 and 15).
   'GET /api/v1/app/automations': listAutomationsQueryDto,
   'DELETE /api/v1/app/automations/{automation_id}': deleteAutomationQueryDto,
+  // App: segments (feat-instagram-dm-sending routes-final § 7.B.8, route 77).
+  'GET /api/v1/app/segments': listSegmentsQueryDto,
+  // App: broadcasts (feat-instagram-dm-sending routes-final § 7.A.8, route 70).
+  'GET /api/v1/app/broadcasts': listBroadcastsQueryDto,
 };
 
 /** Routes that must document `after` and `limit` query parameters in OpenAPI. */

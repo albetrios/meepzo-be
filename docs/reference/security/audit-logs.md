@@ -126,7 +126,19 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | `app.instagram_message.retry` | `contact` · `automation` | The owner pressed "Retry failed messages" on a contact (route 26) or an automation (route 37) (`INFO`, `metadata.contact_public_id` or `automation_public_id`, `failed_count`, `retried_count`, `not_retryable`, `is_queued`) — counts only (SN18) |
 | `app.automation.create` | `automation` | Automation created — also the frontend's Duplicate (`INFO`, `metadata.automation_public_id`) — recorded after the create commits, best-effort |
 | `app.automation.update` | `automation` | Automation edited or turned on or off (`INFO`, `metadata.automation_public_id`, `metadata.changed_fields` — names only, never values; `expected_updated_at` is not a change) |
+| `app.automation.go_live` | `automation` | Automation went live — every go-live check passed (`INFO`, `metadata.automation_public_id`) — none when it was already live (feat-instagram-dm-sending R13, route 32) |
+| `app.automation.pause` | `automation` | Automation paused (`INFO`, `metadata.automation_public_id`, `metadata.mode` — `keep` or `cancel` for its open runs) — none when it was already paused (R13, route 33) |
+| `app.automation.duplicate` | `automation` | Automation copied as a draft (`INFO`, `metadata.automation_public_id` — the copy, `metadata.source_automation_public_id`) (R13, route 34) |
 | `app.automation.delete` | `automation` | Automation deleted with why (`WARNING`, `metadata.automation_public_id`, `metadata.delete_reason`, `metadata.cancelled_run_count` — the open runs cancelled with it) |
+| `app.automation_backfill.start` | `automation_backfill` | A past-comments read started on a live comment automation (`INFO`, `metadata.automation_backfill_public_id`, `metadata.automation_public_id`, `metadata.days`) — after the start commits, best-effort (feat-instagram-dm-sending R15, route 38) |
+| `app.segment.create` | `segment` | A segment saved on one channel account (`INFO`, `metadata.segment_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6) |
+| `app.segment.update` | `segment` | A segment's name or conditions changed (`INFO`, `metadata.segment_public_id`, `changed_fields` — names only); none when nothing changed |
+| `app.segment.delete` | `segment` | A segment deleted (soft, `WARNING`, `metadata.segment_public_id`) |
+| `app.broadcast.create` | `broadcast` | A broadcast draft made on one channel account (`INFO`, `metadata.broadcast_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6, ROUTE R22) |
+| `app.broadcast.update` | `broadcast` | A draft's name, audience, messages or button automation changed (`INFO`, `metadata.broadcast_public_id`, `changed_fields` — names only); none when nothing changed |
+| `app.broadcast.send` | `broadcast` | A draft sent — now, at a time or when her chat opens (`INFO`, `metadata.broadcast_public_id`, `mode`) |
+| `app.broadcast.cancel` | `broadcast` | A broadcast cancelled by its owner (`WARNING`, `metadata.broadcast_public_id`, `previous_status`) |
+| `app.broadcast.delete` | `broadcast` | A draft, done or cancelled broadcast deleted (soft, `WARNING`, `metadata.broadcast_public_id`, `status`) |
 
 No Instagram account row ever holds the Instagram token or the authorization code; the contact row never holds an erased value (launch CT12).
 

@@ -43,7 +43,10 @@
     "Contact": "Las personas que interactuaron con las cuentas de Instagram de la organización: listar y borrar",
     "Instagram Webhook": "Eventos de Instagram que Meta entrega para la cuenta conectada, y la lista de lo que pasó con cada uno",
     "Automation": "Lo que responde comentarios, DM, respuestas a historias y las demás formas de empezar en cada cuenta de canal: guardar borradores, listar, consultar, guardar contenido, activar, pausar, duplicar, probar una palabra clave y eliminar",
-    "Instagram sending": "Cómo envían las cuentas de Instagram de la organización: el estado de envío de una cuenta (mensajes en espera, paradas, resultados de hoy) y el contador mensual de mensajes directos de la organización"
+    "Instagram sending": "Cómo envían las cuentas de Instagram de la organización: el estado de envío de una cuenta (mensajes en espera, paradas, resultados de hoy) y el contador mensual de mensajes directos de la organización",
+    "Segments": "Audiencias guardadas de una cuenta de canal que reutilizan las difusiones: listarlas, guardarlas, consultarlas, cambiarlas y borrarlas, y contar una audiencia",
+    "Automation backfill": "Las lecturas de comentarios anteriores de una automatización: responder los comentarios de los últimos 1 a 7 días y seguir una lectura",
+    "Broadcasts": "Mensajes enviados a las personas de una cuenta de canal que coinciden con una audiencia: listarlos, crear borradores, consultarlos, editarlos, enviarlos, cancelarlos y borrarlos"
   },
   "components": {
     "bearerAuthDescription": "Token de acceso JWT obtenido del endpoint de login o renovación de token."

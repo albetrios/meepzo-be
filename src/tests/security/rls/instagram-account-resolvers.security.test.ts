@@ -277,6 +277,10 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
            -- The day-, week- and month-part makers (feat-instagram-dm-sending R16, R19, R14) are no
            -- resolvers: plain invoker functions, held by role-taxonomy.db.unit.test.ts and the RLS suites.
            AND p.proname NOT IN ('fn_create_daily_partitions', 'fn_create_weekly_partitions', 'fn_create_monthly_partitions')
+           -- The organization chooser's counts (feat-instagram-dm-sending R34, UN5) are no resolver
+           -- either: a member-gated SECURITY DEFINER read in its own migration, exercised by the
+           -- chooser's integration suite.
+           AND p.proname <> 'list_organization_counts_for_user'
          ORDER BY p.proname
       `),
     );

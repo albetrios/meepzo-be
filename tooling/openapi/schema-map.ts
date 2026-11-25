@@ -11,7 +11,17 @@ import {
   emptyContactActionBodyDto,
   updateContactBodyDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
-import { emptyAutomationActionDto } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import {
+  createBroadcastBodyDto,
+  emptyBroadcastActionBodyDto,
+  sendBroadcastBodyDto,
+  updateBroadcastBodyDto,
+} from '@/domains/app/sub-domains/broadcast/broadcast.dto.js';
+import {
+  createSegmentBodyDto,
+  segmentAudienceCountBodyDto,
+  updateSegmentBodyDto,
+} from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.dto.js';
 import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
@@ -118,8 +128,12 @@ import { MetaSignedRequestDto } from '@/domains/app/sub-domains/channel-connecti
 // ─── App: automations ──────────────────────────────────────────────────
 import {
   createAutomationDto,
+  emptyAutomationActionDto,
+  keywordTestAutomationDto,
+  pauseAutomationDto,
   updateAutomationDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import { startAutomationBackfillDto } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.dto.js';
 
 /**
  * Route key format: "METHOD /openapi/path" (with {param} placeholders).
@@ -225,9 +239,26 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── App: automations ──
   'POST /api/v1/app/automations': createAutomationDto,
   'PATCH /api/v1/app/automations/{automation_id}': updateAutomationDto,
+  // The automation actions (DM-sending routes-final § 4.A.8, routes 32–35): go-live and duplicate
+  // take an empty body, pause its mode, the keyword test its text.
+  'POST /api/v1/app/automations/{automation_id}/go-live': emptyAutomationActionDto,
+  'POST /api/v1/app/automations/{automation_id}/pause': pauseAutomationDto,
+  'POST /api/v1/app/automations/{automation_id}/duplicate': emptyAutomationActionDto,
+  'POST /api/v1/app/automations/{automation_id}/keyword-test': keywordTestAutomationDto,
+  // The past-comments read's start (DM-sending routes-final § 4.C.8, route 38): its days.
+  'POST /api/v1/app/automations/{automation_id}/backfills': startAutomationBackfillDto,
   // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
   'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
   'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,
+  // App: segments (DM-sending routes-final § 7.B.8, routes 78, 80 and 82).
+  'POST /api/v1/app/segments': createSegmentBodyDto,
+  'PATCH /api/v1/app/segments/{segment_id}': updateSegmentBodyDto,
+  'POST /api/v1/app/segments/audience-count': segmentAudienceCountBodyDto,
+  // App: broadcasts (DM-sending routes-final § 7.A.8, routes 71, 73, 75 and 76).
+  'POST /api/v1/app/broadcasts': createBroadcastBodyDto,
+  'PATCH /api/v1/app/broadcasts/{broadcast_id}': updateBroadcastBodyDto,
+  'POST /api/v1/app/broadcasts/{broadcast_id}/send': sendBroadcastBodyDto,
+  'POST /api/v1/app/broadcasts/{broadcast_id}/cancel': emptyBroadcastActionBodyDto,
   // The failed-message retries (routes 26 and 37, ROUTE R19): strictly empty bodies.
   'POST /api/v1/app/contacts/{contact_id}/failed-messages/retry': emptyContactActionBodyDto,
   'POST /api/v1/app/automations/{automation_id}/failed-messages/retry': emptyAutomationActionDto,

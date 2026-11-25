@@ -343,9 +343,9 @@ four app settings answers `503 instagram_not_configured` (Meta's deauthorize and
 `META_APP_SECRET`), and without the webhook's verify token Meta's subscription check answers
 `503 instagram_webhook_not_configured`. An app secret or a verify token that is set must be at least 32 characters, or
 the app does not boot: the secret is the key that proves Meta signed a request, so a placeholder left in an environment
-stops the boot instead of letting anyone sign a delivery. `.env.example` ships both blank. (The connect routes move to
-Unified Login with ROUTE row R3 of `iterations/feat-instagram-dm-sending-2026-11-23-oxak/`; until then the launch's
-Instagram Login connect reads the same `META_*` settings.)
+stops the boot instead of letting anyone sign a delivery. `.env.example` ships both blank. (The connect routes moved to
+Unified Login with ROUTE row R3 of `iterations/feat-instagram-dm-sending-2026-11-23-oxak/`; the launch's Instagram Login
+connect, its hosts and its scopes are gone.)
 
 | .env variable            | Where to get it                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------- |
@@ -369,17 +369,17 @@ Instagram Login connect reads the same `META_*` settings.)
    again. For a local frontend, register `http://localhost:5173/auth/meta/callback` (the
    `.env.example` value), or a public https tunnel address if the dashboard refuses it.
 4. **App Review** → **Permissions and features**: the three permissions connect needs (below).
-   Until the app has Advanced Access to them, only Instagram accounts with a role on the app
-   (an Instagram tester accepted under **App roles**) can connect.
-5. **Instagram** → **API setup with Instagram login** → **Configure webhooks**: **Callback URL**
+   Until the app has Advanced Access to them, only people with a role on the app (**App roles**)
+   can log in and connect their business's Instagram accounts.
+5. **Webhooks** → the **Instagram** object → **Subscribe to this object**: **Callback URL**
    `https://<api host>/api/v1/app/social/channel-connections/meta/webhooks/instagram` and **Verify token** the value of
    `META_WEBHOOK_VERIFY_TOKEN` → **Verify and save** (Meta calls `GET …/webhook` with
    `hub.mode=subscribe`, the token and a challenge; the API echoes the challenge). Then subscribe the
    app to the three webhook fields (below). Meta signs each delivery (`POST …/webhook`) with
    `X-Hub-Signature-256` — the HMAC of the raw body with `META_APP_SECRET`.
-6. Same page → **Set up Instagram business login** → **Business login settings**: set the
-   **Deauthorize callback URL** to `https://<your API host>/api/v1/app/social/channel-connections/meta/deauthorize`
-   and the **Data deletion request URL** to
+6. **Facebook Login for Business** → **Settings**: set the
+   **Deauthorize callback URL** to `https://<your API host>/api/v1/app/social/channel-connections/meta/deauthorize`;
+   **App settings** → **Basic**: set the **Data deletion request URL** to
    `https://<your API host>/api/v1/app/social/channel-connections/meta/data-deletion`. Meta posts a form with one
    `signed_request` there, signed with `META_APP_SECRET`: the first disconnects the accounts the
    signed id reaches — the account of that id in every organization holding it, else every account
@@ -403,15 +403,17 @@ The hosted values — all five settings — reach their GitHub Environment only 
 Secrets, `META_APP_ID`, `META_CONFIG_ID` and `META_REDIRECT_URI` as Variables (their half of `.env.example`
 decides which).
 
-**The scopes connect needs.** The frontend's authorize link asks for all three, and the code
-exchange must grant all three; one left unticked on Instagram's consent screen answers
-`422 instagram_scopes_missing` and stores nothing:
+**The permissions connect needs** (`META_REQUIRED_PERMISSIONS` in
+`channel-connection.constants.ts`). The login configuration (`META_CONFIG_ID`) asks for them, and the login must grant
+all three; one left unticked on Meta's consent screen answers `422 provider_permissions_missing` and saves nothing.
+`ads_read` is optional — without it the ad picker is empty:
 
-| Scope | Why |
+| Permission | Why |
 | --- | --- |
-| `instagram_business_basic` | the profile (`/me`), the posts, reels and stories |
-| `instagram_business_manage_messages` | direct messages, private replies to comments, story replies and the follow check |
-| `instagram_business_manage_comments` | reading comments and replying to them publicly |
+| `instagram_basic` | the account read, the posts, reels and stories |
+| `instagram_manage_messages` | direct messages, private replies to comments, story replies and the follow check |
+| `instagram_manage_comments` | reading comments and replying to them publicly |
+| `ads_read` (optional) | the ad picker's ad accounts and ads |
 
 **The webhook fields.** Every connect subscribes the account to `comments`, `messages` and
 `messaging_postbacks` (`INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS` in the Instagram client, through

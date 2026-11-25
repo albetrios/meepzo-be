@@ -19,7 +19,10 @@ keyword (routes 27–35, `/api/v1/app/automations`; its failed messages' summary
 (sub-domain 5) links waiting "next post" automations to a new post through this service (no end
 date — P12); a worker removes for good the automations deleted long ago that nothing points at. The
 runs, their history, the per-comment logs and the run engine are the nested
-[`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14).
+[`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14). Its
+past-comments reads (routes 38–39, `app.automation_backfills`) are the nested
+[`automation-backfill/`](automation-backfill/automation-backfill.overview.md) (§ 4.C — ROUTE row R15;
+the read job at R41); the automation object shows the open one as `open_backfill`.
 
 ## Layout
 
@@ -46,8 +49,10 @@ runs, their history, the per-comment logs and the run engine are the nested
 - `automation-run/` — the nested run sub-domain: runs, run events and comment logs split by month,
   the open-run keys and the run engine over `steps` (R14), which saves its steps through
   `ChannelSendingPort` and reads automations through this folder's repository
+- `automation-backfill/` — the nested past-comments sub-domain: routes 38–39 and the open read the
+  automation object shows (`openBackfills` port)
 - `seed/` — bulk: one automation of each of the 15 ways per seeded account, drafts, a paused one,
-  counts; then the runs
+  counts; then the runs and the past-comments reads
 
 ## Key invariants
 

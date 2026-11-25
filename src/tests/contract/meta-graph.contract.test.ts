@@ -142,10 +142,10 @@ registerThirdPartyContractTestIsolationHooks();
  * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
  * | `subscribed-apps.success` | `POST` / `DELETE /{id}/subscribed_apps` → `{ success: true }` — docs/instagram-platform/webhooks |
- * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api, docs/instagram-platform/private-replies |
+ * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/messenger-platform/instagram (the Instagram Messaging API on Facebook Login), docs/instagram-platform/private-replies |
  * | `message-attachments.success` | the Attachment Upload API → `{ attachment_id }` for a reusable file (`platform: instagram`, `payload.url`, `is_reusable: true`) — docs/messenger-platform/reference/attachment-upload-api, docs/instagram-platform/instagram-api-with-facebook-login/messaging-api (send a media message by `attachment_id`) |
  * | `comment-replies.success` | IG Comment `/replies` → `{ id }` — docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies |
- * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/user-profile |
+ * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/messenger-platform/instagram/features/user-profile |
  * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
  */
 describe('Meta outbound contract (`meta-graph.client`)', () => {
@@ -462,6 +462,10 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
     test("media pages follow Instagram's after cursor and never hand back paging.next, which carries a token", async () => {
       GraphListPageContractSchema.parse(mediaFirstPageFixture);
       GraphListPageContractSchema.parse(mediaLastPageFixture);
+      // The recorded next page is on the Graph host and version the client calls (AC-1.17).
+      const recordedNext = new URL(mediaFirstPageFixture.paging.next);
+      expect(recordedNext.origin).toBe(META_GRAPH_BASE_URL);
+      expect(recordedNext.pathname.startsWith(`${GRAPH_VERSION_PATH}/`)).toBe(true);
       for (const mediaNode of [...mediaFirstPageFixture.data, ...mediaLastPageFixture.data]) {
         MediaNodeContractSchema.parse(mediaNode);
       }

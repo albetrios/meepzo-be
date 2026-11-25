@@ -40,6 +40,7 @@ import {
   insertAutomationRun,
   readRunRow,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
+import { captureLogLines } from '@/domains/app/__tests__/e2e/instagram-retention-erasure.helper.js';
 
 /**
  * Routes 18–23 of the contacts (routes-final § 3.A, ROUTE R10; launch R8) over HTTP: the list of one
@@ -1198,6 +1199,130 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
       });
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');
+    });
+  });
+
+  describe('audit entries and log lines of routes 20–23 (AC-5.14, CT4, CT10)', () => {
+    /** Her personal values — none may reach an audit entry or a log line. */
+    const jordanEmail = 'jordan.private+orders@example.com';
+    const jordanPhone = '+15550109876';
+
+    it('a tag change leaves one app.contact.update entry with the field name only; a pause and a resume one each', async () => {
+      const contact = await contactOfTeam({
+        email: jordanEmail,
+        email_collected_at: day(1),
+        phone: jordanPhone,
+        phone_collected_at: day(1),
+      });
+
+      for (const payload of [
+        { add_tags: ['vip'] },
+        { is_automations_paused: true },
+        { is_automations_paused: false },
+      ]) {
+        const response = await update({ contactPublicId: contact.public_id, payload });
+        expect(response.statusCode, response.body).toBe(200);
+      }
+
+      const organizationPublicId = team.organization.public_id;
+      const updates = await readStagedAuditRows({
+        organizationPublicId,
+        action: 'app.contact.update',
+      });
+      expect(updates).toEqual([
+        {
+          severity: 'INFO',
+          resource_type: 'contact',
+          metadata: { contact_public_id: contact.public_id, changed_fields: ['tags'] },
+        },
+      ]);
+      const pauses = await readStagedAuditRows({
+        organizationPublicId,
+        action: 'app.contact.automations_pause',
+      });
+      const resumes = await readStagedAuditRows({
+        organizationPublicId,
+        action: 'app.contact.automations_resume',
+      });
+      for (const entries of [pauses, resumes]) {
+        expect(entries).toEqual([
+          {
+            severity: 'WARNING',
+            resource_type: 'contact',
+            metadata: { contact_public_id: contact.public_id },
+          },
+        ]);
+      }
+      const written = JSON.stringify([updates, pauses, resumes]);
+      for (const value of [jordanEmail, jordanPhone, 'vip']) {
+        expect(written).not.toContain(value);
+      }
+    });
+
+    it('no log line of routes 20–23 holds her email or phone — a success, a refusal, the bulk action and the erase', async () => {
+      const contact = await contactOfTeam({
+        username: 'jordan.lee',
+        email: jordanEmail,
+        email_collected_at: day(1),
+        phone: jordanPhone,
+        phone_collected_at: day(1),
+      });
+
+      const captured = captureLogLines(app);
+      const statuses: number[] = [];
+      try {
+        // Route 20: a note quoting her email and phone, a refused body quoting them, a pause.
+        for (const payload of [
+          { note: `Reach her at ${jordanEmail} or ${jordanPhone}`, add_tags: ['vip'] },
+          { note: jordanEmail, opted_out: false },
+          { is_automations_paused: true },
+        ]) {
+          statuses.push((await update({ contactPublicId: contact.public_id, payload })).statusCode);
+        }
+        // Route 21: a search filter holding her email (the bulk job is R46's — a 503 until then).
+        const bulk = await injectAuthenticated(app, {
+          method: 'POST',
+          url: CONTACT_BULK_ACTIONS_PATH,
+          token: team.ownerToken,
+          payload: {
+            channel_account_id: account.public_id,
+            action: 'add_tag',
+            tag: 'vip',
+            filter: { q: jordanEmail },
+          },
+          headers: { 'x-idempotency-key': `bulk-${randomUUID()}` },
+        });
+        statuses.push(bulk.statusCode);
+        // Route 22, then route 23.
+        statuses.push((await tagList()).statusCode);
+        statuses.push((await erase({ contactPublicId: contact.public_id })).statusCode);
+      } finally {
+        captured.restore();
+      }
+
+      expect(statuses).toEqual([200, 400, 200, 503, 200, 204]);
+      const written = captured.lines.join('\n');
+      // The capture saw every request: one `request.complete` line each, by route pattern.
+      const completed = captured.lines
+        .map((line) => JSON.parse(line) as { msg?: string; route?: string; statusCode?: number })
+        .filter((line) => line.msg === 'request.complete')
+        .map((line) => `${line.statusCode} ${line.route?.replace(/^.*\/app\//, '')}`);
+      expect(completed).toEqual([
+        '200 contacts/:contact_id',
+        '400 contacts/:contact_id',
+        '200 contacts/:contact_id',
+        '503 contacts/bulk-actions',
+        '200 contact-tags',
+        '204 contacts/:contact_id',
+      ]);
+      for (const value of [
+        jordanEmail,
+        encodeURIComponent(jordanEmail),
+        jordanPhone,
+        jordanPhone.slice(1),
+      ]) {
+        expect(written).not.toContain(value);
+      }
     });
   });
 });

@@ -188,6 +188,8 @@ export class UserRepository {
       first_name?: string | null;
       last_name?: string | null;
       job_title?: string | null;
+      instagram_handle?: string | null;
+      goal?: string | null;
       avatar_url?: string | null;
       presence?: UserPresence;
     },

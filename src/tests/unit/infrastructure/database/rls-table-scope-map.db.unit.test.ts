@@ -55,10 +55,26 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.automation_counts': ['app.current_organization_public_id'],
   'app.automation_reply_states': ['app.current_organization_public_id'],
+  // Past-comments reads (4.C): the organization arm, plus the read's watch across organizations (R41).
+  'app.automation_backfills': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Contacts: organization-scoped, plus the retention sweep arm in USING (routes-final § 2.3).
   'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.contact_activities': ['app.current_organization_public_id'],
   'app.contact_tag_counts': ['app.current_organization_public_id'],
+  // Segments (feat-instagram-dm-sending R21): organization-scoped, plus the purge's sweep arm (7.3).
+  'app.segments': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Broadcasts (feat-instagram-dm-sending R22): organization-scoped, plus the duties' and the
+  // purge's sweep arm (7.3).
+  'app.broadcasts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Broadcast recipients (feat-instagram-dm-sending R23): organization-scoped, plus the 90-day
+  // clean-up's sweep arm (7.C.3).
+  'app.broadcast_recipients': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Tag events (3.B): the organization arm, plus the pick-up scan and the 8-day clean-up (CT17).
   'app.contact_tag_events': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The channel connection: organization-scoped, plus the token check's sweep (MC10). Its token and

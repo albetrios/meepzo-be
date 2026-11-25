@@ -61,8 +61,8 @@ export type NotificationPreferenceChannel = (typeof NOTIFICATION_PREFERENCE_CHAN
 
 /**
  * Who a kind's notifications go to (feat-instagram-dm-sending UN2) — decided by permission codes,
- * never by role names. The resolver over the membership service is
- * `resolveNotificationRecipients` (ROUTE R34); until then each emitter resolves its own recipients.
+ * never by role names. The resolver over the membership service is `resolveNotificationRecipients`
+ * (notify's `notification-dispatch.service.ts`).
  */
 export const NOTIFICATION_RECIPIENTS_RULE = {
   /** Active members holding `automation:update` (Owner, Admin, Editor). */

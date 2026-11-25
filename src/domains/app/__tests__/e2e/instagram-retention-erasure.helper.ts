@@ -642,7 +642,8 @@ interface CapturableLogger {
 /**
  * One row in each of the sending sub-domain's per-organization tables (feat-instagram-dm-sending
  * § 6.A, R18) for every channel account of the organization: a stop, a minute count, a day count,
- * a message file's Meta id (§ 6.C, R20), and the organization's month count — so the organization delete is seen erasing them too.
+ * a message file's Meta id (§ 6.C, R20), the organization's month count, and the automations' counts,
+ * reply states and past-comments reads — so the organization delete is seen erasing them too.
  */
 export async function writeSendingHistory(organizationId: number): Promise<void> {
   await operatorQuery`
@@ -675,6 +676,12 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
     INSERT INTO app.automation_reply_states (organization_id, automation_id, channel_account_id)
     SELECT organization_id, id, channel_account_id FROM app.automations
     WHERE organization_id = ${organizationId}`;
+  // A finished past-comments read of each automation (feat-instagram-dm-sending R15, AU1).
+  await operatorQuery`
+    INSERT INTO app.automation_backfills
+      (public_id, organization_id, channel_account_id, automation_id, days, status, done_at)
+    SELECT 'abf_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, id, 7, 'done', now()
+    FROM app.automations WHERE organization_id = ${organizationId}`;
   // One sent opening DM per run and its call to Meta (feat-instagram-dm-sending R19, § 6.B.3).
   await operatorQuery`
     INSERT INTO app.instagram_messages
@@ -729,4 +736,36 @@ export function captureLogLines(app: FastifyInstance): {
       for (const restore of restores) restore();
     },
   };
+}
+
+/**
+ * One saved segment (feat-instagram-dm-sending § 7.B, R21) for every channel account of the
+ * organization — so the organization delete is seen erasing `app.segments` too.
+ */
+export async function writeSegmentHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.segments (public_id, organization_id, channel_account_id, name, conditions)
+    SELECT 'seg_' || lpad(id::text, 21, '0'), organization_id, id, 'Has an email',
+           '{"op":"and","items":[{"field":"details","has":"email"}]}'::jsonb
+      FROM app.channel_accounts WHERE organization_id = ${organizationId}`;
+}
+
+/**
+ * One draft broadcast (feat-instagram-dm-sending § 7.A, R22) on every segment of the organization,
+ * with each contact of its account as a recipient (§ 7.C, R23) — so the organization delete is seen
+ * erasing `app.broadcasts` and `app.broadcast_recipients` too. Call after `writeSegmentHistory`.
+ */
+export async function writeBroadcastHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.broadcasts (public_id, organization_id, channel_account_id, name, segment_id)
+    SELECT 'brc_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, 'Drop', id
+      FROM app.segments WHERE organization_id = ${organizationId}`;
+  // Every live contact of the account as a recipient of its broadcast (R23).
+  await operatorQuery`
+    INSERT INTO app.broadcast_recipients (organization_id, channel_account_id, broadcast_id, contact_id)
+    SELECT b.organization_id, b.channel_account_id, b.id, c.id
+      FROM app.broadcasts b
+      JOIN app.contacts c
+        ON c.organization_id = b.organization_id AND c.channel_account_id = b.channel_account_id
+     WHERE b.organization_id = ${organizationId}`;
 }

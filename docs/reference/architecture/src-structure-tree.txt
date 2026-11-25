@@ -43,7 +43,32 @@ src/
     │   │   │   │   │   ├── automation-tombstone-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── automation.repository.db.unit.test.ts
     │   │   │   │   │   ├── automation.serializer.unit.test.ts
+    │   │   │   │   │   ├── automation.service.unit.test.ts
     │   │   │   │   │   └── automation.validator.unit.test.ts
+    │   │   │   ├── automation-backfill/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── automation-backfill.factory.ts
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── automation-backfill.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── automation-backfill.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── automation-backfill.service.unit.test.ts
+    │   │   │   │   │   │   └── automation-backfill.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── automation-backfill.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── automation-backfill.constants.ts
+    │   │   │   │   ├── automation-backfill.controller.ts
+    │   │   │   │   ├── automation-backfill.dto.ts
+    │   │   │   │   ├── automation-backfill.overview.md
+    │   │   │   │   ├── automation-backfill.repository.ts
+    │   │   │   │   ├── automation-backfill.routes.ts
+    │   │   │   │   ├── automation-backfill.schema.ts
+    │   │   │   │   ├── automation-backfill.serializer.ts
+    │   │   │   │   ├── automation-backfill.service.ts
+    │   │   │   │   ├── automation-backfill.types.ts
+    │   │   │   │   └── automation-backfill.validator.ts
     │   │   │   ├── automation-run/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/
@@ -61,7 +86,8 @@ src/
     │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.unit.test.ts
     │   │   │   │   │   │   ├── automation-run.repository.db.unit.test.ts
-    │   │   │   │   │   │   └── automation-run.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run.service.db.unit.test.ts
+    │   │   │   │   │   │   └── automation-run.service.unit.test.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── automation-run.bulk.seed.ts
     │   │   │   │   │   └── index.ts
@@ -110,6 +136,65 @@ src/
     │   │   │   ├── automation.service.ts
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
+    │   │   ├── broadcast/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── broadcast.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── broadcast-channel-seam.policy.unit.test.ts
+    │   │   │   │   │   ├── broadcast.repository.db.unit.test.ts
+    │   │   │   │   │   ├── broadcast.serializer.unit.test.ts
+    │   │   │   │   │   ├── broadcast.service.unit.test.ts
+    │   │   │   │   │   └── broadcast.validator.unit.test.ts
+    │   │   │   ├── broadcast-recipient/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── broadcast-recipient.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── broadcast-recipient.service.db.unit.test.ts
+    │   │   │   │   │   │   └── broadcast-recipient.service.unit.test.ts
+    │   │   │   │   ├── broadcast-recipient.constants.ts
+    │   │   │   │   ├── broadcast-recipient.overview.md
+    │   │   │   │   ├── broadcast-recipient.repository.ts
+    │   │   │   │   ├── broadcast-recipient.schema.ts
+    │   │   │   │   ├── broadcast-recipient.service.ts
+    │   │   │   │   └── broadcast-recipient.types.ts
+    │   │   │   ├── broadcast-segment/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── broadcast-segment.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── broadcast-segment.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── broadcast-segment.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── broadcast-segment.service.unit.test.ts
+    │   │   │   │   │   │   └── broadcast-segment.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── broadcast-segment.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── broadcast-segment.constants.ts
+    │   │   │   │   ├── broadcast-segment.controller.ts
+    │   │   │   │   ├── broadcast-segment.dto.ts
+    │   │   │   │   ├── broadcast-segment.overview.md
+    │   │   │   │   ├── broadcast-segment.repository.ts
+    │   │   │   │   ├── broadcast-segment.routes.ts
+    │   │   │   │   ├── broadcast-segment.schema.ts
+    │   │   │   │   ├── broadcast-segment.serializer.ts
+    │   │   │   │   ├── broadcast-segment.service.ts
+    │   │   │   │   ├── broadcast-segment.types.ts
+    │   │   │   │   └── broadcast-segment.validator.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── broadcast.bulk.seed.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── broadcast.constants.ts
+    │   │   │   ├── broadcast.controller.ts
+    │   │   │   ├── broadcast.dto.ts
+    │   │   │   ├── broadcast.overview.md
+    │   │   │   ├── broadcast.repository.ts
+    │   │   │   ├── broadcast.routes.ts
+    │   │   │   ├── broadcast.schema.ts
+    │   │   │   ├── broadcast.serializer.ts
+    │   │   │   ├── broadcast.service.ts
+    │   │   │   ├── broadcast.types.ts
+    │   │   │   └── broadcast.validator.ts
     │   │   ├── channel-account/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
@@ -120,6 +205,7 @@ src/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
     │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
     │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-account.service.unit.test.ts
     │   │   │   │   │   └── channel-account.validator.unit.test.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── channel-account.bulk.seed.ts
@@ -158,6 +244,7 @@ src/
     │   │   │   │   │   ├── channel-connection-usage.repository.db.unit.test.ts
     │   │   │   │   │   ├── channel-connection-usage.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-connection.service.unit.test.ts
     │   │   │   │   │   └── channel-connection.validator.unit.test.ts
     │   │   │   ├── channel-connection-meta/
     │   │   │   │   ├── __tests__/
@@ -359,16 +446,22 @@ src/
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
     │   │   │   ├── instagram-attachment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   └── instagram-attachment.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-attachment.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-attachment.service.db.unit.test.ts
+    │   │   │   │   │   │   └── instagram-attachment.service.unit.test.ts
     │   │   │   │   ├── instagram-attachment.overview.md
     │   │   │   │   ├── instagram-attachment.repository.ts
     │   │   │   │   ├── instagram-attachment.schema.ts
@@ -382,7 +475,9 @@ src/
     │   │   │   │   │   │   └── instagram-message.integration.test.ts
     │   │   │   │   │   └── unit/
     │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-message.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-message.service.unit.test.ts
     │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
     │   │   │   │   ├── instagram-message.constants.ts
     │   │   │   │   ├── instagram-message.overview.md
@@ -779,8 +874,10 @@ src/
     │   │   │   └── session-token-cache.service.ts
     │   │   ├── auth-trusted-device/
     │   │   │   ├── __tests__/
-    │   │   │   │   └── integration/
+    │   │   │   │   ├── integration/
     │   │   │   │   │   └── auth-trusted-device.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   └── auth-trusted-device.service.unit.test.ts
     │   │   │   ├── auth-trusted-device.constants.ts
     │   │   │   ├── auth-trusted-device.overview.md
     │   │   │   ├── auth-trusted-device.repository.ts
@@ -1049,6 +1146,7 @@ src/
     │   │   │   │   │   ├── notification-dispatch.service.unit.test.ts
     │   │   │   │   │   ├── notification-email-content.unit.test.ts
     │   │   │   │   │   ├── notification-email-idempotency.unit.test.ts
+    │   │   │   │   │   ├── notification-recipients.unit.test.ts
     │   │   │   │   │   ├── notification-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── notification-unread-count.cache.unit.test.ts
     │   │   │   │   │   ├── notification.controller.unit.test.ts
@@ -1604,6 +1702,7 @@ src/
     │   │   ├── integration/
     │   │   │   ├── consent-receipt-survives-logout.integration.test.ts
     │   │   │   ├── user-admin.integration.test.ts
+    │   │   │   ├── user-profile-organization-chooser.integration.test.ts
     │   │   │   ├── user-route-smoke.integration.test.ts
     │   │   │   ├── user-settings-default-organization.integration.test.ts
     │   │   │   └── user.integration.test.ts

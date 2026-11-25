@@ -93,6 +93,10 @@ describe('OrganizationService', () => {
       has_more: false,
       next_cursor: null,
     }),
+    // The chooser's main role (route 132, UN5).
+    resolveMainRolesForUser: vi.fn(async (_user: string, ids: readonly number[]) =>
+      ids.map((id) => ({ organization_id: id, role_public_id: 'rol_owner', role_name: 'Owner' })),
+    ),
     // D81 (4): the owner named by their user public id, in one batch per response.
     resolveUserPublicIdsByInternalIds: vi.fn(
       async (ids: readonly number[]) => new Map(ids.map((id) => [id, `usr_owner_${id}`])),
@@ -101,6 +105,19 @@ describe('OrganizationService', () => {
 
   const objectStorage = createObjectStoragePortMock();
   const service = new OrganizationService(repository, objectStorage);
+  // The app's counts port (UN1) — the chooser merges its answer per organization.
+  const organizationCounts = {
+    listOrganizationCountsForUser: vi.fn(
+      async ({ organizationPublicIds }: { organizationPublicIds: readonly string[] }) =>
+        organizationPublicIds.map((organizationPublicId) => ({
+          organizationPublicId,
+          membersCount: 3,
+          channelAccountsCount: 2,
+          liveAutomationsCount: 1,
+        })),
+    ),
+  };
+  service.wireOrganizationCounts(organizationCounts);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,6 +168,19 @@ describe('OrganizationService', () => {
       user_public_id: 'user_public',
     });
     expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      role: { id: 'rol_owner', name: 'Owner' },
+      members_count: 3,
+      channel_accounts_count: 2,
+      live_automations_count: 1,
+    });
+  });
+
+  it('list refuses when the counts port is not wired (boot-order bug)', async () => {
+    const unwired = new OrganizationService(repository, objectStorage);
+    await expect(unwired.listForUser({ query: {}, user_public_id: 'user_public' })).rejects.toThrow(
+      'Organization counts port is not wired',
+    );
   });
 
   it('create persists organization for owner', async () => {

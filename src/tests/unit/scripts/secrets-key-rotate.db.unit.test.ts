@@ -27,8 +27,8 @@ const KEY_V1 = '11'.repeat(32);
 const KEY_V2 = '22'.repeat(32);
 const INSTAGRAM_TOKEN_COLUMN = 'app.channel_connection_tokens.encrypted_access_token';
 const REFRESH_TOKEN_COLUMN = 'app.channel_connection_tokens.encrypted_refresh_token';
-const OLD_TOKEN = 'IGAA-rotation-test-token-on-v1';
-const CURRENT_TOKEN = 'IGAA-rotation-test-token-on-v2';
+const OLD_TOKEN = 'EAAG-rotation-test-token-on-v1';
+const CURRENT_TOKEN = 'EAAG-rotation-test-token-on-v2';
 
 /**
  * The secrets-key rotation (`pnpm ops:secrets:rotate`): every `encryptFieldSecret` column moves

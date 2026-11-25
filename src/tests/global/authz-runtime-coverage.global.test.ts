@@ -80,6 +80,20 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',
   'PATCH /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation PATCH',
   'DELETE /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation DELETE',
+  // feat-instagram-dm-sending R21: broadcast-segment.integration.test.ts reads, edits and deletes
+  // another organization's segment → 404 segment_not_found, and reads the row back unchanged.
+  'GET /api/v1/app/segments/:segment_id': 'cross-organization-resource: segment',
+  'PATCH /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment PATCH',
+  'DELETE /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment DELETE',
+  // feat-instagram-dm-sending R22: broadcast.integration.test.ts reads, edits, sends, cancels and
+  // deletes another organization's broadcast → 404 broadcast_not_found, and reads the row back
+  // unchanged.
+  'GET /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-resource: broadcast',
+  'PATCH /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-mutation: broadcast PATCH',
+  'DELETE /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-mutation: broadcast DELETE',
+  'POST /api/v1/app/broadcasts/:broadcast_id/send': 'cross-organization-mutation: broadcast send',
+  'POST /api/v1/app/broadcasts/:broadcast_id/cancel':
+    'cross-organization-mutation: broadcast cancel',
   // feat-instagram-dm-sending R13: automation.integration.test.ts runs the four actions on another
   // organization's automation → 404 automation_not_found, and reads the row back unchanged.
   'POST /api/v1/app/automations/:automation_id/go-live':
@@ -90,6 +104,13 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: automation duplicate',
   'POST /api/v1/app/automations/:automation_id/keyword-test':
     'cross-organization-resource: automation keyword test',
+  // feat-instagram-dm-sending R15: automation-backfill.integration.test.ts starts a read on another
+  // organization's automation → 404 automation_not_found with no row written, and reads another
+  // organization's read → 404.
+  'POST /api/v1/app/automations/:automation_id/backfills':
+    'cross-organization-mutation: automation backfill start',
+  'GET /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id':
+    'cross-organization-resource: automation backfill',
   // feat-instagram-dm-sending R19: instagram-message.integration.test.ts reads another
   // organization's contact activity and failed messages and an automation's → 404; the retries
   // → 404 with every message unchanged.

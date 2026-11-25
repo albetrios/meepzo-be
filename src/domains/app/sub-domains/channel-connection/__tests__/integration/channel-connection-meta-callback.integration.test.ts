@@ -50,6 +50,7 @@ import {
   metaIssuedAtAfterConnections,
   metaSignedRequestPayload,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
+import { readLaneRows } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 
 const DEAUTHORIZE_ACTION = 'app.channel_connection.deauthorize';
 const DATA_DELETION_ACTION = 'app.channel_connection.data_deletion';
@@ -89,6 +90,14 @@ async function countStoredPosts(organizationId: number): Promise<number> {
     SELECT count(*)::text AS count FROM app.instagram_media WHERE organization_id = ${organizationId}`;
   return Number(rows[0]?.count);
 }
+
+/** The states of the account's four sending lanes (sub-domain 6, R18), slow first. */
+async function readLaneStates(channelAccountId: string): Promise<string[]> {
+  return (await readLaneRows(Number(channelAccountId))).map((lane) => lane.state);
+}
+
+const STOPPED_LANES = ['stopped', 'stopped', 'stopped', 'stopped'];
+const READY_LANES = ['ready', 'ready', 'ready', 'ready'];
 
 async function countAuditRows(action: string): Promise<number> {
   const rows = await operatorQuery<Array<{ count: string }>>`
@@ -264,6 +273,9 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     it('revokes the account and erases its token, keeps profile and settings, answers { data: null }, audits anonymously', async () => {
       const profile = buildInstagramProfile();
       const accountPublicId = await connectAccount({ profile });
+      const [connected] = await readInstagramAccountRows(team.organization.id);
+      const channelAccountId = connected?.channel_account_id ?? '';
+      expect(await readLaneStates(channelAccountId)).toEqual(READY_LANES);
 
       const response = await postCallback({
         url: META_DEAUTHORIZE_PATH,
@@ -272,6 +284,8 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ data: null, meta: { request_id: expect.any(String) } });
+      // The revoked account's sending lanes stop, as route 8's do (CA8, R18).
+      expect(await readLaneStates(channelAccountId)).toEqual(STOPPED_LANES);
       const [row] = await readAccountProfiles(team.organization.id);
       expect(row).toMatchObject({
         public_id: accountPublicId,
@@ -352,6 +366,10 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(response.statusCode).toBe(200);
       const rows = await readInstagramAccountRows(team.organization.id);
       expect(rows.map((row) => row.connection_status)).toEqual(['revoked', 'revoked']);
+      // Every revoked account's sending lanes stop, as route 8's do (CA8, R18).
+      for (const row of rows) {
+        expect(await readLaneStates(row.channel_account_id)).toEqual(STOPPED_LANES);
+      }
       expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
       expect((await readChannelConnectionRows(team.organization.id))[0]?.status).toBe('revoked');
       const audit = await readStagedAuditRows({
@@ -366,6 +384,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       });
       const [otherRow] = await readInstagramAccountRows(otherTeam.organization.id);
       expect(otherRow?.connection_status).toBe('connected');
+      expect(await readLaneStates(otherRow?.channel_account_id ?? '')).toEqual(READY_LANES);
       expect(await readInstagramTokenCiphertexts(otherTeam.organization.id)).toHaveLength(1);
     });
 
@@ -779,6 +798,8 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(response.statusCode).toBe(200);
       const [row] = await readAccountProfiles(team.organization.id);
       expect(row).toMatchObject({ connection_status: 'revoked', username: null });
+      const [revoked] = await readInstagramAccountRows(team.organization.id);
+      expect(await readLaneStates(revoked?.channel_account_id ?? '')).toEqual(STOPPED_LANES);
       expect(await countStoredPosts(team.organization.id)).toBe(0);
       const audit = await readStagedAuditRows({
         organizationPublicId: team.organization.public_id,

@@ -52,8 +52,16 @@ import { AutomationReplyStateRepository } from './sub-domains/automation/automat
 import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
 import type { AutomationMessageFilePort } from './sub-domains/automation/automation.types.js';
 import { AutomationService } from './sub-domains/automation/automation.service.js';
+import { AutomationBackfillRepository } from './sub-domains/automation/automation-backfill/automation-backfill.repository.js';
+import { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
 import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
+import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
+import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
+import { BroadcastRepository } from './sub-domains/broadcast/broadcast.repository.js';
+import { BroadcastService } from './sub-domains/broadcast/broadcast.service.js';
+import { BroadcastRecipientService } from './sub-domains/broadcast/broadcast-recipient/broadcast-recipient.service.js';
+import type { BroadcastFeatureCheck } from './sub-domains/broadcast/broadcast.types.js';
 import type { ChannelSendingPorts } from './app.channel-ports.js';
 import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
@@ -87,7 +95,8 @@ import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-a
  * (route 18; the one write path for the events table the receiver and processing use), the
  * Instagram webhook receiver (Meta's routes 16–17), the automation service (routes 11–15 and
  * "next post" linking for event processing), the run engine (sub-domain 3.B — the entry points
- * event processing calls per comment, DM, story reply and button click), and the sending
+ * event processing calls per comment, DM, story reply and button click), and the segment service
+ * (routes 77–82 of feat-instagram-dm-sending § 7.B, ROUTE row R21), and the sending
  * sub-domain's root (feat-instagram-dm-sending § 6.A, ROUTE row R18) — the lane service (the lane
  * port of the connection, the channel account and route 12), the month count (the plan-stop port,
  * route 64's meter), the global sending state (`SENDING_ENABLED` and the environment id, the app-level
@@ -119,11 +128,21 @@ export type AppContainer = {
   instagramWebhookEventService: InstagramWebhookEventService;
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
+  /** The past-comments reads (4.C, routes 38–39 — R15); the read job joins at R41. */
+  automationBackfillService: AutomationBackfillService;
   /** The automations' all-time counts (AU19) — the run engine writes through it from R14. */
   automationCountService: AutomationCountService;
   /** The "Reply like a person" pacing (AU19) — sub-domain 6's reply lane reads and writes it. */
   automationReplyStateService: AutomationReplyStateService;
   automationRunService: AutomationRunService;
+  broadcastSegmentService: BroadcastSegmentService;
+  /** Broadcasts (§ 7.A, ROUTE row R22): routes 70–76, the send, the segment delete's draft step. */
+  broadcastService: BroadcastService;
+  /**
+   * Broadcast recipients (§ 7.C, ROUTE row R23): the audience piece (R46's task), the "when her chat
+   * opens" row (R47), each broadcast message's result (6's result save), the skips and her reply.
+   */
+  broadcastRecipientService: BroadcastRecipientService;
   /**
    * The channels' sending ports (AU35), one record shared by the automations and the run engine —
    * Instagram's is its message service (ROUTE row R19); tests may put a recording one.
@@ -243,6 +262,47 @@ const NO_INSTAGRAM_SEND_WORK: InstagramSendWork = {
 };
 
 /**
+ * The broadcast sub-domain's services (feat-instagram-dm-sending routes-final § 7): segments
+ * (7.B, ROUTE row R21 — the `segments` switch through the channel account's one feature check, BC19)
+ * and broadcasts (7.A, ROUTE row R22 — the `broadcasts` switch, the account read, the month count
+ * and the usable-file read). The segment delete runs the broadcasts' draft step (BC17).
+ *
+ * @remarks
+ * Notes: the segments' background count and the broadcasts' send queue join at ROUTE row R46;
+ * wiring only, no side effects.
+ */
+function createBroadcastServices({
+  organizationService,
+  channelAccountService,
+  messageMonthCountService,
+  messageFilePort,
+}: {
+  organizationService: OrganizationService;
+  channelAccountService: ChannelAccountService;
+  messageMonthCountService: MessageMonthCountService;
+  messageFilePort: AutomationMessageFilePort | undefined;
+}): { broadcastSegmentService: BroadcastSegmentService; broadcastService: BroadcastService } {
+  const segmentRepository = new BroadcastSegmentRepository();
+  const featureCheck: BroadcastFeatureCheck = (input) =>
+    channelAccountService.canChannelAccountUseFeature(input);
+  const broadcastService = new BroadcastService(
+    new BroadcastRepository(),
+    segmentRepository,
+    organizationService,
+    (input) => channelAccountService.readAutomationAccount(input),
+    featureCheck,
+    { monthLimit: messageMonthCountService, messageFilePort },
+  );
+  const broadcastSegmentService = new BroadcastSegmentService(
+    segmentRepository,
+    organizationService,
+    featureCheck,
+    { deleteSteps: [(input) => broadcastService.clearDraftSegment(input)] },
+  );
+  return { broadcastSegmentService, broadcastService };
+}
+
+/**
  * The sending sub-domain's root services (routes-final § 6.A, ROUTE row R18): the lanes and their
  * stops, the global sending row (registered as the readiness body's sending check, SNC9), the
  * month count (the channel account's plan-stop port, route 64's meter) — and the connection's usage
@@ -331,8 +391,9 @@ function createInstagramSendingStatusService({
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only. Meta's 190 on a media
- * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`);
- * R53 adds the callbacks' team-alert port as the fifth argument of the callback service.
+ * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`).
+ * The callback service's lane port is 6's lane service (R18), so Meta's callbacks stop the reached
+ * accounts' lanes as route 8 does; R53 adds the callbacks' team-alert port as its sixth argument.
  */
 function createInstagramMediaAndErasureServices(options: {
   instagramAccountService: InstagramAccountService;
@@ -340,6 +401,7 @@ function createInstagramMediaAndErasureServices(options: {
   channelConnectionRepository: ChannelConnectionRepository;
   channelConnectionTokenService: ChannelConnectionTokenService;
   channelAccountService: ChannelAccountService;
+  lanePort: ChannelConnectionLanePort;
 }) {
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
@@ -355,6 +417,7 @@ function createInstagramMediaAndErasureServices(options: {
     options.channelConnectionTokenService,
     options.channelAccountService,
     instagramAccountErasureService,
+    options.lanePort,
   );
   return {
     instagramMediaService,
@@ -413,10 +476,13 @@ function createContactServices({
   cancelContactOpenRuns,
   channelSendingPorts,
   runEventReader,
+  broadcastRecipientService,
 }: {
   organizationService: OrganizationService;
   automationService: AutomationService;
   cancelContactOpenRuns: ContactPauseStep;
+  /** Broadcast recipients (7.C, R23): her waiting ones skipped at her erase and pause. */
+  broadcastRecipientService: BroadcastRecipientService;
   /** The channels' sending ports (AU35): her messages' erase / pause steps and routes 24–26. */
   channelSendingPorts: ChannelSendingPorts;
   /** Her runs' history for route 24 (4.B) — a closure, the engine is built after. */
@@ -440,6 +506,11 @@ function createContactServices({
         });
       }
     },
+    // Her waiting broadcast recipients `skipped` · `contact_deleted` (7.C BCC9, plan §20.10).
+    ({ organizationId, contactId }) =>
+      broadcastRecipientService
+        .skipContactWaitingRecipients({ organizationId, contactId, reason: 'contact_deleted' })
+        .then(() => undefined),
   ];
   // Her waiting messages skipped with the pause's reason (`contact_excluded`, `opted_out`) in its
   // commit (CTC4, AC-5.8).
@@ -465,7 +536,13 @@ function createContactServices({
     contactErasureSteps,
     (input) => automationService.findAutomationIdForFilter(input),
     {
-      pauseSteps: [cancelContactOpenRuns, skipContactWaitingMessages],
+      pauseSteps: [
+        cancelContactOpenRuns,
+        skipContactWaitingMessages,
+        // Her waiting broadcast recipients `skipped` with the pause's reason (plan §20.10).
+        (input) =>
+          broadcastRecipientService.skipContactWaitingRecipients(input).then(() => undefined),
+      ],
       tagEventRecorder: contactTagEventService,
       sendingPorts: channelSendingPorts,
       runEventReader,
@@ -493,6 +570,7 @@ function createAutomationServices({
   messageMonthCountService,
   messageFilePort,
   channelSendingPorts,
+  broadcastRecipientService,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
@@ -501,6 +579,8 @@ function createAutomationServices({
   messageFilePort: AutomationMessageFilePort | undefined;
   /** The channels' sending ports (AU35) — one record shared by the automations and the run engine. */
   channelSendingPorts: ChannelSendingPorts;
+  /** Broadcast recipients (7.C, R23) — the contact erase and pause steps. */
+  broadcastRecipientService: BroadcastRecipientService;
 }) {
   // The automation delete's hook (AU16): every step registered here runs inside route 31's
   // transaction, after the soft delete, and answers how many open runs it cancelled. Sub-domain 4.B
@@ -510,8 +590,17 @@ function createAutomationServices({
   const automationReplyStateService = new AutomationReplyStateService(
     new AutomationReplyStateRepository(),
   );
+  const automationRepository = new AutomationRepository();
+  // Past comments (4.C, R15): routes 38–39 and the automation object's open read; the read job
+  // (WC-41) is enqueued once ROUTE row R41 passes its queue here.
+  const automationBackfillService = new AutomationBackfillService(
+    new AutomationBackfillRepository(),
+    automationRepository,
+    channelAccountService,
+    organizationService,
+  );
   const automationService = new AutomationService(
-    new AutomationRepository(),
+    automationRepository,
     automationCountService,
     automationReplyStateService,
     channelAccountService,
@@ -521,6 +610,7 @@ function createAutomationServices({
     {
       monthLimit: messageMonthCountService,
       messageFiles: messageFilePort,
+      openBackfills: automationBackfillService,
       sendingPorts: channelSendingPorts,
     },
   );
@@ -530,6 +620,7 @@ function createAutomationServices({
     cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
     channelSendingPorts,
     runEventReader: (input) => automationRunService.listContactRunEvents(input),
+    broadcastRecipientService,
   });
   // The run engine (sub-domain 4.B, R14): the intake calls its entry points; it saves every step
   // as a waiting message through the channel's sending port (AU35 — the shared record, filled per
@@ -548,6 +639,7 @@ function createAutomationServices({
   contactErasureSteps.push((input) => automationRunService.eraseContactRunCopies(input));
   return {
     automationService,
+    automationBackfillService,
     automationCountService,
     automationReplyStateService,
     contactService,
@@ -643,10 +735,16 @@ export function createAppContainer({
 }): AppContainer {
   // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
   const instagramMessageService = new InstagramMessageService({
-    recordRunMessageResult: (input) => automationRunService.recordMessageResult(input),
-    recordContactOpeningMessage: (input) => contactService.recordContactOpeningMessage(input),
+    recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
+    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
+    recordContactOpeningMessage: (input) =>
+      automation.contactService.recordContactOpeningMessage(input),
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
+  // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
+  const broadcastRecipientService = new BroadcastRecipientService({
+    sendingPorts: channelSendingPorts,
+  });
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
     new ChannelConnectionTokenRepository(),
@@ -709,31 +807,23 @@ export function createAppContainer({
     sending,
     instagramMessageService,
   });
-  const {
-    instagramMediaService,
-    instagramAccountErasureService,
-    channelConnectionMetaCallbackService,
-  } = createInstagramMediaAndErasureServices({
+  const mediaAndErasure = createInstagramMediaAndErasureServices({
     instagramAccountService,
     channelConnectionService,
     channelConnectionRepository,
     channelConnectionTokenService,
     channelAccountService,
+    lanePort: sending.instagramSendLaneService,
   });
-  const {
-    automationService,
-    automationCountService,
-    automationReplyStateService,
-    contactService,
-    contactTagEventService,
-    automationRunService,
-  } = createAutomationServices({
+  // The automations, their runs and the contacts (§ 3, § 5).
+  const automation = createAutomationServices({
     organizationService,
     channelAccountService,
     planAccessService,
     messageMonthCountService: sending.messageMonthCountService,
     messageFilePort,
     channelSendingPorts,
+    broadcastRecipientService,
   });
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
@@ -747,19 +837,19 @@ export function createAppContainer({
     channelAccountService,
     instagramAccountService,
     instagramAccountSettingsService,
-    instagramMediaService,
-    instagramAccountErasureService,
-    channelConnectionMetaCallbackService,
-    contactService,
-    contactTagEventService,
+    ...mediaAndErasure,
+    ...automation,
     instagramWebhookEventService,
     instagramWebhookService,
-    automationService,
-    automationCountService,
-    automationReplyStateService,
-    automationRunService,
     channelSendingPorts,
     instagramSendingService,
+    ...createBroadcastServices({
+      organizationService,
+      channelAccountService,
+      messageMonthCountService: sending.messageMonthCountService,
+      messageFilePort,
+    }),
+    broadcastRecipientService,
     instagramMessageService,
     ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),
   };

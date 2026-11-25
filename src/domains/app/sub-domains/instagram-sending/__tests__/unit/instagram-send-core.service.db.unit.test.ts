@@ -155,6 +155,7 @@ describe('InstagramSendCoreService (database)', () => {
       recordRunMessageResult: async (input) => {
         recorded.push(input);
       },
+      recordBroadcastMessageResult: async () => undefined,
     });
     const breakPort: InstagramSendBreakPort = {
       markConnectionBroken: async (input) => {

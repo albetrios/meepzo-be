@@ -47,6 +47,8 @@ export async function seedUsersBulk(context: SeedContext): Promise<void> {
       first_name: profile.first_name,
       last_name: profile.last_name,
       job_title: profile.job_title,
+      instagram_handle: profile.instagram_handle,
+      goal: profile.goal,
     });
   }
 

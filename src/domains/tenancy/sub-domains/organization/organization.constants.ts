@@ -38,3 +38,6 @@ export const ORGANIZATION_SLUG_SUFFIX_LENGTH = 6;
 
 /** How many made slugs a create tries before answering `409 organization_slug_exists`. */
 export const ORGANIZATION_SLUG_MAX_ATTEMPTS = 4;
+
+/** The longest `q` the organization chooser takes (route 132, feat-instagram-dm-sending UN5). */
+export const ORGANIZATION_CHOOSER_SEARCH_MAX_LENGTH = 100;

@@ -72,7 +72,7 @@ const MEDIA_FIRST_PAGE = {
   ],
   paging: {
     cursors: { before: 'QVFIUbefore', after: 'QVFIUnextpage' },
-    next: 'https://graph.instagram.com/v24.0/next-page',
+    next: 'https://graph.facebook.com/v27.0/next-page',
   },
 };
 

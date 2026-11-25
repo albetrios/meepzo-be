@@ -7,6 +7,9 @@ import { channelConnectionMetaCallbackRoutes } from './sub-domains/channel-conne
 import { contactRoutes } from './sub-domains/contact/contact.routes.js';
 import { instagramWebhookRoutes } from './sub-domains/instagram-webhook/instagram-webhook.routes.js';
 import { automationRoutes } from './sub-domains/automation/automation.routes.js';
+import { broadcastRoutes } from './sub-domains/broadcast/broadcast.routes.js';
+import { broadcastSegmentRoutes } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.routes.js';
+import { automationBackfillRoutes } from './sub-domains/automation/automation-backfill/automation-backfill.routes.js';
 import { instagramSendingRoutes } from './sub-domains/instagram-sending/instagram-sending.routes.js';
 import { createAppPlanAccessPreHandler } from './app-plan-access.js';
 
@@ -23,11 +26,12 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * (`/usage`) — the sending sub-domain's two reads — its post and story pickers
  * (`/social/instagram/accounts/{channel_account_id}/media`, `…/stories`), contacts (`/contacts`), the
  * Instagram webhook (Meta's `/social/channel-connections/meta/webhooks/instagram` and the team's
- * `/social/instagram/webhook-events`), and automations (`/automations`).
+ * `/social/instagram/webhook-events`), automations (`/automations`) and their past-comments reads
+ * (`/automations/{automation_id}/backfills`), broadcasts (`/broadcasts`) and segments (`/segments`).
  *
  * @remarks
  * The read-only plan guard (`app-plan-access.ts`, AQ8) is built here from billing's subscription
- * service and attached to the automation writes only (D27).
+ * service and attached to the automation go-live and the broadcast send only (D27, BC3).
  */
 export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   const { appDomain } = app;
@@ -40,12 +44,15 @@ export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   await app.register(instagramMediaRoutes(appDomain.instagramMediaService));
   await app.register(instagramSendingRoutes(appDomain.instagramSendingService));
   await app.register(contactRoutes(appDomain.contactService));
+  const planAccessPreHandler = createAppPlanAccessPreHandler(app.billingDomain.subscriptionService);
   await app.register(
-    automationRoutes({
-      automationService: appDomain.automationService,
-      planAccessPreHandler: createAppPlanAccessPreHandler(app.billingDomain.subscriptionService),
-    }),
+    automationRoutes({ automationService: appDomain.automationService, planAccessPreHandler }),
   );
+  await app.register(
+    broadcastRoutes({ broadcastService: appDomain.broadcastService, planAccessPreHandler }),
+  );
+  await app.register(broadcastSegmentRoutes(appDomain.broadcastSegmentService));
+  await app.register(automationBackfillRoutes(appDomain.automationBackfillService));
   await app.register(
     instagramWebhookRoutes({
       instagramWebhookService: appDomain.instagramWebhookService,

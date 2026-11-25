@@ -112,10 +112,25 @@
     "contactBulkSelection": "Send either contact_ids or filter, not both",
     "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions",
     "invalidPaymentMethodId": "Must be a Stripe card id: pm_ and 1 to 250 letters or digits",
+    "segmentMessageNumber": "Send message_number with got_message, and only with it",
+    "segmentCameInValue": "Send an automation id as value for first_automation, an optional value for ref, and none for the other ways in",
+    "segmentActiveOneWindow": "Send exactly one of last_message_within_hours, last_message_within_days and first_seen_within_days",
+    "segmentConditionsTooMany": "A segment holds at most 20 conditions",
+    "segmentAudienceSelection": "Send either segment_id or conditions, not both",
+    "segmentConditionsForeignId": "An automation in the conditions is not one of this account's",
+    "segmentOfAnotherAccount": "This segment belongs to another account",
     "automationTriggerTypeGroup": "The way to start can only change within its group.",
     "automationStepsTooLarge": "The steps are too large (at most 64 KB).",
     "automationRefCodeInvalid": "Use 1 to 64 letters, digits, \"_\", \"=\" or \"-\".",
-    "automationChannelAccountUnknown": "This account is not one of the organization's accounts."
+    "automationChannelAccountUnknown": "This account is not one of the organization's accounts.",
+    "instagramHandleForm": "Use an Instagram handle: letters, digits, dots and underscores, up to 30",
+    "broadcastMessagesTooLarge": "The messages are too large (at most 64 KB).",
+    "broadcastAudienceBoth": "Send either segment_id or conditions, not both",
+    "broadcastSegmentUnknown": "This segment is not a saved segment of this account",
+    "broadcastStartAutomationUnknown": "This automation is not a live automation of this account",
+    "broadcastScheduledAtForMode": "scheduled_at goes with mode scheduled, and only with it",
+    "broadcastOpenWaitDaysForMode": "open_wait_days goes with mode when_chat_opens, and only with it",
+    "broadcastScheduledAtRange": "The time must be in the future and at most 30 days ahead"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -241,6 +256,7 @@
   "seatLimitReached": "Your plan's seat limit ({{limit}}) has been reached. Upgrade your plan or remove a member before adding another.",
   "subscriptionNotMutable": "This subscription is in a terminal state and can no longer be modified; create a new subscription instead",
   "defaultOrganizationUnavailable": "Choose an organization you're an active member of as your sign-in organization",
+  "teamOrganizationRequired": "Choose a team organization as your sign-in organization",
   "notificationPreferenceLocked": "Security and billing emails are always sent and can't be turned off",
   "planNotAvailableForBillingCycle": "This plan is not available for your subscription's billing cycle",
   "paymentProviderUnavailable": "The payment provider is temporarily unavailable. Please try again.",
@@ -291,10 +307,13 @@
     "Instagram account": "Instagram account",
     "Contact": "Contact",
     "Automation": "Automation",
+    "Past-comments read": "Past-comments read",
     "Channel connection": "Channel connection",
     "Channel account": "Channel account",
     "Ad account": "Ad account",
-    "Payment method": "Payment method"
+    "Payment method": "Payment method",
+    "Segment": "Segment",
+    "Broadcast": "Broadcast"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",
@@ -315,10 +334,14 @@
   "emailAlreadyConfirmed": "Your email is already confirmed",
   "emailConfirmationResendTooSoon": "A confirm link was just sent. Wait a moment before asking for a new one.",
   "emailConfirmTokenInvalid": "This confirm link is not valid any more. Ask for a new one.",
+  "segmentCountUnavailable": "This audience is too large to count right now. Try again later.",
   "automationNotReady": "This automation is not ready to go live — fix the {{count}} problem(s) listed.",
   "automationContentInvalid": "This automation cannot be saved — fix the problems listed.",
   "automationRefCodeExists": "This link name is used by \"{{name}}\". Choose another one.",
   "automationTransitionNotAllowed": "A draft cannot be paused. Go live first.",
+  "automationNotLive": "Past comments can only be answered by a live automation. Go live first.",
+  "automationBackfillNotSupported": "Past comments can be answered only by a comment or ad comment automation.",
+  "automationBackfillInProgress": "Past comments are already being read.",
   "automationProblems": {
     "missing": "Fill this in.",
     "too_many": "Too many — remove some.",
@@ -348,5 +371,15 @@
   "automationWarnings": {
     "keywordShared": "\"{{keyword}}\" is also used by \"{{name}}\".",
     "accountPrivate": "@{{username}} is private. Comment automations can't work until it is public."
+  },
+  "broadcastTransitionNotAllowed": "This broadcast cannot do that now.",
+  "broadcastNotDraft": "Only a draft broadcast can be edited.",
+  "broadcastActive": "This broadcast is still active. Cancel it first.",
+  "broadcastIncomplete": "This broadcast is not ready to send.",
+  "messageMonthLimitReached": "You used all your DMs this month. Upgrade, or wait until the 1st.",
+  "broadcastProblems": {
+    "messages_missing": "Add at least one message.",
+    "audience_missing": "Choose who gets it: a segment or conditions.",
+    "file_not_usable": "This file is not uploaded or cannot be sent."
   }
 }

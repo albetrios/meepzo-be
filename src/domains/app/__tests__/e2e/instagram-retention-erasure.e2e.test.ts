@@ -87,6 +87,8 @@ import {
   runOf,
   say,
   writeHistory,
+  writeSegmentHistory,
+  writeBroadcastHistory,
   writeSendingHistory,
 } from './instagram-retention-erasure.helper.js';
 
@@ -604,6 +606,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         channel_connections: _connections,
         channel_connection_tokens: tokensBefore,
         instagram_media: postsBefore,
+        instagram_send_lanes: lanesBefore,
         ...before
       } = await readAppRowsOfOrganization(team.organization.id);
       expect(tokensBefore).toHaveLength(1);
@@ -619,6 +622,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         channel_connections: connections,
         channel_connection_tokens: tokens,
         instagram_media: posts,
+        instagram_send_lanes: lanes,
         ...untouched
       } = after;
       // The extension's profile is erased; its status is the channel account's (R6).
@@ -631,6 +635,14 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(connections).toEqual([expect.objectContaining({ status: 'revoked' })]);
       expect(tokens).toEqual([]);
       expect(posts).toEqual([]);
+      // The revoked account's sending lanes stop, as route 8's do (CA8; the R9 × R18 fix).
+      expect(lanesBefore?.map((lane) => lane.state)).toEqual(['ready', 'ready', 'ready', 'ready']);
+      expect(lanes?.map((lane) => lane.state)).toEqual([
+        'stopped',
+        'stopped',
+        'stopped',
+        'stopped',
+      ]);
       expect(untouched).toEqual(before);
       expect(await readRunRow(waitingRun.id)).toMatchObject({ status: 'waiting' });
 
@@ -652,6 +664,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         const automations = await historyAutomations({ team });
         await writeHistory({ app, team, person, automations });
         await writeSendingHistory(team.organization.id);
+        await writeSegmentHistory(team.organization.id);
+        await writeBroadcastHistory(team.organization.id);
         teams.push(team);
       }
       const [team, otherTeam] = teams as [ConnectedInstagramTeam, ConnectedInstagramTeam];

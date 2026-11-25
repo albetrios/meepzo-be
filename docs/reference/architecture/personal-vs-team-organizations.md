@@ -128,7 +128,7 @@ not listed operates on the active organization regardless of type.
 | `POST /auth/switch-to-personal`                             | 200                                 | 200                         | **404** (no personal organization) |
 | `POST /auth/switch-to-organization`                         | — (no teams)                        | 200                         | 200                       |
 | `POST /tenancy/organizations` (create team)                 | **403** `teamOrganizationsDisabled` | 200                         | 200                       |
-| `GET /users/me/organizations` (list all)                    | 200 (personal)                      | 200                         | 200                       |
+| `GET /users/me/organizations` (the chooser — team only)     | 200 (empty: personal never listed)  | 200 (team only)             | 200                       |
 | `DELETE /tenancy/organization`                              | **422**                             | 204 team · **422** personal | 204                       |
 | `POST /tenancy/organization/memberships`                    | **422**                             | 200 team · **422** personal | 200                       |
 | `POST /tenancy/organization/memberships/{membership_id}/restore` | **404**                        | 200 team · **404** personal | 200                       |

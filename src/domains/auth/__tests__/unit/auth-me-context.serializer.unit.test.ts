@@ -27,6 +27,8 @@ const baseData = (overrides: Partial<AuthMeContextData> = {}): AuthMeContextData
     first_name: 'A',
     last_name: 'B',
     job_title: null,
+    instagram_handle: null,
+    goal: null,
     avatar_url: null,
     presence: 'online',
     status: 'ACTIVE',

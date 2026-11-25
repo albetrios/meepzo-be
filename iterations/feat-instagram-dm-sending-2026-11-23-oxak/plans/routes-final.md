@@ -653,7 +653,7 @@ Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `cre
 | MCC6 | MC10, MC11: `channel-connection/queues/channel-connection-token-check.{queue,job.schema}.ts` (`organizationPublicId`, `channelConnectionPublicId`), `workers/channel-connection-token-check.{worker,processor}.ts` (on `instagram-tasks`, never paused; the hourly sweep as a second job name under `runGlobalRetentionWorkerJob`), registry, `WORKER_QUEUE_NAMES`, scheduler; the launch's `instagram-account-daily-check` queue, worker and tests removed (WC-35); `markConnectionBroken` on the connection; tests: due / not due, OK clears the error, a missing account → `error`, 190 → connection and every account `error` with one notice each, Meta down changes nothing, twice = once |
 | MCC7 | **Built R3** (the bulk seed in `channel-connection/seed/`; the RLS lane by `pnpm test:rls-role`). MC12, tests and seeds: the audit actions; integration tests for every success and error of 1.9, two first connects racing (the advisory lock), a pick over the limit, one pick elsewhere while the others connect, a reconnect that moves an account; RLS test as `meepzo_be_app`; bulk seed — each demo team organization gets one connection with a fake encrypted token (`channel-connection/seed/`); `pnpm routes:catalog`, success statuses, `docs:generate` |
 | MCC8 | **Built R4** (the break of MC11 built with it, the account read first, `instagram_user_id` — [P401](decisions.md), [P402](decisions.md)). MC13: routes 41 and 15 (client calls for ad accounts and ads, DTO, serializer, `meta.ad_access`, the match of an ad to a channel account by Instagram id); reason `ad_account_not_found`; nock tests — paging passed through, no `ads_read` → empty lists, the break on 190, an `error` connection `404` |
-| MCC9 | **Built R9** (the callbacks at the folder root as `channel-connection-meta-callback.*`, not a nested sub-domain; resolver (1) over `app.channel_accounts` joined to the connection's `provider` with `idx_channel_accounts_provider_account`; a business match also revokes a connection of that business left with no account; audit `app.channel_connection.*` with `match` — [P211](decisions.md); the team email behind `ChannelConnectionMetaCallbackTeamAlertPort` until R53, an error-level log meanwhile — [P212](decisions.md)). MC14–MC16: the `signed_request` plugin on `META_APP_SECRET` at the two new paths; the two new resolvers (account, then business — P56) and `idx_channel_connections_provider_business` in the account migration (the app-user resolver dropped), their security tests as `meepzo_be_app`; the disconnect through CA8's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an account-id match, a business-id match that reaches every account of its connection, an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
+| MCC9 | **Built R9** (the callbacks at the folder root as `channel-connection-meta-callback.*`, not a nested sub-domain; resolver (1) over `app.channel_accounts` joined to the connection's `provider` with `idx_channel_accounts_provider_account`; a business match also revokes a connection of that business left with no account; audit `app.channel_connection.*` with `match` — [P211](decisions.md); the team email behind `ChannelConnectionMetaCallbackTeamAlertPort` until R53, an error-level log meanwhile — [P212](decisions.md); the reached accounts' lanes stopped through `ChannelConnectionLanePort.stopLanes` in each organization's erase unit, as route 8 — the R9 × R18 fix in [AS-BUILT](../AS-BUILT.md)). MC14–MC16: the `signed_request` plugin on `META_APP_SECRET` at the two new paths; the two new resolvers (account, then business — P56) and `idx_channel_connections_provider_business` in the account migration (the app-user resolver dropped), their security tests as `meepzo_be_app`; the disconnect through CA8's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an account-id match, a business-id match that reaches every account of its connection, an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
 | MCC10 | **Built R3** (the shared segment works in Fastify's router — the integration suite drives every path; the frontend map row at R63). MC1, MC17: a router test that `{provider}` and `{channel_connection_id}` resolve on the same segment (`meta/start`, `meta/deauthorize` vs `<id>/accounts`, `<id>/ads`, `DELETE <id>`); the route catalog and frontend map rows of routes 40–42 |
 | MCC11 | **Built R3**. MC18: the token schema and migration — `encrypted_refresh_token`, `token_type` `oauth_user`, the two checks; the token service writes `system_user` for Meta and never a refresh token; the isolation policy test covers the new column (read only on the client path); a unit test that a refresh token is stored encrypted |
 | MCC12 | **Built R2 behind the store ports** (the store in R3, callers in R20/R39/R41/R42 — [P107](decisions.md)). MC19: the Meta client parses `X-Business-Use-Case-Usage` and the app usage header on every answer and writes the connection's three usage columns in its own unit (an older reading dropped); `readConnectionUsage` and `channel-connection-usage.cache.ts` under be-read-cache-guard (key from the verified scope, tombstone after the write, fail open, TTL ≤ 60 s, the five tests); callers in 4.C, 5 and 6 switched to it; nock tests — 80 % slows, 95 % waits until Meta's time or 15 minutes, a missing header changes nothing |
@@ -2238,7 +2238,7 @@ Indexes: unique `idx_automation_backfills_public_id`; unique `idx_automation_bac
 automation_id) WHERE status IN ('queued', 'reading')`; `idx_automation_backfills_watch` `(status, updated_at) WHERE status
 IN ('queued', 'reading')` (the 10-minute watch across organizations); `idx_automation_backfills_account_queued`
 `(organization_id, channel_account_id, created_at) WHERE status = 'queued'` (the next read of an account);
-`idx_automation_backfills_requested_by_user_id` `WHERE requested_by_user_id IS NOT NULL`. Checks: days, status,
+`idx_automation_backfills_requested_by_user_id` `WHERE requested_by_user_id IS NOT NULL`; as built (R15, [P311](decisions.md)) also the plain `idx_automation_backfills_automation_created_at` `(organization_id, automation_id, created_at)` and `idx_automation_backfills_organization_id_channel_account_id` — every foreign key needs a non-partial index (index hygiene). Public id prefix `abf_` (P22). Checks: days, status,
 `fail_reason` set exactly when `failed`, counters, `_updated`. RLS: enabled and forced, organization policy with the
 maintenance arm (the watch). Kept with its automation (a few rows each).
 
@@ -2296,7 +2296,7 @@ As 4.5.
 
 | # | Change |
 | --- | --- |
-| AUC12 | AU31–AU33: `automation-backfill/` — schema (4.C.3) in the automations migration, repository, service, controller, routes with schemas (`idempotencyRequired` on 38), DTO, serializer; `automation-backfill/workers/automation-backfill-read.*` and the 10-minute watch (`instagram-tasks`, provider-pausable, registry, scheduler, DLQ); the `automation.backfill_done` notification type with copy keys (with sub-domain 11); reasons `automation_not_live`, `automation_backfill_not_supported`, `automation_backfill_in_progress`, `automation_backfill_not_found`; tests — one open per automation, one read per account at a time, a stuck read restarted, a move down → `failed` `plan_feature_off`, a repeat key replays |
+| AUC12 | AU31–AU33 (routes, table and the enqueue port built at R15 — [P311](decisions.md); the read job, the watch and the notice at R41): `automation-backfill/` — schema (4.C.3) in the automations migration, repository, service, controller, routes with schemas (`idempotencyRequired` on 38), DTO, serializer; `automation-backfill/workers/automation-backfill-read.*` and the 10-minute watch (`instagram-tasks`, provider-pausable, registry, scheduler, DLQ); the `automation.backfill_done` notification type with copy keys (with sub-domain 11); reasons `automation_not_live`, `automation_backfill_not_supported`, `automation_backfill_in_progress`, `automation_backfill_not_found`; tests — one open per automation, one read per account at a time, a stuck read restarted, a move down → `failed` `plan_feature_off`, a repeat key replays |
 | AUC13 | AU34, AU35 (rev 3, P48, P50): the shared names — `automation/` (+ `automation-run/`, `automation-backfill/`), the seven `app.automation…` tables, `idx_automation…`, `chk_automation…`, `automation-steps.dto.ts`, audit `app.automation.*`; `chk_automations_channel`; the go-live list over 1B's `listChannelAccountFeatureProblems` (the separate PRO and untested checks removed); `app.channel-ports.ts` — `ChannelSendingPort`, `SaveWaitingMessageInput`, `ChannelMessageResult`, `ChannelInboundEventKind` — and its per-channel wiring in `app.container.ts`; the engine writes only through the port; tests — a fake second channel's port receives the engine's waiting messages, a result `skipped` / `unknown` moves the run as AU25, a repeat result does nothing, go-live lists each feature-check reason; a policy test that `automation/` imports no `instagram-*` folder |
 
 ---
@@ -3479,13 +3479,14 @@ BCQ1 (7.2) — the purge horizon; answered P75: 90 days.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `channel_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
-| `channel` | `varchar(20)` | no | | copied from the account at create (P48; written here in rev 5 — P99); `chk_broadcasts_channel` (`instagram`) |
+| `channel` | `varchar(10)` | no | `'instagram'` | the account's, copied at create (P48, P99, BC18 — as `app.segments`, [P309](decisions.md)); `chk_broadcasts_channel` (`instagram`) |
 | `name` | `varchar(255)` | no | | 1–255 after trim |
 | `status` | `varchar(17)` | no | `'draft'` | `draft` · `scheduled` · `sending` · `waiting_for_chats` · `done` · `cancelled` |
 | `mode` | `varchar(15)` | no | `'now'` | `now` · `scheduled` · `when_chat_opens`; set by send |
 | `segment_id` | `bigint` | yes | | composite (`organization_id`, `segment_id`) → `app.segments` `ON DELETE SET NULL (segment_id)` |
-| `conditions` | `jsonb` | yes | | the one-off conditions, then the copy; set whenever `status <> 'draft'` |
-| `messages` | `jsonb` | no | `'[]'` | an array; 1–3 when `status <> 'draft'`; ≤ 64 KB |
+| `conditions` | `jsonb` | yes | | the one-off conditions, then the copy; set once sent (`status` not `draft` or `cancelled`) |
+| `messages` | `jsonb` | no | `'[]'` | an array; 1–3 once sent (`status` not `draft` or `cancelled` — a draft may be cancelled, BC9); ≤ 64 KB |
+| `start_automation_id` | `bigint` | yes | | the live automation of the same account its button starts (BC8); composite → `app.automations` `ON DELETE SET NULL (start_automation_id)` ([P213](decisions.md)) |
 | `scheduled_at` | `timestamptz` | yes | | `(mode = 'scheduled') = (scheduled_at IS NOT NULL)` when not `draft` |
 | `ends_at` | `timestamptz` | yes | | `(mode = 'when_chat_opens') = (ends_at IS NOT NULL)` when not `draft` |
 | `started_at`, `finished_at`, `cancelled_at` | `timestamptz` | yes | | `(status = 'cancelled') = (cancelled_at IS NOT NULL)` |
@@ -3497,8 +3498,9 @@ Indexes: unique `public_id`; unique (`organization_id`, `id`); `WHERE deleted_at
 `channel_account_id`, `created_at DESC`, `id DESC`) — the list; `(scheduled_at) WHERE status = 'scheduled'` — the start
 duty; (`organization_id`, `channel_account_id`) `WHERE status = 'waiting_for_chats'` — intake's "does a broadcast wait for
 her"; `(ends_at) WHERE status = 'waiting_for_chats'` and `(organization_id, id) WHERE status IN ('sending', 'cancelled')` —
-the end duty; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge; `(segment_id) WHERE segment_id IS NOT NULL` — the
-foreign key. RLS as 7.3; in `EXPECTED_FORCE_RLS_TABLES`.
+the end duty; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge; `(organization_id, segment_id) WHERE segment_id IS NOT NULL` — the
+foreign key (its columns lead, index hygiene); as built also `(organization_id, channel_account_id)` (the account cascade), the
+name sort, `(organization_id, start_automation_id)` and the user columns ([P213](decisions.md)). RLS as 7.3; in `EXPECTED_FORCE_RLS_TABLES`.
 
 #### 7.A.4 Permissions
 
@@ -3518,7 +3520,7 @@ As 7.5.
 
 **Broadcast**: `id` (`brc_…`), `channel_account_id`, `name`, `status`, `mode`, `segment_id`, `conditions` (the one-off
 conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at`, `started_at`, `finished_at`,
-`cancelled_at`, `cancel_reason`, `numbers` `{ matched, sent, skipped, failed, replies, taps }`, `created_by_user_id`,
+`cancelled_at`, `cancel_reason`, `numbers` `{ matched, sent, skipped, failed, replies, taps }`, `start_automation_id` (`aut_…` or `null`, [P213](decisions.md)), `created_by_user_id`,
 `created_at`, `updated_at`.
 
 #### 7.A.7 Routes (70–76)
@@ -3538,9 +3540,9 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
 | 70 | `channel_account_id*`, `status` (several), `mode`, `q`, `sort` = `created_at` (default, newest first) \| `name`, `order`, `limit`, `after` | — | Broadcast[] |
-| 71 | — | `channel_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3) | Broadcast |
+| 71 | — | `channel_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3), `start_automation_id` | Broadcast |
 | 72 | — | — | Broadcast |
-| 73 | — | optional: `name`, `segment_id` or `conditions` (sending one clears the other), `messages`; `expected_updated_at` | Broadcast |
+| 73 | — | optional: `name`, `segment_id` or `conditions` (sending one clears the other), `messages`, `start_automation_id` (`null` clears); `expected_updated_at` | Broadcast |
 | 74 | — | — | 204 |
 | 75 | — | `mode*` = `now` \| `scheduled` \| `when_chat_opens`; `scheduled_at` (exactly for `scheduled`); `open_wait_days` 1–7 (exactly for `when_chat_opens`) | Broadcast |
 | 76 | — | — (empty object) | Broadcast |
@@ -3576,6 +3578,7 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | # | Change |
 | --- | --- |
 | BCC6 | BC8–BC11: schema, repository, service, DTOs (the automation's message schema imported from its DTO — reuse, one schema), validators, serializer, controller and routes 70–76 with their schema blocks; the transitions in one guarded `UPDATE … WHERE status = <from>` each; the send transaction (copy, checks, audit after commit, the task add after commit); integration tests for every row of 7.A.9, a cursor across pages, and another organization's broadcast `404` (also as `meepzo_be_app` and in the `test:rls-role` lane) |
+| R22 as built | [AS-BUILT](../AS-BUILT.md) row R22, [P213](decisions.md): prefix `brc`; `start_automation_id` column for the button; FK-led indexes (`(organization_id, segment_id)`, the account cascade, the name sort) and the messages' `idx_instagram_messages_broadcast` rebuilt as `(organization_id, broadcast_id, status)` with `instagram_messages_broadcast_fk` in the broadcasts' migration; `started_at` of a `scheduled` send set by the start duty (R47); the send's background work behind `BroadcastSendQueuePort` (R46); cancel settles nothing until the end duty (R47); seeds in `broadcast/seed/` |
 | BCC7 | The repair duties: `workers/broadcast-start.duty.ts` (WC-28: due `scheduled` → `sending` + audience task) and `workers/broadcast-end.duty.ts` (WC-29: `done` and the cancelled settle, pieces of 500 until its 40 s budget — P94; the in-app notice); intake's hook `BroadcastService.handleChatOpened` for `when_chat_opens` (called by sub-domain 5 in its event transaction) |
 
 ---
@@ -3661,10 +3664,11 @@ As 7.5.
 | 78, 80, 82 | `400` · `conditions` | not the tree of BC12: an unknown field or key, over 2 levels, over 20 conditions, an id that is not this account's |
 | 78, 80 | `400` · `name` | empty or over 255 after trim |
 | 82 | `400` · `segment_id` / `conditions` | neither or both; a segment of another account |
-| 78 | `404` · `instagram_not_connected` | the account is not this organization's (a `revoked` one may still hold segments: allowed) |
+| 78, 82 | `404` · `channel_account_not_found` | the account is not this organization's (a `revoked` one may still hold segments: allowed) — 1B's account error, as built at R21 ([P309](decisions.md)) |
 | 80 | `409` · `record_changed` | a stale `expected_updated_at` |
 | 79–82 | `404` · `segment_not_found` | absent, deleted or another organization's |
 | 78, 80, 82 | `403` · `plan_lacks_feature` | a plan without the `segments` switch — Free (BC19, P76) |
+| 82 | `503` · `segment_count_unavailable` | the inline count passed its 2 s and the background count (R46) is not wired yet — as built at R21 ([P309](decisions.md)) |
 
 #### 7.B.10 Rules worth knowing
 
@@ -3675,6 +3679,7 @@ As 7.5.
 | # | Change |
 | --- | --- |
 | BCC8 | BC12–BC15: schema, repository (with the audience builder and its statement timeout), service, the `segmentConditionsSchema` DTO (one schema for segments and broadcasts' one-off conditions), validator, serializer, controller, routes 77–82; the `segment-count` task handler and its cache file (be-read-cache-guard's five tests); unit tests: every field and the 2-level and 20-condition limits; DB tests: each condition against seeded contacts, the always-left-out rules, the open-window count; delete empties drafts' `segment_id` |
+| R21 as built | [AS-BUILT](../AS-BUILT.md) row R21, [P309](decisions.md), [P310](decisions.md): prefix `seg`; the `segment-count` task and its cache behind `SegmentBackgroundCountPort` (R46); delete's draft step behind `SegmentDeleteStep` (R22); media ids checked by shape; `got_message` N reads the run's `last_message_number >= N` (since the R14 merge); seeds in `broadcast-segment/seed/` |
 | BCC11 | BC19: the `segments` feature check on routes 78, 80 and 82 (through 1B's `canChannelAccountUseFeature`); the `errors:` copy (`src/shared/locales/en/` first); tests — Free `403` on 78, 80, 82 and `200` on 77, 79, 81; Creator `200`; a trial's segment still readable after a move down |
 
 ---
@@ -3749,6 +3754,7 @@ None of its own.
 | --- | --- |
 | BCC9 | BC16, BC17: schema, repository and `BroadcastRecipientService` (create on conflict, put back `owner_chat`, settle); the audience task handler (WC-40, 500 a piece, chained); the recipient clean-up in sub-domain 6's hourly clean-ups (WC-53, `deleteInBatchesByCondition` until the time budget, 90 days — P92); contact's erasure step registered by the app container; DB tests: a second audience build makes no second row, `owner_chat` comes back once, the 90-day delete |
 | BCC10 | BC18 (rev 3): the shared names — `broadcast/` (+ `broadcast-segment/`, `broadcast-recipient/`), `app.broadcasts`, `app.segments`, `app.broadcast_recipients`, their indexes and checks, `BroadcastService`, `BroadcastRecipientService`, audit `app.broadcast.*`, `app.segment.*`, the seed folder `broadcast/seed/`; writes through `ChannelSendingPort` and `recordMessageResult` on the recipient service; route 75's feature check; tests — a fake second channel's port receives the audience's messages, a `skipped` result moves the recipient, a policy test that `broadcast/` imports no `instagram-*` folder |
+| R23 as built | [AS-BUILT](../AS-BUILT.md) row R23, [P214](decisions.md): `app.broadcast_recipients` as 7.C.3 (`reason` shape-checked, not a value list — the message reasons are each channel's; `version_number` empty — broadcast messages have no versions); `BroadcastRecipientService` — `buildAudiencePiece` (one piece of 500, the task that chains them R46), `addChatOpenedRecipient` (create, or `owner_chat` back to `waiting` with a new message 1 — intake's hook R47), `recordMessageResult` (message 1 settles her and the numbers; a `sent` N saves N + 1), `skipContactWaitingRecipients` (erase and pause steps), `skipBroadcastWaitingRecipients` (the end duty's piece, R47), `recordContactReply` (intake, R38); the 90-day delete R50 |
 
 ---
 
@@ -5277,8 +5283,8 @@ Every route can answer the errors in 11.5; each route's own errors are in its ne
 
 | # | Change |
 | --- | --- |
-| UNC1 | UN1: the three ports (types in `src/shared/` beside the existing cross-domain port types, wired in `src/routes.ts` and the worker bootstrap; the app's implementations are sub-domain 3–6's services); `src/domains/user/user.overview.md`, `src/domains/notify/notify.overview.md`, `src/FLOWS.md` (notification flow) |
-| UNC2 | UN2: `resolveNotificationRecipients` in `notification-dispatch.service.ts` over the membership service; tests per rule |
+| UNC1 | UN1: the three ports (each declared by its consumer, as the launch's erase-step port — the chooser's `OrganizationCountsPort` in tenancy's `organization.service.ts` — and wired in the composition roots `domain-containers.plugin.ts` and `worker-containers.ts`; the app's implementations are sub-domain 1B–6's services — the chooser's is `ChannelAccountService.listOrganizationCountsForUser`, R34, [P407](decisions.md)); `src/domains/user/user.overview.md`, `src/domains/notify/notify.overview.md`, `src/FLOWS.md` (notification flow) |
+| UNC2 | UN2: `resolveNotificationRecipients({ scope, rule, subjectUserId })` in `notification-dispatch.service.ts` over the membership service (`findActiveUserIdsWithPermission`, `findActiveUserIds`; `subjectUserId` = the member a team change is about, or who started it — R34, [P407](decisions.md)); tests per rule |
 
 ### 11.12 Nested sub-domains
 
@@ -5317,10 +5323,12 @@ None.
 `auth.user_settings` (changed — migration `user_settings_reduce_motion`): `is_reduce_motion_enabled boolean NOT NULL DEFAULT false`.
 
 The app function (app migration `app_member_organization_counts`): `SECURITY DEFINER`, `SET search_path` pinned, `STABLE`, owned by
-the migration role, `EXECUTE` granted to `meepzo_be_app` only; for each given organization with an active membership of the user:
+the migration role, `EXECUTE` granted to `meepzo_be_app` and `meepzo_be_maintenance` only (the role-taxonomy policy, [P407](decisions.md)); for each given organization with an active membership of the user:
 `members_count` (active members), `channel_accounts_count` (not revoked), `live_automations_count` (`status = 'live'`, not
 deleted). It reads `tenancy.memberships`, `app.channel_accounts`, `app.automations` through their existing organization indexes.
-No index change. RLS unchanged.
+No index change. RLS unchanged. The main role is read through tenancy's SECURITY DEFINER
+`tenancy.resolve_main_roles_for_user(user_public_id, organization_ids)` (migration `tenancy_resolve_main_roles_for_user`):
+`tenancy.roles` is organization-only under RLS in the chooser's user scope (R34, [P407](decisions.md)).
 
 #### 11.A.4 Permissions
 
@@ -5335,7 +5343,8 @@ As 11.5.
 #### 11.A.6 Objects returned
 
 **Me** (as built) + `instagram_handle`, `goal`. **Settings** (as built) + `is_reduce_motion_enabled`. **Organization summary**
-(route 132): `id`, `name`, `slug`, `logo_color` (9.A), `logo_url`, `role` (`{ id, name }`), `members_count`,
+(route 132): the organization as built (`id`, `name`, `slug`, `type`, `status`, `owner_user_id`, `logo_color` (9.A), `logo_url`,
+`timezone`, `currency`, timestamps — kept, additive, [P407](decisions.md)) + `role` (`{ id, name }`), `members_count`,
 `channel_accounts_count`, `live_automations_count`.
 
 #### 11.A.7 Routes (130–132, 148–149)

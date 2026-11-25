@@ -8,10 +8,12 @@ User profile, settings, notification preferences, and GDPR data export. The doma
 
 What it owns:
 
-- The `users` table (email, status, profile fields, `deleted_at` for soft-delete).
+- The `users` table (email, status, profile fields — onboarding's `instagram_handle` and `goal` included, feat-instagram-dm-sending UN3 — `deleted_at` for soft-delete).
 - The `user_settings`, `user_notification_preferences`, and `user_data_exports` resource tables.
 - The GDPR export pipeline that produces a downloadable bundle of every row this user owns across the platform.
 - The `GET /api/v1/users/me` and the user profile / settings / preferences APIs, and `POST /api/v1/users/me/email-confirmation` (the confirm-your-email link — the token flow is auth's `EmailConfirmationService`, injected into the user routes; the link's page posts to `POST /auth/email/confirm`).
+
+- `GET /api/v1/users/me/organizations` — the organization chooser (feat-instagram-dm-sending UN5): tenancy's `OrganizationService.listForUser` in the caller's scope — team organizations only, a `q` name search, each with the caller's main role and the counts (members, channel accounts, live automations). The counts are the app's data and reach tenancy through a port (`OrganizationCountsPort`, UN1): the app implements it (`ChannelAccountService.listOrganizationCountsForUser` over the SECURITY DEFINER `app.list_organization_counts_for_user`), wired in the composition roots, so neither user nor tenancy imports the app.
 
 What it does not own: credentials (lives in [auth](src/domains/auth/)), organization membership (lives in [tenancy](src/domains/tenancy/)), audit history (lives in [audit](src/domains/audit/)).
 

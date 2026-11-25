@@ -58,6 +58,7 @@ describe('ChannelSendingPort — Instagram reports each result to the engine onc
       recordRunMessageResult: async (input) => {
         recorded.push(input);
       },
+      recordBroadcastMessageResult: async () => undefined,
     });
   });
 

@@ -42,6 +42,7 @@ import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-ta
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_counts } from '@/domains/app/sub-domains/automation/automation-count.schema.js';
 import { automation_reply_states } from '@/domains/app/sub-domains/automation/automation-reply-state.schema.js';
+import { automation_backfills } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { instagram_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.schema.js';
@@ -50,6 +51,9 @@ import { automation_comment_logs } from '@/domains/app/sub-domains/automation/au
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
 import { instagram_attachments } from '@/domains/app/sub-domains/instagram-sending/instagram-attachment/instagram-attachment.schema.js';
+import { segments } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.schema.js';
+import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
+import { broadcast_recipients } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -839,6 +843,45 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     contactTagEventIds,
   );
 
+  // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.
+  const segmentIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [segment] = await database
+      .insert(segments)
+      .values({
+        public_id: generatePublicId('segment'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        name: `RLS matrix segment ${side}`,
+        conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },
+      })
+      .returning();
+    segmentIds[side] = segment!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'segments' }), segmentIds);
+
+  // Broadcasts (feat-instagram-dm-sending R22): one draft of each organization's account.
+  const broadcastIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [broadcast] = await database
+      .insert(broadcasts)
+      .values({
+        public_id: generatePublicId('broadcast'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        name: `RLS matrix broadcast ${side}`,
+      })
+      .returning();
+    broadcastIds[side] = broadcast!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'broadcasts' }), broadcastIds);
+
   // The automation sub-domain (feat-instagram-dm-sending R13): one draft comment automation of each
   // organization's channel account, its count slot and its reply state.
   const automationIds = { organizationA: 0, organizationB: 0 };
@@ -882,6 +925,31 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'automation_reply_states' }),
     automationReplyStateIds,
+  );
+
+  // The past-comments reads (feat-instagram-dm-sending R15): one done read of each organization's
+  // automation.
+  const automationBackfillIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [backfill] = await database
+      .insert(automation_backfills)
+      .values({
+        public_id: generatePublicId('automationBackfill'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        automation_id: automationIds[side],
+        days: 3,
+        status: 'done',
+      })
+      .returning();
+    automationBackfillIds[side] = backfill!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_backfills' }),
+    automationBackfillIds,
   );
 
   // The run engine (launch R10): one waiting run of each organization's automation for its
@@ -981,6 +1049,28 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     attemptIds[side] = attempt!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'instagram_messages' }), messageIds);
+
+  // Broadcast recipients (feat-instagram-dm-sending R23): each organization's contact on its draft.
+  const broadcastRecipientIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [recipient] = await database
+      .insert(broadcast_recipients)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        broadcast_id: broadcastIds[side],
+        contact_id: contactIds[side],
+      })
+      .returning();
+    broadcastRecipientIds[side] = recipient!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'broadcast_recipients' }),
+    broadcastRecipientIds,
+  );
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_send_attempts' }),
     attemptIds,

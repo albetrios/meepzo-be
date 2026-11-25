@@ -29,6 +29,6 @@
       "before": "QVFIUkdGRXA2eHNNTUs4T1ZAXNGFxQTAtd3U4",
       "after": "QVFIUmlwbnFsM3N2cV9lZAFdCa0hDeV9qMVliT0Vu"
     },
-    "next": "https://graph.instagram.com/v24.0/8724123456789012/media?access_token=IGAA-contract-fixture-account-access-token&fields=id&limit=2&after=QVFIUmlwbnFsM3N2cV9lZAFdCa0hDeV9qMVliT0Vu"
+    "next": "https://graph.facebook.com/v27.0/8724123456789012/media?access_token=EAAG-contract-fixture-account-access-token&fields=id&limit=2&after=QVFIUmlwbnFsM3N2cV9lZAFdCa0hDeV9qMVliT0Vu"
   }
 }

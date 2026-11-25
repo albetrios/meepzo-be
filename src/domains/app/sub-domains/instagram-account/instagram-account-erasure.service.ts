@@ -2,6 +2,7 @@ import {
   type OrganizationPrincipalDatabaseScope,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
 import type { InstagramAccountService } from './instagram-account.service.js';
 import type {
@@ -117,7 +118,9 @@ export class InstagramAccountErasureService {
   }): Promise<InstagramAccountErasure | null> {
     let erasedPostCount = 0;
     const instagramAccountPublicIds: string[] = [];
+    const revokedChannelAccounts: ChannelAccountKey[] = [];
     for (const account of accounts) {
+      if (account.wasRevoked) revokedChannelAccounts.push(account.channelAccount);
       const accountPostCount = shouldEraseData
         ? await this.mediaService.deleteForAccount({
             scope,
@@ -135,6 +138,6 @@ export class InstagramAccountErasureService {
       }
     }
     if (instagramAccountPublicIds.length === 0) return null;
-    return { instagramAccountPublicIds, erasedPostCount };
+    return { instagramAccountPublicIds, erasedPostCount, revokedChannelAccounts };
   }
 }

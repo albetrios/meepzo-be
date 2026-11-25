@@ -1,6 +1,7 @@
 import {
   ConflictError,
   ForbiddenError,
+  ConfigurationError,
   NotFoundError,
   UnprocessableEntityError,
   ValidationError,
@@ -18,13 +19,15 @@ import type { OrganizationRepository } from './organization.repository.js';
 import type {
   Organization,
   OrganizationBillingContext,
+  OrganizationChooserOutput,
+  OrganizationCounts,
   OrganizationMembershipContext,
   OrganizationOutput,
 } from './organization.types.js';
 import {
   validateCreateOrganization,
   validateUpdateOrganization,
-  validateListOrganizationsQuery,
+  validateListOrganizationChooserQuery,
   validateUploadLogo,
 } from './organization.validator.js';
 import { buildDomainEvent, eventBus } from '@/core/events/event-bus.js';
@@ -149,6 +152,27 @@ export type OrganizationInstagramOffboardingPort = {
 };
 
 /**
+ * The app's counts port for the organization chooser (feat-instagram-dm-sending UN1, UN5): members,
+ * channel accounts and live automations of the caller's organizations.
+ *
+ * @remarks
+ * - **Algorithm:** declared here as a minimal interface (not an import of the `app` domain's service)
+ *   so the chooser can show app numbers without tenancy depending on `app`, which already depends on
+ *   tenancy — the launch's erase-step pattern ({@link OrganizationInstagramOffboardingPort}). The app's
+ *   implementation calls one SECURITY DEFINER function once per page.
+ * - **Failure modes:** the implementer propagates a database failure; the route answers 500.
+ * - **Side effects:** none — a read.
+ * - **Notes:** the implementer answers only organizations where the user holds an active membership;
+ *   an organization missing from the answer reads as zero counts.
+ */
+export type OrganizationCountsPort = {
+  listOrganizationCountsForUser(options: {
+    userPublicId: string;
+    organizationPublicIds: readonly string[];
+  }): Promise<OrganizationCounts[]>;
+};
+
+/**
  * What {@link OrganizationService.delete} did on the way — for the caller's audit entry.
  *
  * @remarks
@@ -217,6 +241,7 @@ export type OrganizationOffboardingDependencies = {
  */
 export class OrganizationService {
   private offboardingDependencies: OrganizationOffboardingDependencies | null = null;
+  private organizationCounts: OrganizationCountsPort | null = null;
   /** Public reference for composition-root assertions; populated at boot via wireOffboardingUploadService. */
   public offboardingUploadService: UploadService | null = null;
 
@@ -232,6 +257,13 @@ export class OrganizationService {
   }: OrganizationOffboardingDependencies): void {
     this.offboardingDependencies = { uploadService, subscriptionService, instagramErasureService };
     this.offboardingUploadService = uploadService;
+  }
+
+  /**
+   * Wires the app's counts port for the chooser (UN1) — at boot, after the app container exists.
+   */
+  wireOrganizationCounts(organizationCounts: OrganizationCountsPort): void {
+    this.organizationCounts = organizationCounts;
   }
 
   /**
@@ -569,26 +601,65 @@ export class OrganizationService {
   }
 
   /**
-   * Cross-organization read for the current user. Wraps in `withAppDatabaseContext (user scope)`
-   * so the `organizations_user_discovery` and `memberships_user_self_discovery`
-   * RLS policies see `app.current_user_public_id` (introduced by migration
-   * `20260520000004_organization_discovery_and_invitation_lookup_rls.sql`). Without
-   * this wrap the call returns empty.
+   * The organization chooser (`GET /users/me/organizations`, route 132, feat-instagram-dm-sending UN5).
+   *
+   * @remarks
+   * - **Algorithm:** one `withAppDatabaseContext` in the user scope (the `organizations_user_discovery`
+   *   and `memberships_user_self_discovery` policies read `app.current_user_public_id`): the team
+   *   organizations the caller owns or actively belongs to, `q` on the name, cursor paging; then for
+   *   the page, ONE read of the caller's main roles (`tenancy.resolve_main_roles_for_user`) and ONE
+   *   call of the app's counts port ({@link OrganizationCountsPort}), merged per organization.
+   * - **Failure modes:** a bad query → `ValidationError`; the counts port not wired →
+   *   `ConfigurationError` (a boot-order bug).
+   * - **Side effects:** none — reads.
+   * - **Notes:** the personal organization is never listed (plan:L7857). An organization the counts
+   *   port does not answer (an owner without an active membership) reads as zero counts.
    */
   async listForUser({ query, user_public_id }: { query: unknown; user_public_id: string }) {
-    const parsed = validateListOrganizationsQuery(query);
+    const parsed = validateListOrganizationChooserQuery(query);
+    const organizationCounts = this.organizationCounts;
+    if (!organizationCounts) {
+      throw new ConfigurationError(
+        'Organization counts port is not wired (wireOrganizationCounts).',
+      );
+    }
     const pagination = omitUndefined({
       after: parsed.after,
       limit: parsed.limit,
+      q: parsed.q,
     });
     return withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: user_public_id }),
       callback: async () => {
         const result = await this.repository.findAllForUser(user_public_id, pagination);
-        return {
-          ...result,
-          items: await this.toOrganizationOutputs(result.items),
-        };
+        const organizationIds = result.items.map((row) => row.id);
+        // Sequential, not Promise.all: the reads share this unit of work's one connection.
+        const outputs = await this.toOrganizationOutputs(result.items);
+        const mainRoles = await this.repository.resolveMainRolesForUser(
+          user_public_id,
+          organizationIds,
+        );
+        const counts =
+          organizationIds.length === 0
+            ? []
+            : await organizationCounts.listOrganizationCountsForUser({
+                userPublicId: user_public_id,
+                organizationPublicIds: result.items.map((row) => row.public_id),
+              });
+        const roleByOrganizationId = new Map(mainRoles.map((row) => [row.organization_id, row]));
+        const countsByPublicId = new Map(counts.map((row) => [row.organizationPublicId, row]));
+        const items: OrganizationChooserOutput[] = result.items.map((row, index) => {
+          const role = roleByOrganizationId.get(row.id);
+          const organizationCount = countsByPublicId.get(row.public_id);
+          return {
+            ...outputs[index]!,
+            role: role ? { id: role.role_public_id, name: role.role_name } : null,
+            members_count: organizationCount?.membersCount ?? 0,
+            channel_accounts_count: organizationCount?.channelAccountsCount ?? 0,
+            live_automations_count: organizationCount?.liveAutomationsCount ?? 0,
+          };
+        });
+        return { ...result, items };
       },
     });
   }

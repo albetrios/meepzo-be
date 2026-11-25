@@ -112,10 +112,25 @@
     "contactBulkSelection": "Envía contact_ids o filter, no ambos",
     "contactBulkTag": "Envía una etiqueta para las acciones de etiqueta y ninguna para las de pausa",
     "invalidPaymentMethodId": "Debe ser un id de tarjeta de Stripe: pm_ y de 1 a 250 letras o dígitos",
+    "segmentMessageNumber": "Envía message_number con got_message, y solo con él",
+    "segmentCameInValue": "Envía el id de una automatización como value para first_automation, un value opcional para ref y ninguno para las demás vías de entrada",
+    "segmentActiveOneWindow": "Envía exactamente uno de last_message_within_hours, last_message_within_days y first_seen_within_days",
+    "segmentConditionsTooMany": "Un segmento admite como máximo 20 condiciones",
+    "segmentAudienceSelection": "Envía segment_id o conditions, no ambos",
+    "segmentConditionsForeignId": "Una automatización de las condiciones no es de esta cuenta",
+    "segmentOfAnotherAccount": "Este segmento pertenece a otra cuenta",
     "automationTriggerTypeGroup": "La forma de empezar solo puede cambiar dentro de su grupo.",
     "automationStepsTooLarge": "Los pasos son demasiado grandes (máximo 64 KB).",
     "automationRefCodeInvalid": "Usa de 1 a 64 letras, dígitos, \"_\", \"=\" o \"-\".",
-    "automationChannelAccountUnknown": "Esta cuenta no es de la organización."
+    "automationChannelAccountUnknown": "Esta cuenta no es de la organización.",
+    "instagramHandleForm": "Usa un usuario de Instagram: letras, números, puntos y guiones bajos, hasta 30",
+    "broadcastMessagesTooLarge": "Los mensajes son demasiado grandes (máximo 64 KB).",
+    "broadcastAudienceBoth": "Envía segment_id o conditions, no ambos",
+    "broadcastSegmentUnknown": "Este segmento no es un segmento guardado de esta cuenta",
+    "broadcastStartAutomationUnknown": "Esta automatización no es una automatización activa de esta cuenta",
+    "broadcastScheduledAtForMode": "scheduled_at va con el modo scheduled, y solo con él",
+    "broadcastOpenWaitDaysForMode": "open_wait_days va con el modo when_chat_opens, y solo con él",
+    "broadcastScheduledAtRange": "La hora debe ser futura y como máximo 30 días adelante"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -241,6 +256,7 @@
   "seatLimitReached": "Se alcanzó el límite de asientos de tu plan ({{limit}}). Mejora tu plan o elimina un miembro antes de agregar otro.",
   "subscriptionNotMutable": "Esta suscripción está en estado terminal y ya no puede modificarse; crea una nueva suscripción en su lugar",
   "defaultOrganizationUnavailable": "Elige como organización de inicio una organización de la que seas miembro activo",
+  "teamOrganizationRequired": "Elige una organización de equipo como organización de inicio",
   "notificationPreferenceLocked": "Los correos de seguridad y de facturación siempre se envían y no se pueden desactivar",
   "planNotAvailableForBillingCycle": "Este plan no está disponible para el ciclo de facturación de tu suscripción",
   "paymentProviderUnavailable": "El proveedor de pagos no está disponible temporalmente. Vuelve a intentarlo.",
@@ -291,10 +307,13 @@
     "Instagram account": "la cuenta de Instagram",
     "Contact": "el contacto",
     "Automation": "Automatización",
+    "Past-comments read": "Lectura de comentarios anteriores",
     "Channel connection": "Conexión de canal",
     "Channel account": "Cuenta de canal",
     "Ad account": "Cuenta publicitaria",
-    "Payment method": "Método de pago"
+    "Payment method": "Método de pago",
+    "Segment": "el segmento",
+    "Broadcast": "Difusión"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",
@@ -315,10 +334,14 @@
   "emailAlreadyConfirmed": "Tu correo ya está confirmado",
   "emailConfirmationResendTooSoon": "Acabamos de enviar un enlace de confirmación. Espera un momento antes de pedir otro.",
   "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo.",
+  "segmentCountUnavailable": "Esta audiencia es demasiado grande para contarla ahora. Inténtalo más tarde.",
   "automationNotReady": "Esta automatización no está lista para activarse: corrige los {{count}} problema(s) indicados.",
   "automationContentInvalid": "No se puede guardar esta automatización: corrige los problemas indicados.",
   "automationRefCodeExists": "Este nombre de enlace ya lo usa \"{{name}}\". Elige otro.",
   "automationTransitionNotAllowed": "Un borrador no se puede pausar. Actívalo primero.",
+  "automationNotLive": "Solo una automatización activa puede responder comentarios anteriores. Actívala primero.",
+  "automationBackfillNotSupported": "Solo una automatización de comentarios o de comentarios de anuncios puede responder comentarios anteriores.",
+  "automationBackfillInProgress": "Ya se están leyendo los comentarios anteriores.",
   "automationProblems": {
     "missing": "Completa este campo.",
     "too_many": "Demasiados: quita algunos.",
@@ -348,5 +371,15 @@
   "automationWarnings": {
     "keywordShared": "\"{{keyword}}\" también lo usa \"{{name}}\".",
     "accountPrivate": "@{{username}} es privada. Las automatizaciones de comentarios no funcionan hasta que sea pública."
+  },
+  "broadcastTransitionNotAllowed": "Esta difusión no puede hacer eso ahora.",
+  "broadcastNotDraft": "Solo se puede editar una difusión en borrador.",
+  "broadcastActive": "Esta difusión sigue activa. Cancélala primero.",
+  "broadcastIncomplete": "Esta difusión no está lista para enviarse.",
+  "messageMonthLimitReached": "Usaste todos tus DM de este mes. Mejora tu plan o espera al día 1.",
+  "broadcastProblems": {
+    "messages_missing": "Añade al menos un mensaje.",
+    "audience_missing": "Elige quién la recibe: un segmento o condiciones.",
+    "file_not_usable": "Este archivo no está subido o no se puede enviar."
   }
 }

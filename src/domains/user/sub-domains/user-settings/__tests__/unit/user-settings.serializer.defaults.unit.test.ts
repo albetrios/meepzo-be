@@ -5,6 +5,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings returns defaults when row is null', () => {
     expect(serializeUserSettings(null)).toEqual({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: ['en'],
@@ -18,6 +19,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings returns the pinned organization the service resolved', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: ['en'],
@@ -32,6 +34,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings preserves explicit false toggles', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: false,
       language: 'es',
       preferred_locales: ['es', 'en'],
@@ -49,6 +52,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings falls back to default preferred_locales when nullable column is null', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: true,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: null,
@@ -63,6 +67,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings preserves an empty preferred_locales array (non-null) without falling back', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: [],
@@ -77,6 +82,7 @@ describe('user-settings.serializer defaults', () => {
   it('serializeUserSettings returns the consent decision, its version and when (launch D85)', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: ['en'],

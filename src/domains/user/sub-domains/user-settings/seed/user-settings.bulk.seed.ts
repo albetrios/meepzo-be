@@ -33,6 +33,7 @@ export async function seedUserSettingsBulk(context: SeedContext): Promise<void> 
       .values({
         user_id: user.id,
         is_dark_mode_enabled: profile.is_dark_mode_enabled,
+        is_reduce_motion_enabled: profile.is_reduce_motion_enabled,
         is_notifications_enabled: profile.is_notifications_enabled,
         language: profile.language,
         preferred_locales: profile.preferred_locales,

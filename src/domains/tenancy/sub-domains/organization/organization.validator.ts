@@ -2,13 +2,13 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import {
   createOrganizationDto,
   updateOrganizationDto,
-  listOrganizationsQueryDto,
+  listOrganizationChooserQueryDto,
   uploadLogoDto,
 } from './organization.dto.js';
 import type {
   CreateOrganizationInput,
   UpdateOrganizationInput,
-  ListOrganizationsQueryInput,
+  ListOrganizationChooserQueryInput,
   UploadLogoInput,
 } from './organization.dto.js';
 
@@ -23,13 +23,15 @@ export function validateUpdateOrganization(data: unknown): UpdateOrganizationInp
 }
 
 /**
- * Validates the `GET /organizations` query string against the strict
- * {@link listOrganizationsQueryDto} (cursor pagination only). Throws
+ * Validates the organization chooser's query (`GET /users/me/organizations`) against the strict
+ * {@link listOrganizationChooserQueryDto} (cursor pagination and `q`). Throws
  * `ValidationError('errors:validation.invalidPagination')` on failure.
  */
-export function validateListOrganizationsQuery(data: unknown): ListOrganizationsQueryInput {
+export function validateListOrganizationChooserQuery(
+  data: unknown,
+): ListOrganizationChooserQueryInput {
   return parseWithSchema({
-    schema: listOrganizationsQueryDto,
+    schema: listOrganizationChooserQueryDto,
     data,
     errorKey: 'errors:validation.invalidPagination',
   });

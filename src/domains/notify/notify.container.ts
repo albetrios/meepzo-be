@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import type { MembershipService } from '@/domains/tenancy/sub-domains/membership/membership.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
 import { registerNotifyEventHandlers } from './events/notify.event-handlers.js';
 import {
   configureNotificationDispatch,
+  configureNotificationRecipients,
   createNotificationDispatch,
 } from './sub-domains/notification/notification-dispatch.service.js';
 import { NotificationRepository } from './sub-domains/notification/notification.repository.js';
@@ -32,9 +34,15 @@ export type NotifyContainer = {
  */
 export function createNotifyContainer({
   organizationService,
+  membershipService,
   userService,
 }: {
   organizationService: OrganizationService;
+  /** The recipients resolver's membership reads (feat-instagram-dm-sending UN2). */
+  membershipService: Pick<
+    MembershipService,
+    'findActiveUserIdsWithPermission' | 'findActiveUserIds'
+  >;
   userService: UserService;
 }): NotifyContainer {
   const notificationRepository = new NotificationRepository();
@@ -51,6 +59,7 @@ export function createNotifyContainer({
   const webhookEventService = new WebhookEventService(webhookEventRepository);
 
   configureNotificationDispatch(createNotificationDispatch(notificationRepository));
+  configureNotificationRecipients(membershipService);
   registerNotifyEventHandlers({ webhookService });
 
   return {
@@ -67,7 +76,10 @@ export function createNotifyContainer({
  * `application.notifyDomain` for routes and other plugins to consume.
  */
 export function registerNotifyContainer(application: FastifyInstance): void {
-  const { organizationService } = application.tenancyDomain;
+  const { organizationService, membershipService } = application.tenancyDomain;
   const { userService } = application.userDomain;
-  application.decorate('notifyDomain', createNotifyContainer({ organizationService, userService }));
+  application.decorate(
+    'notifyDomain',
+    createNotifyContainer({ organizationService, membershipService, userService }),
+  );
 }

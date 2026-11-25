@@ -84,6 +84,7 @@ describe('UserSettingsService', () => {
     const result = await service.get(asUserScope('user_public'));
     expect(result).toEqual({
       is_dark_mode_enabled: false,
+      is_reduce_motion_enabled: false,
       is_notifications_enabled: true,
       language: 'en',
       preferred_locales: ['en'],
@@ -151,25 +152,24 @@ describe('UserSettingsService', () => {
     });
 
     it.each([
-      ['not a membership the caller holds', undefined],
-      ['a personal workspace', { id: 3, public_id: 'org_personal', type: 'PERSONAL' }],
-    ])(
-      'refuses %s with 422 default_organization_unavailable and stores nothing',
-      async (_label, found) => {
-        vi.mocked(findUserActiveOrganizationByPublicId).mockResolvedValue(found);
+      ['not a membership the caller holds', undefined, 'default_organization_unavailable'],
+      [
+        'a personal workspace',
+        { id: 3, public_id: 'org_personal', type: 'PERSONAL' },
+        'team_organization_required',
+      ],
+    ])('refuses %s with 422 (%s → reason) and stores nothing', async (_label, found, reason) => {
+      vi.mocked(findUserActiveOrganizationByPublicId).mockResolvedValue(found);
 
-        const updating = service.update({
-          scope: asUserScope('user_public'),
-          body: { default_organization_id: 'org_somewhere', language: 'fr' },
-        });
+      const updating = service.update({
+        scope: asUserScope('user_public'),
+        body: { default_organization_id: 'org_somewhere', language: 'fr' },
+      });
 
-        await expect(updating).rejects.toBeInstanceOf(UnprocessableEntityError);
-        await expect(updating).rejects.toMatchObject({
-          reason: 'default_organization_unavailable',
-        });
-        expect(settingsRepository.upsert).not.toHaveBeenCalled();
-      },
-    );
+      await expect(updating).rejects.toBeInstanceOf(UnprocessableEntityError);
+      await expect(updating).rejects.toMatchObject({ reason });
+      expect(settingsRepository.upsert).not.toHaveBeenCalled();
+    });
 
     it('reports a pin that is no longer usable as null (automatic)', async () => {
       vi.mocked(settingsRepository.getByUserId).mockResolvedValueOnce({

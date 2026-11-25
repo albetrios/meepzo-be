@@ -174,9 +174,6 @@ export type InstagramSendAttemptCountGroup = (typeof INSTAGRAM_SEND_ATTEMPT_COUN
 /** The longest result group an attempt stores (`sent` or a group of 6.A.10). */
 export const INSTAGRAM_SEND_ATTEMPT_RESULT_GROUP_MAX_LENGTH = 20;
 
-/** Meta's message id (`mid`) is at most this long (6.B.3). */
-export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;
-
 /** A list message's number (D29): 1–10; a broadcast's 1–3 (D68). */
 export const INSTAGRAM_MESSAGE_NUMBER_MAX = 10;
 

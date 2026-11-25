@@ -1,6 +1,6 @@
 # Contract tests (outbound integrations)
 
-Offline HTTP contract checks for **Stripe**, **Resend**, **S3**, **Cloudflare Turnstile**, **OAuth (Google + Apple)** and **Instagram (Graph API + Instagram Login)** wrappers.
+Offline HTTP contract checks for **Stripe**, **Resend**, **S3**, **Cloudflare Turnstile**, **OAuth (Google + Apple)** and **Meta (Graph API on graph.facebook.com + Facebook Login for Business)** wrappers.
 
 ## Run
 

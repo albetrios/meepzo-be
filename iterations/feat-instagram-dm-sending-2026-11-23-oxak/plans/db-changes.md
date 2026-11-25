@@ -37,7 +37,7 @@ changes to the platform domains are new migrations only (D48, [P38](decisions.md
 
 | Change | Count | Entities |
 | --- | --- | --- |
-| NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account (**Built R5**: `app.channel_accounts` — `public_id` `cha_`, `channel`, `channel_connection_id`, `provider_account_id`, `display_name`, `connection_status`, `is_automation_enabled`, `paused_at`, `paused_by_user_id`, `suspended_at`, `plan_stop_reason`, `plan_stopped_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`; `app.instagram_accounts.channel_account_id` added, its `channel_connection_id` moved here — [AS-BUILT](../AS-BUILT.md), [P116](decisions.md), [P117](decisions.md); **R9**: + `idx_channel_accounts_provider_account (provider_account_id)` and the resolvers `app.resolve_organization_public_ids_for_provider_account(text, text)` / `…_for_provider_business(text, text)` replacing `…_for_instagram_app_user` — [P211](decisions.md)), message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account (**Built R24**: `billing.trial_accounts` — `public_id` `tra_`, `organization_id` (nullable, SET NULL), `instagram_user_id` (unique, digits ≤ 30), `plan_id`, `subscription_id` (nullable, SET NULL), `started_at`, `created_at`; resolver `billing.resolve_trialled_instagram_user_ids(text[])` — [AS-BUILT](../AS-BUILT.md), [P403](decisions.md)) |
+| NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account (**Built R5**: `app.channel_accounts` — `public_id` `cha_`, `channel`, `channel_connection_id`, `provider_account_id`, `display_name`, `connection_status`, `is_automation_enabled`, `paused_at`, `paused_by_user_id`, `suspended_at`, `plan_stop_reason`, `plan_stopped_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`; `app.instagram_accounts.channel_account_id` added, its `channel_connection_id` moved here — [AS-BUILT](../AS-BUILT.md), [P116](decisions.md), [P117](decisions.md); **R9**: + `idx_channel_accounts_provider_account (provider_account_id)` and the resolvers `app.resolve_organization_public_ids_for_provider_account(text, text)` / `…_for_provider_business(text, text)` replacing `…_for_instagram_app_user` — [P211](decisions.md)), message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment (**Built R21**: `app.segments` — `public_id` `seg_`, `channel_account_id` (composite → `app.channel_accounts`, CASCADE), `channel`, `name`, `conditions` (jsonb), `created_by_user_id`, `updated_by_user_id`, `deleted_at`, `created_at`, `updated_at` — [AS-BUILT](../AS-BUILT.md), [P309](decisions.md)), broadcast (**Built R22**: `app.broadcasts` — `public_id` `brc_`, see § broadcast — [AS-BUILT](../AS-BUILT.md), [P213](decisions.md)), broadcast_recipient (**Built R23**: `app.broadcast_recipients`, see § broadcast_recipient — [AS-BUILT](../AS-BUILT.md), [P214](decisions.md)) · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account (**Built R24**: `billing.trial_accounts` — `public_id` `tra_`, `organization_id` (nullable, SET NULL), `instagram_user_id` (unique, digits ≤ 30), `plan_id`, `subscription_id` (nullable, SET NULL), `started_at`, `created_at`; resolver `billing.resolve_trialled_instagram_user_ids(text[])` — [AS-BUILT](../AS-BUILT.md), [P403](decisions.md)) |
 | CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, contact, automation, automation_run, automation_run_event, automation_comment_log (the four launch product tables, shared and keyed by `channel_account_id`, no rename — P48), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id. **Built R12** ([AS-BUILT](../AS-BUILT.md)): `upload.uploads` unchanged, no migration; the `message-media` purpose is recorded in the object key prefix `message-media/<organization public id>/` (the table has no purpose column, [P201](decisions.md)) |
@@ -990,6 +990,10 @@ erDiagram
 - **Replaced:** none.
 - **Open:**
   - Public id prefix — chosen at kickoff (P22, AMBER).
+- **Built R15:** `app.automation_backfills` — `public_id` `abf_`, `channel_account_id`, `automation_id`,
+  `days`, `status`, `posts_read`, `found`, `matched`, `queued_count`, `fail_reason`, `last_error`,
+  `requested_by_user_id`, `started_at`, `done_at`, `created_at`, `updated_at`; + two plain indexes for the
+  foreign keys ([AS-BUILT](../AS-BUILT.md), [P311](decisions.md)).
 
 ```mermaid
 erDiagram
@@ -1340,7 +1344,9 @@ stay saved, unusable until an upgrade, [P76](decisions.md)). Segments and broadc
 - **Added:** `deleted_at` — the plan hard-deletes; A9 keeps the repository's soft delete.
 - **Replaced:** none.
 - **Open:**
-  - Public id prefix — chosen at kickoff (P22, AMBER).
+  - Public id prefix — chosen at kickoff (P22, AMBER): **`seg`** (R21).
+- **Built (R21):** `app.segments` as drawn, plus `channel` (the account's, P48) — migration
+  `20261124184321_app_segments.sql`; [AS-BUILT](../AS-BUILT.md), [P309](decisions.md).
 
 ```mermaid
 erDiagram
@@ -1382,6 +1388,14 @@ erDiagram
 - **Open:**
   - Public id prefix — chosen at kickoff (P22, AMBER).
   - Columns and keys: routes-final § 7, 7.A.3.
+- **Built R22 ([AS-BUILT](../AS-BUILT.md), [P213](decisions.md)):** `app.broadcasts` — `public_id` `brc_`,
+  `channel_account_id` (composite → `app.channel_accounts`, CASCADE), `channel`, `name`, `status`, `mode`,
+  `segment_id` (composite → `app.segments`, `SET NULL (segment_id)`), `conditions`, `messages`,
+  `start_automation_id` (composite → `app.automations`, `SET NULL (start_automation_id)` — the button's
+  automation), `scheduled_at`, `ends_at`, `started_at`, `finished_at`, `cancelled_at`, `cancel_reason`,
+  `matched`, `sent`, `skipped`, `failed`, `replies`, `taps`, `created_by_user_id`, `updated_by_user_id`,
+  `deleted_at`, `created_at`, `updated_at`; migration `20261125120000_app_broadcasts.sql`, which also adds
+  `app.instagram_messages` `instagram_messages_broadcast_fk (organization_id, broadcast_id)` CASCADE.
 
 ```mermaid
 erDiagram
@@ -1436,6 +1450,15 @@ erDiagram
 - **Added:** new.
 - **Replaced:** none.
 - **Open:** none — the plan's split by month is not used (P33, kept by P96); routes-final § 7, 7.C.
+- **Built R23 ([AS-BUILT](../AS-BUILT.md), [P214](decisions.md)):** `app.broadcast_recipients`
+  (migration `20261125183000_app_broadcast_recipients.sql`) — `id`, `organization_id`,
+  `channel_account_id` (copy, no key), `broadcast_id` (composite → `app.broadcasts`, CASCADE),
+  `contact_id` (composite → `app.contacts`, RESTRICT), `status` `varchar(7)`, `reason`
+  `varchar(30)` (shape-checked `^[a-z][a-z_]{0,29}$`, set exactly with `skipped` / `failed`),
+  `version_number` (1–3, empty — broadcast messages carry no versions), `sent_at` (exactly with
+  `sent`), `replied_at`, `created_at`, `updated_at`; indexes
+  `idx_broadcast_recipients_broadcast_contact` (unique), `_broadcast_status`, `_contact`,
+  `_created_at`; FORCE RLS with the sweep arm in `USING`. No public id.
 
 ```mermaid
 erDiagram
@@ -2012,6 +2035,7 @@ routes-final § 11) — no table and no column.
 - **Sources:** plan:L7814–L7822, plan:L7613; current schema under `src/domains/user/`; routes-final
   § 10 (AT1), § 11.
 - **Added:** `instagram_handle`, `goal`.
+- **Built R34** ([AS-BUILT](../AS-BUILT.md), [P407](decisions.md)): `auth.users.instagram_handle` varchar(30) with `chk_users_instagram_handle` (`^[a-z0-9._]{1,30}$`) and `goal` varchar(20) with `chk_users_goal` — migration `20261124221623_auth_users_onboarding_fields.sql`. The chooser's counts: the app's SECURITY DEFINER `app.list_organization_counts_for_user(user_public_id, organization_public_ids)` (`20261124221625_app_member_organization_counts.sql`) and the main role through tenancy's `tenancy.resolve_main_roles_for_user(user_public_id, organization_ids)` (`20261124221626_tenancy_resolve_main_roles_for_user.sql`).
 - **Replaced:** `password_hash` set → empty for every person (column kept).
 - **Open:** none.
 
@@ -2033,6 +2057,7 @@ erDiagram
   `src/domains/user/sub-domains/user-settings/user-settings.schema.ts`.
 - **Added:** `is_reduce_motion_enabled` (plan name `reduce_motion`; the `is_` form matches
   `is_dark_mode_enabled`, P21).
+- **Built R34** ([AS-BUILT](../AS-BUILT.md)): `auth.user_settings.is_reduce_motion_enabled` boolean NOT NULL DEFAULT false — migration `20261124221624_user_settings_reduce_motion.sql`.
 - **Replaced:** none.
 - **Open:** none.
 

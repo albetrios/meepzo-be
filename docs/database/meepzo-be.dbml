@@ -8,6 +8,7 @@ Project meepzo_be {
 }
 
 TableGroup app {
+  app.automation_backfills
   app.automation_comment_logs
   app.automation_counts
   app.automation_reply_states
@@ -15,6 +16,8 @@ TableGroup app {
   app.automation_run_open_keys
   app.automation_runs
   app.automations
+  app.broadcast_recipients
+  app.broadcasts
   app.channel_accounts
   app.channel_connection_tokens
   app.channel_connection_usages
@@ -36,6 +39,7 @@ TableGroup app {
   app.instagram_webhook_event_keys
   app.instagram_webhook_events
   app.message_month_counts
+  app.segments
   app.sending_states
 }
 
@@ -90,6 +94,31 @@ TableGroup tenancy {
 
 TableGroup upload {
   upload.uploads
+}
+
+Table app.automation_backfills {
+  automation_id bigint [not null]
+  channel_account_id bigint [not null]
+  created_at timestamptz [not null]
+  days smallint [not null]
+  done_at timestamptz
+  fail_reason varchar(30)
+  found int [not null]
+  id bigint [pk, increment]
+  last_error varchar(500)
+  matched int [not null]
+  organization_id bigint [not null]
+  posts_read int [not null]
+  public_id varchar(28) [not null]
+  queued_count int [not null]
+  requested_by_user_id bigint
+  started_at timestamptz
+  status varchar(10) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.automation_backfills {
+  'RLS: enabled\nPolicies: automation_backfills_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.automation_comment_logs {
@@ -312,6 +341,63 @@ Table app.automations {
 
 Note app.automations {
   'RLS: enabled\nPolicies: automations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.broadcast_recipients {
+  AND 
+  broadcast_id bigint [not null]
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  reason varchar(30)
+  replied_at timestamptz
+  sent_at timestamptz
+  status varchar(7) [not null]
+  updated_at timestamptz [not null]
+  version_number smallint
+}
+
+Note app.broadcast_recipients {
+  'RLS: enabled\nPolicies: broadcast_recipients_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.broadcasts {
+  AND 
+  cancel_reason varchar(16)
+  cancelled_at timestamptz
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
+  conditions jsonb
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  deleted_at timestamptz
+  ends_at timestamptz
+  failed int [not null]
+  finished_at timestamptz
+  id bigint [pk, increment]
+  matched int [not null]
+  messages jsonb [not null]
+  mode varchar(15) [not null]
+  name varchar(255) [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  replies int [not null]
+  scheduled_at timestamptz
+  segment_id bigint
+  sent int [not null]
+  skipped int [not null]
+  start_automation_id bigint
+  started_at timestamptz
+  status varchar(17) [not null]
+  taps int [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.broadcasts {
+  'RLS: enabled\nPolicies: broadcasts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.channel_accounts {
@@ -802,6 +888,25 @@ Note app.message_month_counts {
   'RLS: enabled\nPolicies: message_month_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.segments {
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
+  conditions jsonb [not null]
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  deleted_at timestamptz
+  id bigint [pk, increment]
+  name varchar(255) [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.segments {
+  'RLS: enabled\nPolicies: segments_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.sending_states {
   all_stop_count smallint [not null]
   all_stop_reason varchar(14)
@@ -1072,6 +1177,7 @@ Table auth.user_settings {
   default_organization_id bigint
   is_dark_mode_enabled boolean [not null]
   is_notifications_enabled boolean [not null]
+  is_reduce_motion_enabled boolean [not null]
   language varchar(10) [not null]
   preferred_locales jsonb [not null]
   updated_at timestamptz [not null]
@@ -1092,7 +1198,9 @@ Table auth.users {
   email_hash varchar(64) [not null]
   failed_login_count int [not null]
   first_name varchar(100)
+  goal varchar(20)
   id bigint [pk, increment, not null]
+  instagram_handle varchar(30)
   is_email_verified boolean [not null]
   is_mfa_enabled boolean [not null]
   job_title varchar(150)

@@ -8,6 +8,7 @@ import type {
   AutomationTriggerType,
 } from './automation.constants.js';
 import type { AutomationSteps } from './automation-steps.dto.js';
+import type { AutomationBackfillOutput } from './automation-backfill/automation-backfill.types.js';
 import type {
   AutomationCountsOutput,
   AutomationListRowOutput,
@@ -88,7 +89,7 @@ export function buildAutomationLinkUrl({
  * @remarks
  * Pure — the service resolves the ids, the counts, `pro_parts_off` and the username first. Internal
  * ids, the soft-delete fields and `channel_account_id`'s internal value never leave. `open_backfill`
- * is `null` until the past-comments read lands (4.C, ROUTE row R15).
+ * is the automation's `queued` or `reading` past-comments read (4.C.6) the service read, or `null`.
  */
 export function serializeAutomation({
   automation,
@@ -98,6 +99,7 @@ export function serializeAutomation({
   counts,
   pro_parts_off,
   username,
+  open_backfill = null,
 }: {
   automation: AutomationSerializableRow;
   channel_account_public_id: string;
@@ -107,6 +109,8 @@ export function serializeAutomation({
   pro_parts_off: ChannelFeature[];
   /** The account's Instagram username (the `ref_link` chat link), `null` when unknown. */
   username: string | null;
+  /** The open past-comments read (4.C.6); absent or `null` when none. */
+  open_backfill?: AutomationBackfillOutput | null | undefined;
 }): AutomationOutput {
   return {
     id: automation.public_id,
@@ -147,7 +151,7 @@ export function serializeAutomation({
     cancelled_before_at: toIso(automation.cancelled_before_at),
     counts: counts ?? emptyAutomationCounts(),
     pro_parts_off,
-    open_backfill: null,
+    open_backfill,
     last_triggered_at: toIso(automation.last_triggered_at),
     created_by_user_id: created_by_user_public_id,
     updated_by_user_id: updated_by_user_public_id,

@@ -407,10 +407,12 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
     example: null,
   },
   // Tenancy data, user scope — the route lives under /users/me because the caller scopes it. It
-  // never counts: no `meta.pagination.estimated_total` (SHELL-M2).
+  // never counts: no `meta.pagination.estimated_total` (SHELL-M2). The chooser (route 132, UN5).
   'GET /api/v1/users/me/organizations': {
     statusCode: 200,
-    schema: wrapUncountedPaginated(schemas.organizationSchema, [schemas.organizationExample]),
+    schema: wrapUncountedPaginated(schemas.organizationChooserSchema, [
+      schemas.organizationChooserExample,
+    ]),
     example: null,
   },
   // The caller's pending invitations (launch D84) — tenancy data in the caller's scope, uncounted.

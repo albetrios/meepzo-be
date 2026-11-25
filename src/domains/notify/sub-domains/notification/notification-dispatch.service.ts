@@ -11,11 +11,17 @@ import { recordOutboxEmail } from '@/infrastructure/mail/queues/mail.queue.js';
 import type { SupportedLanguage } from '@/shared/constants/i18n.constants.js';
 import {
   findNotificationKindForType,
+  NOTIFICATION_RECIPIENTS_RULE,
   resolveNotificationKindChannel,
   type NotificationKindDefinition,
   type NotificationPreferenceChannel,
+  type NotificationRecipientsRule,
   type NotificationType,
 } from '@/shared/constants/notification.constants.js';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
+import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
+import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import { ConfigurationError, NotFoundError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 
@@ -62,9 +68,8 @@ export function buildNotificationEmailDedupeKey({
  * - **Failure modes:** none — a value shape.
  * - **Side effects:** none.
  * - **Notes:** `title` and `message` are plain text in `locale`; the inbox and the email escape
- *   them. Recipients are internal user ids resolved by the emitter — the kind's recipients rule
- *   (`NOTIFICATION_KINDS[].recipientsRule`) gets its resolver, `resolveNotificationRecipients`, in
- *   ROUTE R34.
+ *   them. Recipients are internal user ids resolved by the emitter — for a kind's recipients rule
+ *   (`NOTIFICATION_KINDS[].recipientsRule`) through {@link resolveNotificationRecipients}.
  */
 export interface DispatchNotificationInput {
   recipientUserIds: readonly number[];
@@ -400,4 +405,124 @@ export async function createAndDispatchNotification({
     );
   }
   return notificationDispatch.createAndDispatchNotification({ input, options });
+}
+
+/**
+ * The membership reads the recipients resolver needs (feat-instagram-dm-sending UN2) — tenancy's
+ * `MembershipService`, supplied structurally by the notify container.
+ *
+ * @remarks
+ * - **Algorithm:** both read in the given organization scope, joining the caller's open unit.
+ * - **Failure modes:** the implementer throws `NotFoundError('Organization')` for a missing one.
+ * - **Side effects:** none — reads.
+ * - **Notes:** active members only; a role's holders count main and additional roles (D5).
+ */
+export type NotificationRecipientsMembershipPort = {
+  findActiveUserIdsWithPermission(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+    permissionCode: string;
+  }): Promise<number[]>;
+  findActiveUserIds(options: { scope: OrganizationPrincipalDatabaseScope }): Promise<number[]>;
+};
+
+/**
+ * Who a kind's notifications go to, for one organization and one event — see
+ * {@link resolveNotificationRecipients}.
+ *
+ * @remarks
+ * - **Algorithm:** `scope` names the organization; `rule` the kind's rule; `subjectUserId` the person
+ *   the event is about.
+ * - **Failure modes:** none — a value shape.
+ * - **Side effects:** none.
+ * - **Notes:** internal user ids, as the dispatch takes them.
+ */
+export interface ResolveNotificationRecipientsInput {
+  /** The organization the notification is about (its verified scope). */
+  scope: OrganizationPrincipalDatabaseScope;
+  /** The kind's rule (`NOTIFICATION_KINDS[].recipientsRule`). */
+  rule: NotificationRecipientsRule;
+  /**
+   * The person the event is about, added to the rule's holders: the member a team change is about
+   * (`membership_managers_and_member`) or who started the run or broadcast
+   * (`starter_and_billing_managers`). Ignored by the other rules.
+   */
+  subjectUserId?: number | null;
+}
+
+let notificationRecipientsMembership: NotificationRecipientsMembershipPort | null = null;
+
+/**
+ * Wire the membership port {@link resolveNotificationRecipients} reads. Called once from the notify
+ * container during boot.
+ *
+ * @remarks
+ * - **Algorithm:** stores the port in a module-scoped slot, as {@link configureNotificationDispatch}.
+ * - **Failure modes:** none — last writer wins.
+ * - **Side effects:** mutates the module-level slot.
+ * - **Notes:** an unwired resolver throws `ConfigurationError` on use.
+ */
+export function configureNotificationRecipients(port: NotificationRecipientsMembershipPort): void {
+  notificationRecipientsMembership = port;
+}
+
+/** The permission code each holders-based rule reads (UN2, plan:L8139–L8147). */
+const RULE_PERMISSION_CODE: Readonly<
+  Record<Exclude<NotificationRecipientsRule, 'every_member'>, string>
+> = {
+  [NOTIFICATION_RECIPIENTS_RULE.AUTOMATION_EDITORS]: APP_PERMISSIONS.AUTOMATION_UPDATE,
+  [NOTIFICATION_RECIPIENTS_RULE.MEMBERSHIP_MANAGERS_AND_MEMBER]:
+    TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE,
+  [NOTIFICATION_RECIPIENTS_RULE.BILLING_MANAGERS]: BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE,
+  [NOTIFICATION_RECIPIENTS_RULE.STARTER_AND_BILLING_MANAGERS]:
+    BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE,
+};
+
+/** The rules that add the event's subject to the holders. */
+const RULES_WITH_SUBJECT: ReadonlySet<NotificationRecipientsRule> = new Set([
+  NOTIFICATION_RECIPIENTS_RULE.MEMBERSHIP_MANAGERS_AND_MEMBER,
+  NOTIFICATION_RECIPIENTS_RULE.STARTER_AND_BILLING_MANAGERS,
+]);
+
+/**
+ * Who a kind's notifications go to (feat-instagram-dm-sending UN2): decided by permission codes,
+ * never by role names.
+ *
+ * @remarks
+ * - **Algorithm:** `automation_editors` → active `automation:update` holders (Owner, Admin, Editor);
+ *   `billing_managers` → `subscription:manage` holders (Owner, Admin); `membership_managers_and_member`
+ *   → `membership:update` holders plus `subjectUserId`; `starter_and_billing_managers` →
+ *   `subscription:manage` holders plus `subjectUserId`; `every_member` → every active member. One
+ *   read through tenancy's membership service; the answer is distinct internal user ids, holders
+ *   first in the order read, the subject last.
+ * - **Failure modes:** `ConfigurationError` when {@link configureNotificationRecipients} was not
+ *   called (boot order bug); the membership read's errors propagate.
+ * - **Side effects:** none — reads.
+ * - **Notes:** run inside the organization's database context (an event handler in the write, or
+ *   an organization-scoped job); the caller drops the actor itself where a rule says "minus who did
+ *   it", then hands the ids to {@link createAndDispatchNotification}, whose check before send applies
+ *   each person's choices.
+ */
+export async function resolveNotificationRecipients({
+  scope,
+  rule,
+  subjectUserId,
+}: ResolveNotificationRecipientsInput): Promise<number[]> {
+  const membership = notificationRecipientsMembership;
+  if (!membership) {
+    throw new ConfigurationError(
+      'Notification recipients are not configured. Call configureNotificationRecipients from notify.container.',
+    );
+  }
+  const holderUserIds =
+    rule === NOTIFICATION_RECIPIENTS_RULE.EVERY_MEMBER
+      ? await membership.findActiveUserIds({ scope })
+      : await membership.findActiveUserIdsWithPermission({
+          scope,
+          permissionCode: RULE_PERMISSION_CODE[rule],
+        });
+  const recipients = new Set(holderUserIds);
+  if (RULES_WITH_SUBJECT.has(rule) && subjectUserId !== undefined && subjectUserId !== null) {
+    recipients.add(subjectUserId);
+  }
+  return [...recipients];
 }

@@ -5,6 +5,7 @@ import {
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS } from '@/shared/constants/instagram.constants.js';
+import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { InstagramWebhookEventSkipReason } from './instagram-webhook-event.constants.js';
 import { InstagramWebhookEventKeyRepository } from './instagram-webhook-event-key.repository.js';
 import type {
@@ -37,7 +38,6 @@ export interface InstagramWebhookEventAccountTarget {
 }
 
 /** Milliseconds in one day. */
-const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 /**
  * The UTC day (`YYYY-MM-DD`) an event's key is filed under (WH20): the day of Meta's own time for
@@ -76,7 +76,7 @@ export function isInstagramWebhookEventReplay({
 }): boolean {
   if (occurredAt === null) return false;
   return (
-    now.getTime() - occurredAt.getTime() > INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS * DAY_MILLISECONDS
+    now.getTime() - occurredAt.getTime() > INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS * MILLISECONDS_PER_DAY
   );
 }
 

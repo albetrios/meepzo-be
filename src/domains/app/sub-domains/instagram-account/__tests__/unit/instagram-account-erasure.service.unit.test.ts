@@ -112,6 +112,8 @@ describe('InstagramAccountErasureService (no database)', () => {
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa', 'iga_bbbbbbbbbbbbbbbbbbbbb'],
         erasedPostCount: 4,
+        // Only the first was revoked now: the channel account whose lanes a Meta callback stops.
+        revokedChannelAccounts: [{ organizationId: 1, channelAccountId: 20 }],
       });
     });
 
@@ -156,6 +158,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
         erasedPostCount: 0,
+        revokedChannelAccounts: [{ organizationId: 1, channelAccountId: 20 }],
       });
     });
 
@@ -180,6 +183,8 @@ describe('InstagramAccountErasureService (no database)', () => {
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
         erasedPostCount: 3,
+        // Revoked earlier (only its profile was left): no lane to stop now.
+        revokedChannelAccounts: [],
       });
     });
 

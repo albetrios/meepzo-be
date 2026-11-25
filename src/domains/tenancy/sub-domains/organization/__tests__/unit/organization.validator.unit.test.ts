@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/shared/errors/index.js';
 import {
   validateCreateOrganization,
-  validateListOrganizationsQuery,
+  validateListOrganizationChooserQuery,
   validateUpdateOrganization,
   validateUploadLogo,
 } from '@/domains/tenancy/sub-domains/organization/organization.validator.js';
@@ -45,16 +45,24 @@ describe('organization.validator', () => {
     });
   });
 
-  it('validateListOrganizationsQuery applies pagination defaults', () => {
-    expect(validateListOrganizationsQuery({})).toMatchObject({ limit: 25 });
+  it('validateListOrganizationChooserQuery applies pagination defaults', () => {
+    expect(validateListOrganizationChooserQuery({})).toMatchObject({ limit: 25 });
   });
 
-  it('validateListOrganizationsQuery rejects rejects a page query parameter (cursor-only, strict query)', () => {
+  it('validateListOrganizationChooserQuery rejects rejects a page query parameter (cursor-only, strict query)', () => {
     // `page` is not a parameter of any list query — the strict schema refuses it like any other
     // unknown key.
-    expect(() => validateListOrganizationsQuery({ page: '2', limit: '5' })).toThrow(
+    expect(() => validateListOrganizationChooserQuery({ page: '2', limit: '5' })).toThrow(
       ValidationError,
     );
+  });
+
+  it('validateListOrganizationChooserQuery trims q and refuses one over 100 characters (UN5)', () => {
+    expect(validateListOrganizationChooserQuery({ q: '  Acme ' })).toMatchObject({ q: 'Acme' });
+    expect(() => validateListOrganizationChooserQuery({ q: 'a'.repeat(101) })).toThrow(
+      ValidationError,
+    );
+    expect(() => validateListOrganizationChooserQuery({ q: '   ' })).toThrow(ValidationError);
   });
 
   it('validateUploadLogo accepts organization-logos key prefix', () => {

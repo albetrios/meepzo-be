@@ -451,8 +451,12 @@ function listAskProblems(fields: AutomationWritableFields): AutomationProblem[] 
   return problems;
 }
 
-/** Go-live check 15 — one message, broken for its kind (plan §5.9); files are the service's. */
-function listMessageProblems({
+/**
+ * Go-live check 15 — one message, broken for its kind (plan §5.9); files are the service's. Also
+ * a broadcast message's own checks on every save (feat-instagram-dm-sending BC8 — one schema, one
+ * set of checks), with `path` its body path (`messages.0`).
+ */
+export function listAutomationMessageProblems({
   message,
   path,
 }: {
@@ -547,7 +551,7 @@ function listMessagesProblems(fields: AutomationWritableFields): AutomationProbl
     problems.push(problem({ field: 'steps.messages', reason: 'count' }));
   }
   messages.forEach((message, index) => {
-    problems.push(...listMessageProblems({ message, path: `steps.messages.${index}` }));
+    problems.push(...listAutomationMessageProblems({ message, path: `steps.messages.${index}` }));
   });
   const hasAsk =
     fields.steps.hello?.on === true ||

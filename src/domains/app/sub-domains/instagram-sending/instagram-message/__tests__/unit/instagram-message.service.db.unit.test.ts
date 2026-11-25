@@ -67,6 +67,7 @@ describe('InstagramMessageService (database)', () => {
     });
     messages = new InstagramMessageService({
       recordRunMessageResult: (input) => engine.recordMessageResult(input),
+      recordBroadcastMessageResult: async () => undefined,
     });
     const runAccount = (): AutomationRunChannelAccount => ({
       organizationId: organization.id,

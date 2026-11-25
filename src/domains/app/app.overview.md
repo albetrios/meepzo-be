@@ -63,8 +63,15 @@ calls Meta, and the only code that decrypts a Meta token).
 - **Background work in the `instagram` worker family** (WH5): Instagram webhook event processing (one
   job per account, provider-pausable, `WORKER_CONCURRENCY_INSTAGRAM`) with its every-minute
   stuck-event pick-up on the same queue. The automation timers run in the `retention` family (AU6): the
-  "next post" expiry every 15 minutes, the 7-day wait cancel every hour and the daily deleted-automation
-  clean-up (03:40 UTC).
+  "next post" expiry every 15 minutes, the 7-day wait cancel every hour and the hourly deleted-automation
+  purge (:47, WC-47, P92).
+- **The hourly plain-table clean-up** (`workers/app-table-clean-up.*`, feat-instagram-dm-sending
+  WC-53, WC-54, WC-62, R50, P92) — job `clean-up-app-tables` on the partition upkeep's queue at :07 (no
+  pool place added): the unused file links of automations due for purge, deleted broadcasts and
+  segments after 90 days, recipients and ended stops after 90 days, tag events after 8 days, month
+  counts after 13 months; each table within its share of the 10-minute budget and its cap, with the
+  `retention_cleanup_oldest_overdue_seconds` gauge (`runTimeBudgetedCleanUp`). Contacts are never
+  removed by age.
 - **The shared partition upkeep** (`workers/app-partition-upkeep.*`, feat-instagram-dm-sending WC-55,
   R49, P410) — the domain's one root `workers/` folder, family `retention`: the seven time-split
   tables (webhook events and keys, send attempts by day; messages by week; comment logs, run events

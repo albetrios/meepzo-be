@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(59);
+    expect(scheduledJobs).toHaveLength(60);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -72,12 +72,14 @@ describe('infrastructure queue scheduler', () => {
       'channel-connection-token-check',
       // feat-instagram-dm-sending WC-55 (R49): the partition upkeep's daily make and hourly drop —
       // webhook events and keys, attempts, messages, comment logs, run events and runs expire by
-      // part drops (the launch's 03:00 webhook-event batch delete is retired, WHC15)
+      // part drops (the launch's 03:00 webhook-event batch delete is retired, WHC15); R50: the
+      // hourly clean-up of the plain app tables rides the same queue (WC-53, WC-54, WC-62)
       'app-partition-upkeep',
       'app-partition-upkeep',
-      // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily
-      // deleted-automation (03:40) clean-up; runs and comment logs go by month-part drops since
-      // feat-instagram-dm-sending R14 (AU36)
+      'app-partition-upkeep',
+      // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the
+      // deleted-automation purge (hourly at :47 since feat-instagram-dm-sending WC-47, P92); runs
+      // and comment logs go by month-part drops since R14 (AU36)
       'automation-run-wait-expiry',
       'automation-tombstone-retention',
       'user-data-export-retention',
@@ -280,6 +282,25 @@ describe('infrastructure queue scheduler', () => {
         jobName: 'drop-expired-app-partitions',
         cronPattern: '37 * * * *',
       },
+      {
+        schedulerId: 'hourly-app-table-clean-up',
+        jobName: 'clean-up-app-tables',
+        cronPattern: '7 * * * *',
+      },
+    ]);
+  });
+
+  it('runs the plain-table clean-ups hourly within their time budget: app tables at :07, automations at :47, sessions and trusted devices at :12 (P92; WC-47, WC-53, WC-54, WC-62, WC-64)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const byQueue = (queueName: string) =>
+      getScheduledJobs()
+        .filter((scheduledJob) => scheduledJob.queueName === queueName)
+        .map(({ schedulerId, cronPattern }) => ({ schedulerId, cronPattern }));
+    expect(byQueue('automation-tombstone-retention')).toEqual([
+      { schedulerId: 'hourly-automation-tombstone-cleanup', cronPattern: '47 * * * *' },
+    ]);
+    expect(byQueue('session-cleanup')).toEqual([
+      { schedulerId: 'hourly-session-cleanup', cronPattern: expect.any(String) },
     ]);
   });
 
@@ -328,7 +349,7 @@ describe('infrastructure queue scheduler', () => {
     });
   });
 
-  it('runs the deleted-automation clean-up daily at 03:40; no run or comment-log batch delete remains (D8, AU36)', async () => {
+  it('runs the deleted-automation clean-up hourly at :47 (WC-47, P92); no run or comment-log batch delete remains (D8, AU36)', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
     const cronOf = (queueName: string) =>
@@ -336,9 +357,9 @@ describe('infrastructure queue scheduler', () => {
     expect(cronOf('automation-run-retention')).toBeUndefined();
     expect(cronOf('automation-comment-log-retention')).toBeUndefined();
     expect(cronOf('automation-tombstone-retention')).toMatchObject({
-      schedulerId: 'daily-automation-tombstone-cleanup',
+      schedulerId: 'hourly-automation-tombstone-cleanup',
       jobName: 'purge-old-deleted-automations',
-      cronPattern: '40 3 * * *',
+      cronPattern: '47 * * * *',
     });
   });
 
@@ -396,20 +417,20 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(59);
-    // Each scheduled job opens one Queue for upsert (59) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(60);
+    // Each scheduled job opens one Queue for upsert (60) + the reconcile pass opens one Queue per
     // unique queue name (37 — the channel connection token-check sweep (with the 10-minute webhook
     // subscription sweep, R40), the plan-state check, the export reclaim, the weekly summary's sweep
     // on the notification queue (R53) and the Instagram stuck-event pick-up ride queues no other
     // cron uses; the missed-comment sweep, the past-comments watch, the "next post" linking sweep,
     // the owners' problem emails and the month notices' check ride the pick-up's queue; the sending
     // repair queue carries sixteen duties (R52's two, R48's three watches, R47's eleven); the
-    // partition upkeep's make and drop share one queue, R49), each closed in its own loop
+    // partition upkeep's make and drop and the plain-table clean-up share one queue, R49 and R50), each closed in its own loop
     // iteration. The upsert queues are closed as soon as registration ends — not held open for the
     // life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(96);
+    expect(queueCloseMock).toHaveBeenCalledTimes(97);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(96);
+    expect(queueCloseMock).toHaveBeenCalledTimes(97);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

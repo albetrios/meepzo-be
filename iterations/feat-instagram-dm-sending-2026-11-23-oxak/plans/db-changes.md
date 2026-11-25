@@ -754,6 +754,9 @@ past-comment runs. All of them are **shared across channels** ([P48](decisions.m
   tag); `idx_contacts_chat_open` / `idx_contacts_last_comment` became
   `idx_contact_activities_chat_open` / `_last_comment`; search and tags indexes led by the account
   through `btree_gin` (S6). Both new tables carry an `id`, no public id.
+- **Fix (merge round 2, [P145](decisions.md)):** `app.contact_activities` and `app.automation_reply_states`
+  get the retention sweep arm in `USING` only (maintenance role), for R47's cross-organization joins (WC-17,
+  WC-18); migration `20261125210000_app_repair_sweep_arms.sql`.
 
 ```mermaid
 erDiagram

@@ -46,10 +46,11 @@ the read job at R41); the automation object shows the open one as `open_backfill
   `AutomationMonthLimitPort`, `AutomationMessageFilePort`) and `AutomationOpenRunCancelStep`
 - `automation.dto.ts`, `automation.serializer.ts`, `automation.controller.ts`,
   `automation.routes.ts`, `automation.constants.ts`
-- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC);
-  the "next post" linking sweep (`automation-next-post-linking.*`, job `sweep-next-post-linking` on
-  the intake queue every 15 minutes, R41 — scan across organizations, then one channel task per
-  account through the channel's enqueue: Instagram's `next-post-linking`)
+- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, hourly at :47 within
+  the clean-up time budget — WC-47, P92; the unused file links go a day earlier with the app-table
+  clean-up); the "next post" linking sweep (`automation-next-post-linking.*`, job
+  `sweep-next-post-linking` on the intake queue every 15 minutes, R41 — scan across organizations,
+  then one channel task per account through the channel's enqueue: Instagram's `next-post-linking`)
 - `automation-run/` — the nested run sub-domain: runs, run events and comment logs split by month,
   the open-run keys and the run engine over `steps` (R14), which saves its steps through
   `ChannelSendingPort` and reads automations through this folder's repository

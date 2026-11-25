@@ -6,6 +6,13 @@ export const IDEMPOTENCY_CACHED_BODY_BYTES = 100 * 1024;
 /** Default row batch size for bulk delete helpers (not a duration). */
 export const DEFAULT_BATCH_DELETE_ROW_COUNT = 5_000;
 
+/**
+ * Most rows one hourly clean-up run deletes from a small table — deleted automations, broadcasts and
+ * segments, ended stops, ended trusted devices (feat-instagram-dm-sending P92: the plan's rows a day
+ * × 2, with room for a catch-up).
+ */
+export const SMALL_TABLE_CLEAN_UP_MAX_ROWS_PER_RUN = 50_000;
+
 /** Default cap for unscoped repository list methods (prevents OOM on hot paths). */
 export const DEFAULT_REPOSITORY_LIST_LIMIT = 500;
 

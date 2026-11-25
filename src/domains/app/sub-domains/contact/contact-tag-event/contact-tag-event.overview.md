@@ -74,5 +74,6 @@ None emitted; the hand-over is a queue job through the intake port.
 `CONTACT_TAG_EVENT_INTAKE_CONTACTS_PER_JOB` (500), `CONTACT_TAG_EVENT_KINDS`,
 `CONTACT_TAG_EVENT_SOURCES` in `contact-tag-event.constants.ts`.
 
-Later rows: intake of tag events (WC-4) at ROUTE row R38, the pick-up (WC-27) at R47 (built), the 8-day
-clean-up (WC-54) at R50, `source_automation_id`'s key with the automations migration (R13).
+Later rows: intake of tag events (WC-4) at ROUTE row R38, the pick-up (WC-27) at R47 (built); the 8-day
+clean-up (WC-54) is built (R50: `deleteCreatedBefore` over `idx_contact_tag_events_created`, the hourly
+app-table clean-up, `CONTACT_TAG_EVENT_KEEP_DAYS`), `source_automation_id`'s key with the automations migration (R13).

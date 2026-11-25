@@ -23,6 +23,7 @@ import { AutomationCommentLogRepository } from '@/domains/app/sub-domains/automa
 import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import { runAutomationRunWaitExpiryJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.processor.js';
 import { runAutomationTombstoneRetentionJob } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.processor.js';
+import { runAppTableCleanUpJob } from '@/domains/app/workers/app-table-clean-up.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { runAppPartitionUpkeepJob } from '@/domains/app/workers/app-partition-upkeep.processor.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
@@ -835,6 +836,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       await runWaitCheck(now);
       await runAppPartitionUpkeepJob({ mode: 'drop' });
       await runAutomationTombstoneRetentionJob({ now });
+      await runAppTableCleanUpJob({ now });
     }
 
     it('carry no email, phone, name, username, picture or message text on any of these paths, failures included', async () => {

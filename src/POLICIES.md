@@ -374,6 +374,17 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → personal data (comment texts) is kept longer and more parts are kept; check the privacy text first.
 - **Last reviewed**: 2026-11-24
 
+## The hourly batch clean-ups — TIME_BUDGETED_CLEAN_UP_* / keep times / per-table caps
+
+- **Value**: each plain-table clean-up runs **hourly** until a **10-minute** budget (`TIME_BUDGETED_CLEAN_UP_BUDGET_MS`) is spent, in units of **10 batches** (50,000 rows, `TIME_BUDGETED_CLEAN_UP_BATCHES_PER_UNIT`), capped per table at the plan's rows a day × 2 (`APP_TABLE_CLEAN_UP_MAX_ROWS_PER_RUN`, `SESSION_CLEANUP_MAX_ROWS_PER_RUN` 500,000, `TRUSTED_DEVICE_CLEANUP_MAX_ROWS_PER_RUN` 50,000, `AUTOMATION_TOMBSTONE_RETENTION_MAX_ROWS_PER_RUN` 50,000); the gauge `retention_cleanup_oldest_overdue_seconds` alerts after **1 day** (`TIME_BUDGETED_CLEAN_UP_OVERDUE_ALERT_SECONDS`). Keep times: deleted broadcasts and segments **90 days** (`BROADCAST_TOMBSTONE_RETENTION_DAYS`, P75), recipients **90 days** (`BROADCAST_RECIPIENT_KEEP_DAYS`), ended stops **90 days** (`INSTAGRAM_SEND_STOP_KEEP_DAYS`), tag events **8 days** (`CONTACT_TAG_EVENT_KEEP_DAYS`), month counts **13 months** (`MESSAGE_MONTH_COUNT_KEEP_MONTHS`), trusted devices **30 days** after they end (`TRUSTED_DEVICE_ENDED_KEEP_DAYS`)
+- **Source**: [src/infrastructure/queue/worker-runtime/time-budgeted-clean-up.util.ts](src/infrastructure/queue/worker-runtime/time-budgeted-clean-up.util.ts), [src/domains/app/workers/app-table-clean-up.constants.ts](src/domains/app/workers/app-table-clean-up.constants.ts), [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts), the sub-domains' constants files
+- **Rationale**: feat-instagram-dm-sending P92 (scale review S3): a once-a-day delete of at most 250,000 rows falls behind at the plan's volume; an hourly run within a budget keeps up, short units keep each transaction's locks and WAL small, the cap keeps a backlog from taking the hour, and the gauge says when a table falls behind. The keep times are the plan's (§ 33.4 size table, D51 — contacts are never removed by age).
+- **Consequences of change**:
+  - Decreasing the budget or a cap → a table may fall behind (the gauge alerts after a day).
+  - Increasing a unit's batches → longer transactions and lock waits on the hot tables.
+  - Shortening a keep time → history the team or the product reads disappears sooner; check the privacy text and the readers (route 63's months, the pick-up's 24 h).
+- **Last reviewed**: 2026-11-25
+
 ## PAGINATION
 
 - **Value**: `{ DEFAULT_LIMIT: 25, MAX_LIMIT: 100 }`

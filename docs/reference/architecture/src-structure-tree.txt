@@ -30,6 +30,7 @@ src/
     │   │   │       │   └── app-partition-upkeep.worker.unit.test.ts
     │   │   │   ├── app-partition-upkeep.db.unit.test.ts
     │   │   │   ├── app-partition-upkeep.processor.unit.test.ts
+    │   │   │   ├── app-table-clean-up.db.unit.test.ts
     │   │   │   ├── app-updated-at.db.unit.test.ts
     │   │   │   └── app.domain-wiring.unit.test.ts
     │   ├── seed/
@@ -719,7 +720,9 @@ src/
     │   │   ├── app-partition-upkeep.constants.ts
     │   │   ├── app-partition-upkeep.processor.ts
     │   │   ├── app-partition-upkeep.repository.ts
-    │   │   └── app-partition-upkeep.worker.ts
+    │   │   ├── app-partition-upkeep.worker.ts
+    │   │   ├── app-table-clean-up.constants.ts
+    │   │   └── app-table-clean-up.processor.ts
     │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts
@@ -960,6 +963,7 @@ src/
     │   │   │   │   │   ├── auth-session.serializer.no-secret.unit.test.ts
     │   │   │   │   │   ├── auth-session.service.unit.test.ts
     │   │   │   │   │   ├── session-cleanup.constants.unit.test.ts
+    │   │   │   │   │   ├── session-cleanup.processor.db.unit.test.ts
     │   │   │   │   │   ├── session-cleanup.worker.unit.test.ts
     │   │   │   │   │   ├── session-lifetime.unit.test.ts
     │   │   │   │   │   ├── session-place.unit.test.ts
@@ -970,6 +974,7 @@ src/
     │   │   │   │   └── index.ts
     │   │   │   ├── workers/
     │   │   │   │   ├── session-cleanup.constants.ts
+    │   │   │   │   ├── session-cleanup.processor.ts
     │   │   │   │   └── session-cleanup.worker.ts
     │   │   │   ├── auth-session.overview.md
     │   │   │   ├── auth-session.repository.ts
@@ -2227,6 +2232,7 @@ src/
     │   │   │   │   ├── registry-scheduler-consistency.unit.test.ts
     │   │   │   │   ├── repair-duty.util.unit.test.ts
     │   │   │   │   ├── scheduler-registry-audit.unit.test.ts
+    │   │   │   │   ├── time-budgeted-clean-up.util.unit.test.ts
     │   │   │   │   ├── worker-connection-budget.unit.test.ts
     │   │   │   │   ├── worker-database-slot-limiter.unit.test.ts
     │   │   │   │   ├── worker-failure-sanitizer.util.unit.test.ts
@@ -2239,6 +2245,7 @@ src/
     │   │   ├── repair-duty.util.ts
     │   │   ├── scheduler-registry-audit.ts
     │   │   ├── shutdown-timing.util.ts
+    │   │   ├── time-budgeted-clean-up.util.ts
     │   │   ├── worker-clock-watch.ts
     │   │   ├── worker-close.util.ts
     │   │   ├── worker-connection-budget.ts

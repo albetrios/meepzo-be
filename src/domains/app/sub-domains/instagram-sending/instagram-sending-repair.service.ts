@@ -1,4 +1,4 @@
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
+import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import {
   REPAIR_DUTY_PIECE_SIZE,
   type RepairDutyContext,
@@ -73,6 +73,11 @@ export interface InstagramSendingRepairDependencies {
   addLaneTurns(tickets: readonly InstagramRepairLaneTicket[]): Promise<{ added: number }>;
   addFastMessages(tickets: readonly InstagramRepairFastTicket[]): Promise<{ added: number }>;
   runInDatabaseSlot<T>(callback: () => Promise<T>): Promise<T>;
+  /**
+   * The job scope of one organization the cross-organization read named — minted by the repair
+   * worker (job scopes are minted only on worker paths, `principal-scope-minting.policy`).
+   */
+  jobScopeFor(organizationPublicId: string): OrganizationPrincipalDatabaseScope;
   /** WC-18's limit; default `INSTAGRAM_SENDING_REPAIR_SETTINGS.replyBacklogMax` (tests use a small one). */
   replyBacklogMax?: number | undefined;
 }
@@ -379,7 +384,7 @@ export class InstagramSendingRepairService {
     );
     let settled = 0;
     for (const message of messages) {
-      const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: message.organization_public_id });
+      const scope = this.dependencies.jobScopeFor(message.organization_public_id);
       const isFollowCheck = message.message_type === 'follow_check';
       const isSent = message.instagram_message_id !== null;
       try {
@@ -758,7 +763,7 @@ export class InstagramSendingRepairService {
     let mismatchCount = 0;
     for (const total of totals) {
       const quickCount = await this.dependencies.gateService.readGateOneCount({
-        scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: total.organization_public_id }),
+        scope: this.dependencies.jobScopeFor(total.organization_public_id),
         channelAccountPublicId: total.channel_account_public_id,
         countGroup: total.count_group as InstagramSendAttemptCountGroup,
       });
@@ -834,7 +839,7 @@ export class InstagramSendingRepairService {
     return this.dependencies
       .runInDatabaseSlot(() =>
         this.dependencies.messageService.settleWaitingMessages({
-          scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
+          scope: this.dependencies.jobScopeFor(organizationPublicId),
           keys,
           status,
           reason,

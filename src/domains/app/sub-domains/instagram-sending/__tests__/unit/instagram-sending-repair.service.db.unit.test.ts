@@ -1,3 +1,4 @@
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RepairDutyContext } from '@/infrastructure/queue/worker-runtime/repair-duty.util.js';
 import type { ChannelMessageResultInput } from '@/domains/app/app.channel-ports.js';
@@ -88,6 +89,7 @@ describe('InstagramSendingRepairService (database)', () => {
     laneTickets = [];
     fastTickets = [];
     service = new InstagramSendingRepairService({
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
       messageService: new InstagramMessageService({
         recordRunMessageResult: async (input) => {
           recorded.push(input);
@@ -322,6 +324,7 @@ describe('InstagramSendingRepairService (database)', () => {
   it('trims a "Reply like a person" automation to its limit of waiting replies, oldest first, hides kept (WC-18)', async () => {
     // The limit is 500 in the settings; a small one keeps the fixture short.
     const trimming = new InstagramSendingRepairService({
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
       messageService: new InstagramMessageService({
         recordRunMessageResult: async (input) => {
           recorded.push(input);

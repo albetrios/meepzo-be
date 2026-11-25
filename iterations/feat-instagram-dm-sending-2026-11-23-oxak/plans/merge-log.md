@@ -1,0 +1,58 @@
+# Merge log
+
+Every merge conflict of this iteration's merges into `feat/instagram-automation`: the file, the
+two sides, the resolution and its risk. Decisions: [P144](decisions.md), [P145](decisions.md).
+"ours" is `feat/instagram-automation`, "theirs" the lane branch.
+
+## Round 2 · merge 1 — `lane-b/tenancy-auth` at 9bd3846 (commit c56b7a1)
+
+Both branches had merged R40, R46, R49, R51 and lane C's R38 / R39 / R41 separately (main P141–P143,
+lane B P223 / P224), so most conflicts are two resolutions of the same rows ([P144](decisions.md)).
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `src/domains/app/app.container.ts` (13 hunks) | ours: round-1 wiring + SonarQube splits; theirs: lane rules R43–R45, watches R48, month notice R53, `createChannelSendingServices`, `createInstagramIntakeTaskHandlers` | theirs as the base; re-applied `createSettingsChannelAccountPort`, `AppContainerDependencies`; account tasks wired with `channelAccountService` (P142 (3)) | low — typecheck, container-using tests green |
+| `instagram-account/workers/instagram-account-tasks.processor.ts` (6) | ours: break through `ChannelAccountService.markAccountBroken` (lanes stop); theirs: `InstagramAccountService.markConnectionBroken`, renamed read, bounds in the queue file | ours' break and services; theirs' names (`listConnectedForWebhookSubscriptionSweep`, queue-file bounds); unused `MetaGraphApiError` import dropped | low — processor unit test asserts `markAccountBroken` |
+| `instagram-account/instagram-account.constants.ts` (auto) | ours added the sweep bounds; theirs has them in `instagram-account-tasks.queue.ts` | theirs' file — one definition | none |
+| `instagram-account.repository.ts`, `.service.ts`, `-extension.service.ts` | read name and TSDoc wording | theirs (one name across callers) | none |
+| `channel-connection/workers/channel-connection-token-check.worker.ts` (3) | ours: direct import of the account sweep; theirs: optional services port `webhookSubscriptionSweep` | theirs (the connection imports no account job; the registry wires it) | low — registry wires it, unit tests green |
+| token-check constants / processor, `meta-graph-error.util.ts`, `channel-connection-token.repository.ts` | TSDoc wording | either side's wording | none |
+| `instagram-webhook/workers/instagram-missed-comment-check.processor.ts` (2) | ours: SonarQube split (`lookAtPost`, `saveReadComments`, `handFoundCommentsToIntake`); theirs: R53's `tellMissedCommentsFound` | both: the split plus the notice before the hand-off | low |
+| `instagram-webhook-event.repository.ts` | TSDoc (nested recursive base) | ours | none |
+| `src/infrastructure/queue/scheduler.ts`, `worker-registration.registry.ts`, `worker.ts`, `worker-containers.ts`, `constants-centralization.util.ts` | comments; the registry import | code identical to theirs; comments either | none |
+| `worker-registration.registry.unit.test.ts`, `scheduler.unit.test.ts` | count pins (44 vs 46 workers, 40 vs 59 jobs) | theirs (the registry equals lane B's) | none |
+| `instagram-account-queues.unit.test.ts`, `instagram-account-tasks.processor.unit.test.ts` | doc / read name | ours / theirs | none |
+| `instagram-database-tasks.worker.unit.test.ts` (add/add) | both wrote the same test | ours (3b4583b's) | none |
+| `__tests__/e2e/instagram-retention-erasure.e2e.test.ts` (4) | the same data-deletion repeat fix, two shapes (`issuedAt` vs signed once) | theirs (lane B's concurrent repeat test uses it) | none |
+| `__tests__/e2e/instagram-acceptance-gaps.e2e.test.ts` | ours dropped the subscription stamp | theirs (keeps the stamp; harmless) | low |
+| docs: `resource-limits.md`, `workers-and-events.md`, `credentials-and-env.md`, `FLOWS.md`, `OVERVIEW.md`, `POLICIES.md`, `instagram-account.overview.md` | counts and wording | theirs (lane B's counts are the merged registry's); `src/domains/CLAUDE.md` char-merged | low |
+| `src-structure-tree.txt`, `frontend-route-map.md`, `docs/routes.txt` | generated | regenerated | none |
+| `AS-BUILT.md` (6) | both sides' rows; interface lists | every row of both; struck items kept once (no live duplicates) | low |
+| `plans/decisions.md` | both sides' rows | union by P number (no collision) + P144 | none |
+| `plans/acceptance.md` (4) | Status / evidence | per row the most-advanced Status; equal → evidence of both, test names checked to exist | low |
+| `plans/worker-changes.md` | Built cells | theirs (a superset) | none |
+
+## Round 2 · merge 2 — `lane-d/r49` at be2411e (R50, P414)
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `instagram-sending/instagram-send-stop.repository.ts` (2) | ours: R53's `listStartedSinceAcrossOrganizations` + retention factory; theirs: R50's delete + gauge + retention factory | both methods, one factory (TSDoc names both uses) | low |
+| `instagram-sending/message-month-count.repository.ts` (2) | ours: R53's `listOrganizationsCountedSince`; theirs: R50's delete + gauge | both, one factory | low |
+| `contact/contact-tag-event/contact-tag-event.repository.ts` (auto-merged) | both added `createRetentionContactTagEventRepository` | duplicate removed (typecheck found it); one factory, TSDoc names both | none |
+| `automation/automation.repository.ts` | ours: R41's post-linking read; theirs: purge TSDoc | both | none |
+| `prometheus-metrics.ts` | ours: `recordRepairDutyRound`; theirs: `setRetentionCleanupGauges` | both | none |
+| `scheduler.unit.test.ts` (3) | 59 vs 38 jobs | 60 jobs, 37 queues, 97 closes (R50 shares the upkeep queue) | none |
+| `automation.overview.md`, `contact-tag-event.overview.md` | worker list wording | both facts kept | none |
+| `KICKOFF.md` | Status cells | most-advanced (`kickoffmerge.py`) | none |
+| `AS-BUILT.md`, `plans/decisions.md`, `plans/worker-changes.md` | rows / Built cells | union; Built cells joined | low |
+| `plans/routes-final.md` (BCC9) | both appended an "as built" note | char 3-way of the one line | none |
+| `src-structure-tree.txt` | generated | regenerated | none |
+
+### Gate fixes at the source ([P145](decisions.md))
+
+- `principal-scope-minting.policy`: `InstagramSendingRepairService` takes `jobScopeFor` from the repair
+  worker; the Stripe "payment failed" notice uses `stripeWebhookOrganizationScope` (worker-side util);
+  `instagram-lane-harness.factory.ts` allowlisted with its reason.
+- R47 bug: migration `20261125210000_app_repair_sweep_arms.sql` — the sweep arm on
+  `app.contact_activities` and `app.automation_reply_states` (WC-17 skipped every waiting DM, WC-18
+  never trimmed, under the RLS-subject role); `rls-table-scope-map` updated.

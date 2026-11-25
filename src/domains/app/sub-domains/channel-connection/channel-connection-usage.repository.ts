@@ -33,10 +33,18 @@ export class ChannelConnectionUsageRepository {
     return resolveRepositoryDatabaseHandle(this.databaseHandle);
   }
 
-  /** The connection's organization and internal id by its public id, or `null`. */
-  private async findConnectionKey(
-    channelConnectionPublicId: string,
-  ): Promise<{ organizationId: number; channelConnectionId: number } | null> {
+  /**
+   * The connection's organization and internal id by its public id within the caller's organization
+   * (its public id bound, not read from the session setting — AC-25.1's flow found the unbound form
+   * left the filter to RLS alone), or `null`.
+   */
+  private async findConnectionKey({
+    organizationPublicId,
+    channelConnectionPublicId,
+  }: {
+    organizationPublicId: string;
+    channelConnectionPublicId: string;
+  }): Promise<{ organizationId: number; channelConnectionId: number } | null> {
     const rows = await this.db()
       .select({
         organizationId: channel_connections.organization_id,
@@ -47,8 +55,8 @@ export class ChannelConnectionUsageRepository {
         and(
           eq(channel_connections.public_id, channelConnectionPublicId),
           sql`${channel_connections.organization_id} = (
-            SELECT id FROM tenancy.organizations
-            WHERE public_id = current_setting('app.current_organization_public_id', true)
+            SELECT organizations.id FROM tenancy.organizations
+            WHERE organizations.public_id = ${organizationPublicId}
           )`,
         ),
       )
@@ -57,8 +65,14 @@ export class ChannelConnectionUsageRepository {
   }
 
   /** Every reading of the connection; `[]` when it has none or is not this organization's. */
-  async listEntries(channelConnectionPublicId: string): Promise<ChannelConnectionUsageEntry[]> {
-    const key = await this.findConnectionKey(channelConnectionPublicId);
+  async listEntries({
+    organizationPublicId,
+    channelConnectionPublicId,
+  }: {
+    organizationPublicId: string;
+    channelConnectionPublicId: string;
+  }): Promise<ChannelConnectionUsageEntry[]> {
+    const key = await this.findConnectionKey({ organizationPublicId, channelConnectionPublicId });
     if (key === null) return [];
     const rows = await this.db()
       .select({
@@ -80,14 +94,16 @@ export class ChannelConnectionUsageRepository {
 
   /** Upserts the readings, keeping the newer `read_at` per (asset, type). */
   async upsertEntries({
+    organizationPublicId,
     channelConnectionPublicId,
     entries,
   }: {
+    organizationPublicId: string;
     channelConnectionPublicId: string;
     entries: readonly ChannelConnectionUsageEntry[];
   }): Promise<void> {
     if (entries.length === 0) return;
-    const key = await this.findConnectionKey(channelConnectionPublicId);
+    const key = await this.findConnectionKey({ organizationPublicId, channelConnectionPublicId });
     if (key === null) return;
     await this.db()
       .insert(channel_connection_usages)

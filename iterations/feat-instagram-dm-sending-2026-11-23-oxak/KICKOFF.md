@@ -246,7 +246,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R57 | Flow — the month limit: 80 %, 100 %, the new month | flow | R52, R53 | `/be-build-requirement` | AC-22.* | Rimeet Mavani | open |
 | R58 | Flow — a move down at the period end | flow | R25, R52 | `/be-build-requirement` | AC-23.* | Rimeet Mavani | open |
 | R59 | Flow — a trial from start to its end | flow | R52, R58 | `/be-build-requirement` | AC-24.* | Rimeet Mavani | open |
-| R60 | Flow — a token error, the reconnect, the lanes waking | flow | R51, R42 | `/be-build-requirement` | AC-25.* | Rimeet Mavani | open |
+| R60 | Flow — a token error, the reconnect, the lanes waking | flow | R51, R42 | `/be-build-requirement` | AC-25.* | Rimeet Mavani | done |
 | R61 | Flow — Meta's data deletion and a contact erase | flow | R9, R46, R50 | `/be-build-requirement` | AC-26.* | Rimeet Mavani | open |
 | R62 | Flow — recovery after an outage: Meta down, Redis lost, a restore that must not send | flow | R39, R47, R48, R49 | `/be-build-requirement` | AC-27.* | Rimeet Mavani | open |
 | R63 | Close — `plans/acceptance.md` filled, the gates green, the frontend route map, `AS-BUILT.md` summary and Standing deviations | flow | R1–R62 | be-kickoff-iteration › Close | every AC, BRIEF-1–BRIEF-10, every decision item | Rimeet Mavani | open |

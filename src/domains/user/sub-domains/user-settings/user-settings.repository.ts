@@ -6,7 +6,7 @@ import { user_settings } from '@/domains/user/sub-domains/user-settings/user-set
 /**
  * Drizzle data-access for `auth.user_settings`. Implements an upsert-merge for the singleton
  * row keyed by `user_id`: missing fields fall back to the existing row, then to the platform
- * factory defaults (light mode, notifications on, `en` language, `['en']` preferred locales, no
+ * factory defaults (light mode, motion on, notifications on, `en` language, `['en']` preferred locales, no
  * analytics consent receipt, no pinned organization). A consent receipt writes its three columns together, stamped by the
  * database.
  */
@@ -24,6 +24,7 @@ export class UserSettingsRepository {
     user_id: number,
     data: {
       is_dark_mode_enabled?: boolean;
+      is_reduce_motion_enabled?: boolean;
       is_notifications_enabled?: boolean;
       language?: string;
       preferred_locales?: unknown;
@@ -52,6 +53,7 @@ export class UserSettingsRepository {
       .values({
         user_id,
         is_dark_mode_enabled: data.is_dark_mode_enabled ?? false,
+        is_reduce_motion_enabled: data.is_reduce_motion_enabled ?? false,
         is_notifications_enabled: data.is_notifications_enabled ?? true,
         language: data.language ?? 'en',
         preferred_locales: (data.preferred_locales as string[] | undefined) ?? ['en'],
@@ -63,6 +65,9 @@ export class UserSettingsRepository {
         set: {
           ...(data.is_dark_mode_enabled !== undefined && {
             is_dark_mode_enabled: data.is_dark_mode_enabled,
+          }),
+          ...(data.is_reduce_motion_enabled !== undefined && {
+            is_reduce_motion_enabled: data.is_reduce_motion_enabled,
           }),
           ...(data.is_notifications_enabled !== undefined && {
             is_notifications_enabled: data.is_notifications_enabled,

@@ -26,6 +26,14 @@ import {
 /** `updated_at` for every change of an account — never before the row's `created_at`. */
 const accountUpdatedAtTimestamp = databaseUpdatedAtTimestamp(channel_accounts.created_at);
 
+/** One organization's chooser counts — {@link ChannelAccountRepository.listOrganizationCountsForUser}. */
+export interface OrganizationCountsRow {
+  organizationPublicId: string;
+  membersCount: number;
+  channelAccountsCount: number;
+  liveAutomationsCount: number;
+}
+
 /** One `app.channel_accounts` row as Drizzle reads it. */
 export type ChannelAccountRow = typeof channel_accounts.$inferSelect;
 
@@ -236,6 +244,35 @@ export class ChannelAccountRepository {
       .from(channel_accounts)
       .where(and(eq(channel_accounts.organization_id, organizationId), isLive));
     return row?.count ?? 0;
+  }
+
+  /**
+   * The organization chooser's counts (route 132, feat-instagram-dm-sending UN5) for the given
+   * organizations where the user holds an active membership: active members, accounts not revoked,
+   * live automations. One call of the SECURITY DEFINER `app.list_organization_counts_for_user` — the
+   * chooser runs in the user's context, where the organization-scoped policies show no app rows.
+   */
+  async listOrganizationCountsForUser({
+    userPublicId,
+    organizationPublicIds,
+  }: {
+    userPublicId: string;
+    organizationPublicIds: readonly string[];
+  }): Promise<OrganizationCountsRow[]> {
+    if (organizationPublicIds.length === 0) return [];
+    const organizationPublicIdValues = sql.join(
+      organizationPublicIds.map((publicId) => sql`${publicId}`),
+      sql`, `,
+    );
+    const result = await this.db().execute(
+      sql`SELECT organization_public_id, members_count, channel_accounts_count, live_automations_count FROM app.list_organization_counts_for_user(${userPublicId}, ARRAY[${organizationPublicIdValues}]::text[])`,
+    );
+    return (result.rows as Record<string, unknown>[]).map((row) => ({
+      organizationPublicId: String(row.organization_public_id),
+      membersCount: Number(row.members_count),
+      channelAccountsCount: Number(row.channel_accounts_count),
+      liveAutomationsCount: Number(row.live_automations_count),
+    }));
   }
 
   /** How many accounts are active — not revoked, not `plan_downgrade` (route 11's count, CA9). */

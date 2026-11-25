@@ -37,7 +37,7 @@ import {
   listMemberRolesQueryDto,
 } from '@/domains/tenancy/sub-domains/member-roles/member-role.dto.js';
 import { listOrganizationApiKeysQueryDto } from '@/domains/tenancy/sub-domains/organization/organization-api-key/organization-api-key.dto.js';
-import { listOrganizationsQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
+import { listOrganizationChooserQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
 import { ListUsersDto } from '@/domains/user/user.dto.js';
 import { listMyMembershipInvitationsQueryDto } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
 import { ListInstagramMediaQueryDto } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.dto.js';
@@ -47,7 +47,7 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/audit/logs': ListAuditLogsQueryDto,
   'GET /api/v1/users': ListUsersDto,
   'GET /api/v1/billing/invoices': listInvoicesQueryDto,
-  'GET /api/v1/users/me/organizations': listOrganizationsQueryDto,
+  'GET /api/v1/users/me/organizations': listOrganizationChooserQueryDto,
   'GET /api/v1/users/me/membership-invitations': listMyMembershipInvitationsQueryDto,
   'GET /api/v1/tenancy/organization/audit-logs': ListAuditLogsQueryDto,
   'GET /api/v1/tenancy/organization/api-keys': listOrganizationApiKeysQueryDto,

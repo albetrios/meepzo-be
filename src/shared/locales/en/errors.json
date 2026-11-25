@@ -122,7 +122,8 @@
     "automationTriggerTypeGroup": "The way to start can only change within its group.",
     "automationStepsTooLarge": "The steps are too large (at most 64 KB).",
     "automationRefCodeInvalid": "Use 1 to 64 letters, digits, \"_\", \"=\" or \"-\".",
-    "automationChannelAccountUnknown": "This account is not one of the organization's accounts."
+    "automationChannelAccountUnknown": "This account is not one of the organization's accounts.",
+    "instagramHandleForm": "Use an Instagram handle: letters, digits, dots and underscores, up to 30"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -248,6 +249,7 @@
   "seatLimitReached": "Your plan's seat limit ({{limit}}) has been reached. Upgrade your plan or remove a member before adding another.",
   "subscriptionNotMutable": "This subscription is in a terminal state and can no longer be modified; create a new subscription instead",
   "defaultOrganizationUnavailable": "Choose an organization you're an active member of as your sign-in organization",
+  "teamOrganizationRequired": "Choose a team organization as your sign-in organization",
   "notificationPreferenceLocked": "Security and billing emails are always sent and can't be turned off",
   "planNotAvailableForBillingCycle": "This plan is not available for your subscription's billing cycle",
   "paymentProviderUnavailable": "The payment provider is temporarily unavailable. Please try again.",

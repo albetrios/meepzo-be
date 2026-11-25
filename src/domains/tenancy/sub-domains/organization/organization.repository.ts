@@ -5,6 +5,7 @@ import {
   asc,
   desc,
   eq,
+  ilike,
   inArray,
   isNotNull,
   isNull,
@@ -15,7 +16,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import { finishKeysetPage } from '@/shared/utils/http/list-query.util.js';
+import { buildContainsLikePattern, finishKeysetPage } from '@/shared/utils/http/list-query.util.js';
 import { databaseNowTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import {
   getContextFreeDatabase,
@@ -75,6 +76,15 @@ function usableOrganizationFor(user_id: number): SQL | undefined {
 interface OrganizationListPagination {
   after?: string;
   limit: number;
+  /** The chooser's name search (route 132, UN5). */
+  q?: string;
+}
+
+/** The caller's main role in one organization — {@link OrganizationRepository.resolveMainRolesForUser}. */
+export interface OrganizationMainRoleRow {
+  organization_id: number;
+  role_public_id: string;
+  role_name: string;
 }
 
 /**
@@ -183,7 +193,7 @@ export class OrganizationRepository {
   }
 
   async findAllForUser(user_public_id: string, pagination: OrganizationListPagination) {
-    const { after, limit } = pagination;
+    const { after, limit, q } = pagination;
     // The caller's internal id, resolved INSIDE this query rather than by a preceding round trip.
     // `auth.resolve_user_id_by_public_id` is STABLE, so Postgres evaluates it once per statement;
     // an unknown or soft-deleted user resolves to NULL, both comparisons below fail, and the page
@@ -218,8 +228,11 @@ export class OrganizationRepository {
           .from(ownedOrganizations)
           .where(eq(ownedOrganizations.owner_user_id, userId)),
       );
+    // The chooser (route 132, UN5): the personal organization is never listed; `q` matches the name.
     const accessWhere = and(
       isNull(organizations.deleted_at),
+      eq(organizations.type, 'TEAM'),
+      q === undefined ? undefined : ilike(organizations.name, buildContainsLikePattern(q)),
       cursorCondition,
       inArray(organizations.id, accessibleOrganizationIds),
     );
@@ -233,6 +246,36 @@ export class OrganizationRepository {
       .orderBy(asc(organizations.created_at), asc(organizations.id))
       .limit(limit + 1);
     return finishKeysetPage({ rows, args: { limit } });
+  }
+
+  /**
+   * The caller's MAIN role in each of the given organizations where they hold an active membership
+   * (the chooser's `role`, route 132, UN5). `tenancy.roles` is behind the organization-only policy, so
+   * the user-context read goes through the SECURITY DEFINER `tenancy.resolve_main_roles_for_user`,
+   * which answers only the caller's own active memberships.
+   */
+  async resolveMainRolesForUser(
+    user_public_id: string,
+    organization_ids: readonly number[],
+  ): Promise<OrganizationMainRoleRow[]> {
+    if (organization_ids.length === 0) return [];
+    const organizationIdValues = sql.join(
+      organization_ids.map((organization_id) => sql`${organization_id}`),
+      sql`, `,
+    );
+    const result = await getRequestDatabase().execute(
+      sql`SELECT organization_id, role_public_id, role_name FROM tenancy.resolve_main_roles_for_user(${user_public_id}, ARRAY[${organizationIdValues}]::bigint[])`,
+    );
+    const rows = extractResolverRows<{
+      organization_id: number | string;
+      role_public_id: string;
+      role_name: string;
+    }>(result);
+    return rows.map((row) => ({
+      organization_id: Number(row.organization_id),
+      role_public_id: row.role_public_id,
+      role_name: row.role_name,
+    }));
   }
 
   /**

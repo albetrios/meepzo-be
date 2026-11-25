@@ -12,7 +12,7 @@ import {
 } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { GLOBAL_ROLES } from '@/shared/constants/index.js';
 import { requireRole } from '@/shared/utils/auth/authorization.util.js';
-import { listOrganizationsQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
+import { listOrganizationChooserQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
 import { listMyMembershipInvitationsQueryDto } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
 import { createUserController } from './user.controller.js';
 import { createUserDataExportController } from './sub-domains/user-data-export/user-data-export.controller.js';
@@ -171,11 +171,11 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'List my organizations',
         description:
-          "Returns the organizations the authenticated user owns or is an active member of, newest last. Always the caller's own organizations, whatever their global role.",
+          "The organization chooser: the team organizations the authenticated user owns or is an active member of, oldest first — the personal organization is never listed. `q` searches the name (any case). Each carries the caller's main role (`role`: `{ id, name }`) and its `members_count` (active members), `channel_accounts_count` (accounts not revoked) and `live_automations_count`. Always the caller's own organizations, whatever their global role.",
         // Tagged with the owning domain, like `/tenancy/organization/audit-logs` is tagged
         // `Audit Log` — the tag follows the data, the path follows the scope.
         tags: ['Organization'],
-        querystring: listOrganizationsQueryDto,
+        querystring: listOrganizationChooserQueryDto,
       },
     },
     controller.listMyOrganizations,

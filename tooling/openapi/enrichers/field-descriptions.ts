@@ -77,6 +77,7 @@ export function getFieldSpecificDescription(fieldName: string): string {
     is_system: 'Whether this is a system-managed role (cannot be deleted).',
     is_enabled: 'Whether the webhook is active and receiving events.',
     is_dark_mode_enabled: 'Enable dark mode in the UI.',
+    is_reduce_motion_enabled: 'Keep animations to a minimum in the UI.',
     is_notifications_enabled: 'Enable push/in-app notifications.',
     is_email_notifications_enabled: 'Enable email notifications for the organization.',
     default_enabled: 'Whether notifications of this type are enabled by default.',

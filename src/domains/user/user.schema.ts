@@ -12,7 +12,12 @@ import {
   pgPolicy,
 } from 'drizzle-orm/pg-core';
 import { authSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
-import { USER_PRESENCE, USER_PRESENCE_VALUES } from './user.constants.js';
+import {
+  USER_GOALS,
+  USER_INSTAGRAM_HANDLE_MAX_LENGTH,
+  USER_PRESENCE,
+  USER_PRESENCE_VALUES,
+} from './user.constants.js';
 
 /**
  * `auth.users` — canonical platform identity table. Soft-deleted via `deleted_at` so audit and
@@ -35,6 +40,10 @@ export const users = authSchema
       first_name: varchar('first_name', { length: 100 }),
       last_name: varchar('last_name', { length: 100 }),
       job_title: varchar('job_title', { length: 150 }),
+      // Onboarding's profile note (feat-instagram-dm-sending UN3): no `@`, lower case; connects nothing.
+      instagram_handle: varchar('instagram_handle', { length: USER_INSTAGRAM_HANDLE_MAX_LENGTH }),
+      // Onboarding's goal (UN3): one of USER_GOALS, or NULL when skipped.
+      goal: varchar('goal', { length: 20 }),
       avatar_url: varchar('avatar_url', { length: 512 }),
       password_hash: varchar('password_hash', { length: 255 }),
       failed_login_count: integer('failed_login_count').notNull().default(0),
@@ -83,6 +92,14 @@ export const users = authSchema
       check('chk_users_status', sql`${table.status} IN ('ACTIVE', 'LOCKED', 'SUSPENDED')`),
       check('chk_users_failed_login', sql`${table.failed_login_count} >= 0`),
       check('chk_users_updated', sql`${table.updated_at} >= ${table.created_at}`),
+      check('chk_users_instagram_handle', sql`${table.instagram_handle} ~ '^[a-z0-9._]{1,30}$'`),
+      check(
+        'chk_users_goal',
+        sql`${table.goal} IN (${sql.join(
+          USER_GOALS.map((goal) => sql`${goal}`),
+          sql`, `,
+        )})`,
+      ),
       check(
         'chk_users_presence',
         sql`${table.presence} IN (${sql.join(

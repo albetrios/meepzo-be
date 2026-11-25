@@ -369,6 +369,24 @@ export class MembershipRepository {
   }
 
   /**
+   * The internal user ids of every ACTIVE, not removed member of the organization — the "every
+   * member" notification recipients (feat-instagram-dm-sending UN2).
+   */
+  async findActiveUserIds(organization_id: number): Promise<number[]> {
+    const rows = await getRequestDatabase()
+      .select({ user_id: memberships.user_id })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organization_id, organization_id),
+          eq(memberships.status, MEMBERSHIP_STATUS.ACTIVE),
+          isNull(memberships.deleted_at),
+        ),
+      );
+    return rows.map((row) => row.user_id);
+  }
+
+  /**
    * Returns the internal user ids of every ACTIVE member of an organization whose (non-deleted)
    * role grants the given permission code — e.g. all `membership:create` holders, for the
    * invite-accepted notification fan-out.

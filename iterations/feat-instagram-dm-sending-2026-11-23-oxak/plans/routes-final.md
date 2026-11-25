@@ -5263,8 +5263,8 @@ Every route can answer the errors in 11.5; each route's own errors are in its ne
 
 | # | Change |
 | --- | --- |
-| UNC1 | UN1: the three ports (types in `src/shared/` beside the existing cross-domain port types, wired in `src/routes.ts` and the worker bootstrap; the app's implementations are sub-domain 3–6's services); `src/domains/user/user.overview.md`, `src/domains/notify/notify.overview.md`, `src/FLOWS.md` (notification flow) |
-| UNC2 | UN2: `resolveNotificationRecipients` in `notification-dispatch.service.ts` over the membership service; tests per rule |
+| UNC1 | UN1: the three ports (each declared by its consumer, as the launch's erase-step port — the chooser's `OrganizationCountsPort` in tenancy's `organization.service.ts` — and wired in the composition roots `domain-containers.plugin.ts` and `worker-containers.ts`; the app's implementations are sub-domain 1B–6's services — the chooser's is `ChannelAccountService.listOrganizationCountsForUser`, R34, [P407](decisions.md)); `src/domains/user/user.overview.md`, `src/domains/notify/notify.overview.md`, `src/FLOWS.md` (notification flow) |
+| UNC2 | UN2: `resolveNotificationRecipients({ scope, rule, subjectUserId })` in `notification-dispatch.service.ts` over the membership service (`findActiveUserIdsWithPermission`, `findActiveUserIds`; `subjectUserId` = the member a team change is about, or who started it — R34, [P407](decisions.md)); tests per rule |
 
 ### 11.12 Nested sub-domains
 
@@ -5303,10 +5303,12 @@ None.
 `auth.user_settings` (changed — migration `user_settings_reduce_motion`): `is_reduce_motion_enabled boolean NOT NULL DEFAULT false`.
 
 The app function (app migration `app_member_organization_counts`): `SECURITY DEFINER`, `SET search_path` pinned, `STABLE`, owned by
-the migration role, `EXECUTE` granted to `meepzo_be_app` only; for each given organization with an active membership of the user:
+the migration role, `EXECUTE` granted to `meepzo_be_app` and `meepzo_be_maintenance` only (the role-taxonomy policy, [P407](decisions.md)); for each given organization with an active membership of the user:
 `members_count` (active members), `channel_accounts_count` (not revoked), `live_automations_count` (`status = 'live'`, not
 deleted). It reads `tenancy.memberships`, `app.channel_accounts`, `app.automations` through their existing organization indexes.
-No index change. RLS unchanged.
+No index change. RLS unchanged. The main role is read through tenancy's SECURITY DEFINER
+`tenancy.resolve_main_roles_for_user(user_public_id, organization_ids)` (migration `tenancy_resolve_main_roles_for_user`):
+`tenancy.roles` is organization-only under RLS in the chooser's user scope (R34, [P407](decisions.md)).
 
 #### 11.A.4 Permissions
 
@@ -5321,7 +5323,8 @@ As 11.5.
 #### 11.A.6 Objects returned
 
 **Me** (as built) + `instagram_handle`, `goal`. **Settings** (as built) + `is_reduce_motion_enabled`. **Organization summary**
-(route 132): `id`, `name`, `slug`, `logo_color` (9.A), `logo_url`, `role` (`{ id, name }`), `members_count`,
+(route 132): the organization as built (`id`, `name`, `slug`, `type`, `status`, `owner_user_id`, `logo_color` (9.A), `logo_url`,
+`timezone`, `currency`, timestamps — kept, additive, [P407](decisions.md)) + `role` (`{ id, name }`), `members_count`,
 `channel_accounts_count`, `live_automations_count`.
 
 #### 11.A.7 Routes (130–132, 148–149)

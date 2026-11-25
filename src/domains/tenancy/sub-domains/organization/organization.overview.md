@@ -31,6 +31,7 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
   `<name> (custom)` with its people and codes (launch IQ5). Twice is once.
 - **Organization soft-delete cascades to child resources**: settings, API keys, and notification policy tombstone with the organization. Memberships are handled separately.
 - **The delete offboards other domains first** (`wireOffboardingUploadService`): the logo and uploads, then the subscription cancel, then — the last step, in the organization's own scope while it is live, because row-level security hides a soft-deleted organization's rows — the `app` domain's erase of its Instagram accounts through `OrganizationInstagramOffboardingPort` (launch D54). A failed step stops the delete before the soft delete; `organization-offboarding-reconcile` runs it again, every step being safe to repeat. The erased accounts are named on the `tenancy.organization.delete` audit entry.
+- **The organization chooser** (`GET /users/me/organizations`, `listForUser`, feat-instagram-dm-sending UN5): team organizations only — the personal one is never listed — with `q` on the name (1–100, any case, wildcards literal). Each row adds the caller's main `role` (the SECURITY DEFINER `tenancy.resolve_main_roles_for_user`, since `tenancy.roles` is behind the organization-only policy in the user scope) and `members_count`, `channel_accounts_count`, `live_automations_count` from the app's `OrganizationCountsPort` (UN1), wired by `wireOrganizationCounts` in both composition roots and called once per page.
 
 ## Lifecycle
 

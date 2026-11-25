@@ -28,6 +28,8 @@ export const user_settings = authSchema
         .primaryKey()
         .references(() => users.id, { onDelete: 'cascade' }),
       is_dark_mode_enabled: boolean('is_dark_mode_enabled').notNull().default(false),
+      // The person's reduce-motion choice (feat-instagram-dm-sending UN4).
+      is_reduce_motion_enabled: boolean('is_reduce_motion_enabled').notNull().default(false),
       is_notifications_enabled: boolean('is_notifications_enabled').notNull().default(true),
       language: varchar('language', { length: 10 }).notNull().default('en'),
       preferred_locales: jsonb('preferred_locales').notNull().default(['en']),

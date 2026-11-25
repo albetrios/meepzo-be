@@ -28,9 +28,12 @@ Per-user feature toggles and presentation preferences (locale override, theme, d
   `default_organization_id` pins the organization the login opens; `null` (the default) keeps the
   automatic choice — the organization last switched to, else the newest organization. Stored as the organization's
   internal id (a soft pointer, no foreign key); a `PATCH` accepts only an ACTIVE organization (TEAM) the
-  caller has an ACTIVE membership in — anything else is `422` with
-  `reason: default_organization_unavailable`, one answer for every miss so the route never confirms
-  an organization exists. Reads resolve it through the tenancy membership lookups, inside the same user
+  caller has an ACTIVE membership in — the caller's own personal organization is `422`
+  `reason: team_organization_required` (feat-instagram-dm-sending UN4), anything else is `422` with
+  `reason: default_organization_unavailable`, one answer for every other miss so the route never
+  confirms an organization exists.
+- **Reduce motion** (feat-instagram-dm-sending UN4): `is_reduce_motion_enabled`, default `false`, next to
+  `is_dark_mode_enabled`. Reads resolve it through the tenancy membership lookups, inside the same user
   context, and report `null` while the pin is not usable (left, suspended, organization suspended or
   deleted); the stored id stays, so rejoining restores the choice. The login side is
   `resolveDefaultActiveOrganizationPublicId` (tenancy). No audit row: a preference, not a security
@@ -52,5 +55,6 @@ stateDiagram-v2
 - **A consent decision without its policy version, or the reverse** → 400 on `analytics_consent_version`.
 - **Locale value not in supported list** → 400.
 - **A `default_organization_id` that is not an active organization the caller actively belongs to** → 422
-  `errors:defaultOrganizationUnavailable` (`reason: default_organization_unavailable`); a blank or
-  over-long one → 400.
+  `errors:defaultOrganizationUnavailable` (`reason: default_organization_unavailable`); the caller's
+  personal organization → 422 `errors:teamOrganizationRequired` (`reason: team_organization_required`);
+  a blank or over-long one → 400.

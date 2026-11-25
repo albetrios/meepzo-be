@@ -1,3 +1,4 @@
+import type { UserGoal } from './user.constants.js';
 import type { users } from './user.schema.js';
 
 /**
@@ -31,6 +32,10 @@ export interface UserOutput {
   first_name: string | null;
   last_name: string | null;
   job_title: string | null;
+  /** Onboarding's Instagram handle — no `@`, lower case; `null` when skipped (UN3). */
+  instagram_handle: string | null;
+  /** Onboarding's goal — `capture_leads` · `drive_sales` · `grow_community`; `null` when skipped (UN3). */
+  goal: UserGoal | null;
   avatar_url: string | null;
   /** The status dot the team sees — `online`, `busy` or `away` (`PUT /users/me/presence`). */
   presence: string;

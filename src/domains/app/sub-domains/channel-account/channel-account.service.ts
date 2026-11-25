@@ -50,7 +50,11 @@ import {
   channelAccountNotFoundError,
   stopChannelAccountInvalidError,
 } from './channel-account-error.util.js';
-import type { ChannelAccountRepository, ChannelAccountRow } from './channel-account.repository.js';
+import type {
+  ChannelAccountRepository,
+  ChannelAccountRow,
+  OrganizationCountsRow,
+} from './channel-account.repository.js';
 import {
   serializeChannelAccount,
   serializeChannelAccountSummary,
@@ -977,6 +981,34 @@ export class ChannelAccountService
           connectedAt: account.connected_at,
         }));
       },
+    });
+  }
+
+  /**
+   * Tenancy's counts port for the organization chooser (`OrganizationCountsPort`, route 132,
+   * feat-instagram-dm-sending UN1, UN5): per organization where the user holds an active membership,
+   * the active members, the channel accounts not revoked and the live automations.
+   *
+   * @remarks
+   * One read in the user's verified scope (the chooser's unit lends its transaction) through the
+   * SECURITY DEFINER `app.list_organization_counts_for_user`, which never counts an organization the
+   * user is not an active member of. `[]` for no organizations.
+   */
+  async listOrganizationCountsForUser({
+    userPublicId,
+    organizationPublicIds,
+  }: {
+    userPublicId: string;
+    organizationPublicIds: readonly string[];
+  }): Promise<OrganizationCountsRow[]> {
+    if (organizationPublicIds.length === 0) return [];
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId }),
+      callback: () =>
+        this.accountRepository.listOrganizationCountsForUser({
+          userPublicId,
+          organizationPublicIds,
+        }),
     });
   }
 

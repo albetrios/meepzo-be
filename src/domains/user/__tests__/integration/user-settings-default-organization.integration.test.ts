@@ -123,19 +123,15 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     expect(decodeOrgClaim(await login({ email: user.email }))).toBe(other.public_id);
   });
 
-  it("answers 422 default_organization_unavailable for someone else's organization, a personal workspace or an unknown id", async () => {
+  it("answers 422 default_organization_unavailable for someone else's organization or an unknown id", async () => {
     const user = await createTestUser();
     const stranger = await createTestUser();
-    const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
+    await provisionPersonalOrganization({ ownerUserId: user.id });
     await createTeamOrganization({ ownerUserId: user.id, name: 'Mine' });
     const theirs = await createTeamOrganization({ ownerUserId: stranger.id, name: 'Theirs' });
     const token = await login({ email: user.email });
 
-    for (const organizationPublicId of [
-      theirs.public_id,
-      personal.organization.public_id,
-      generatePublicId('organization'),
-    ]) {
+    for (const organizationPublicId of [theirs.public_id, generatePublicId('organization')]) {
       const response = await patchSettings({
         accessToken: token,
         body: { default_organization_id: organizationPublicId },
@@ -145,6 +141,66 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
         'default_organization_unavailable',
       );
     }
+  });
+
+  it("answers 422 team_organization_required for the caller's personal organization (UN4, AC-14.2)", async () => {
+    const user = await createTestUser();
+    const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
+    await createTeamOrganization({ ownerUserId: user.id, name: 'Mine' });
+    const token = await login({ email: user.email });
+
+    const response = await patchSettings({
+      accessToken: token,
+      body: { default_organization_id: personal.organization.public_id },
+    });
+    expect(response.statusCode, response.body).toBe(422);
+    expect((response.json() as { error: { reason?: string } }).error.reason).toBe(
+      'team_organization_required',
+    );
+  });
+
+  it('saves and answers reduce motion (UN4, AC-14.2)', async () => {
+    const user = await createTestUser();
+    const token = await login({ email: user.email });
+
+    const before = await app.inject({
+      method: 'GET',
+      url: testApiPath('/users/me/settings'),
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(
+      (before.json() as { data: { is_reduce_motion_enabled: boolean } }).data
+        .is_reduce_motion_enabled,
+    ).toBe(false);
+
+    const saved = await patchSettings({
+      accessToken: token,
+      body: { is_reduce_motion_enabled: true },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(
+      (saved.json() as { data: { is_reduce_motion_enabled: boolean } }).data
+        .is_reduce_motion_enabled,
+    ).toBe(true);
+
+    const read = await app.inject({
+      method: 'GET',
+      url: testApiPath('/users/me/settings'),
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(
+      (
+        read.json() as {
+          data: { is_reduce_motion_enabled: boolean; is_dark_mode_enabled: boolean };
+        }
+      ).data,
+    ).toMatchObject({ is_reduce_motion_enabled: true, is_dark_mode_enabled: false });
+
+    const refused = await patchSettings({
+      accessToken: token,
+      body: { is_reduce_motion_enabled: 'yes' },
+    });
+    expect(refused.statusCode, refused.body).toBe(400);
   });
 
   it('answers 400 for a blank default_organization_id', async () => {

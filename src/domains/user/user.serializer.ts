@@ -1,3 +1,4 @@
+import type { UserGoal } from './user.constants.js';
 import type { UserOutput } from './user.types.js';
 
 /**
@@ -13,6 +14,8 @@ export const UserSerializer = {
     first_name: string | null;
     last_name: string | null;
     job_title: string | null;
+    instagram_handle: string | null;
+    goal: string | null;
     avatar_url: string | null;
     presence: string;
     status: string;
@@ -28,6 +31,8 @@ export const UserSerializer = {
       first_name: row.first_name,
       last_name: row.last_name,
       job_title: row.job_title,
+      instagram_handle: row.instagram_handle,
+      goal: row.goal as UserGoal | null,
       avatar_url: row.avatar_url,
       presence: row.presence,
       status: row.status,

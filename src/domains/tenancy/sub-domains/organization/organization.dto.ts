@@ -6,7 +6,10 @@ import {
   isTraversalFreeStorageKey,
 } from '@/shared/utils/validation/validation.util.js';
 import { isKnownTimeZone } from '@/shared/utils/validation/record-fields.util.js';
-import { ORGANIZATION_LOGO_COLORS } from './organization.constants.js';
+import {
+  ORGANIZATION_CHOOSER_SEARCH_MAX_LENGTH,
+  ORGANIZATION_LOGO_COLORS,
+} from './organization.constants.js';
 
 /** The tile colour field (TN8): one of the five {@link ORGANIZATION_LOGO_COLORS}. */
 const organizationLogoColorField = z
@@ -78,8 +81,23 @@ export const updateOrganizationDto = z
   })
   .strict();
 
-/** Zod schema for the `GET /api/v1/organizations` query string — cursor-based pagination only. */
-export const listOrganizationsQueryDto = cursorPaginationSchema.strict();
+/**
+ * Zod schema for the organization chooser's query (`GET /api/v1/users/me/organizations`, route 132,
+ * feat-instagram-dm-sending UN5): cursor pagination plus `q`, a name search (1–100 characters, any case).
+ */
+export const listOrganizationChooserQueryDto = cursorPaginationSchema
+  .extend({
+    q: z
+      .string()
+      .trim()
+      .min(1)
+      .max(ORGANIZATION_CHOOSER_SEARCH_MAX_LENGTH)
+      .optional()
+      .describe(
+        `Part of the organization's name, any case (1–${ORGANIZATION_CHOOSER_SEARCH_MAX_LENGTH} characters).`,
+      ),
+  })
+  .strict();
 
 /**
  * Zod schema for the `PUT /api/v1/organization/logo` request body.
@@ -110,7 +128,7 @@ export type NotificationPolicyIdParamsInput = z.infer<typeof notificationPolicyI
 export type CreateOrganizationInput = z.infer<typeof createOrganizationDto>;
 /** DTO inferred from {@link updateOrganizationDto}. */
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationDto>;
-/** DTO inferred from {@link listOrganizationsQueryDto}. */
-export type ListOrganizationsQueryInput = z.infer<typeof listOrganizationsQueryDto>;
+/** DTO inferred from {@link listOrganizationChooserQueryDto}. */
+export type ListOrganizationChooserQueryInput = z.infer<typeof listOrganizationChooserQueryDto>;
 /** DTO inferred from {@link uploadLogoDto}. */
 export type UploadLogoInput = z.infer<typeof uploadLogoDto>;

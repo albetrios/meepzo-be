@@ -277,6 +277,10 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
            -- The day-part maker (feat-instagram-dm-sending R16) is no resolver: a plain invoker
            -- function, held by role-taxonomy.db.unit.test.ts and the events' RLS suite.
            AND p.proname <> 'fn_create_daily_partitions'
+           -- The organization chooser's counts (feat-instagram-dm-sending R34, UN5) are no resolver
+           -- either: a member-gated SECURITY DEFINER read in its own migration, exercised by the
+           -- chooser's integration suite.
+           AND p.proname <> 'list_organization_counts_for_user'
          ORDER BY p.proname
       `),
     );

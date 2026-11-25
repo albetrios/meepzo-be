@@ -46,6 +46,12 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
     application.appDomain.channelAccountService,
   );
 
+  // feat-instagram-dm-sending UN1: the organization chooser's counts are the app's — a port, wired
+  // here because the app is built after tenancy (no container cycle).
+  application.tenancyDomain.organizationService.wireOrganizationCounts(
+    application.appDomain.channelAccountService,
+  );
+
   application.tenancyDomain.organizationService.wireOffboardingUploadService({
     uploadService: application.uploadDomain.uploadService,
     subscriptionService: application.billingDomain.subscriptionService,

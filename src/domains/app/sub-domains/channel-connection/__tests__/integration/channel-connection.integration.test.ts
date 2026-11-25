@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
+import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { INSTAGRAM_ACCOUNT_SETUP_JOB_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
 import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
@@ -327,7 +334,24 @@ describe('Channel connection routes', () => {
       expect(results.plan_room).toMatchObject({ accounts_used: 1, accounts_max: 3 });
       const rows = await readInstagramAccountRows(team.organization.id);
       expect(rows.map((row) => row.instagram_user_id)).toEqual([free.id]);
-      expect(rows[0]?.webhook_subscribed_at).not.toBeNull();
+      // AC-1.7 (R40): the set-up at Meta is an `instagram-account-setup` task after the commit —
+      // until it runs the account stays connected and shown as not subscribed.
+      expect(rows[0]?.webhook_subscribed_at).toBeNull();
+      expect(rows[0]?.connection_status).toBe('connected');
+      const tasksQueue = new Queue(INSTAGRAM_TASKS_QUEUE_NAME, {
+        connection: getBullMQConnectionOptions(),
+        prefix: getBullMQKeyPrefix(),
+      });
+      try {
+        const jobs = await tasksQueue.getJobs(['waiting', 'delayed', 'prioritized']);
+        expect(
+          jobs
+            .filter((job) => job.name === INSTAGRAM_ACCOUNT_SETUP_JOB_NAME)
+            .map((job) => job.data.taskInput?.channelAccountPublicId),
+        ).toContain(rows[0]?.public_id);
+      } finally {
+        await tasksQueue.close();
+      }
       const settings = await operatorQuery<Array<{ id: string }>>`
         SELECT id FROM app.instagram_account_settings WHERE organization_id = ${team.organization.id}`;
       expect(settings).toHaveLength(1);

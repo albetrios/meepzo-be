@@ -42,7 +42,8 @@ function getInstagramTasksQueue(): Queue<InstagramTaskJobData> {
  * @remarks
  * - **Algorithm:** validates the payload (ids only, `organizationPublicId` for the job scope), then
  *   `queue.add` under the task's job name with the owner's job id (one job per row or key —
- *   `retry-failed-<aut_… or con_…>` for the failed-message retry, R46).
+ *   `retry-failed-<aut_… or con_…>` for the failed-message retry, R46), after `delayMilliseconds`
+ *   when given (a retry or a spread — the account set-up's tries, R40).
  * - **Failure modes:** propagates BullMQ / Redis errors — the owner logs them and leaves its row
  *   pending for its sweep; an enqueue never fails a request.
  * - **Side effects:** at most one job on the queue.
@@ -53,12 +54,14 @@ export async function enqueueInstagramTask({
   organizationPublicId,
   taskInput,
   priority,
+  delayMilliseconds,
 }: {
   jobName: string;
   jobId: string;
   organizationPublicId: string;
   taskInput: InstagramTaskJobData['taskInput'];
   priority?: number;
+  delayMilliseconds?: number;
 }): Promise<void> {
   const jobData = parseBullMQJobData({
     schema: instagramTaskJobDataSchema,
@@ -68,6 +71,7 @@ export async function enqueueInstagramTask({
   await getInstagramTasksQueue().add(jobName, jobData, {
     jobId,
     ...(priority === undefined ? {} : { priority }),
+    ...(delayMilliseconds === undefined ? {} : { delay: delayMilliseconds }),
   });
 }
 

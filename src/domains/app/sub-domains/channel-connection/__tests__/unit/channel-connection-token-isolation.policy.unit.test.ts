@@ -71,6 +71,11 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
     reason:
       "the daily account check (IA8): reads the account's connection ciphertext for its Meta calls and hands it to the client; it never decrypts or writes it (no renewal since WC-35)",
   },
+  {
+    file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-tasks.processor.ts`,
+    reason:
+      "the account jobs (IA6, R40 — set-up, subscription check, starter-question sync): read the account's connection ciphertext in the job's scope and hand it to the client; they never decrypt or write it",
+  },
 ];
 
 /** The runtime files that may call `decryptFieldSecret` on the token, each with why. */

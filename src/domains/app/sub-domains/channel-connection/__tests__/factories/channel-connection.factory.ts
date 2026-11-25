@@ -123,12 +123,14 @@ export function mockMetaLogin({
 
 /**
  * Mocks a pick's Meta calls: the assigned accounts again, one profile read per picked account, and
- * (unless `subscription` is `none`) `subscribed_apps` per picked account.
+ * — only when `subscription` asks for it — `subscribed_apps` per picked account. Since ROUTE row R40
+ * the pick itself calls no `subscribed_apps` (the set-up is an `instagram-account-setup` task), so the
+ * default is `none`.
  */
 export function mockMetaPick({
   assignedAccounts,
   pickedAccounts,
-  subscription = 'success',
+  subscription = 'none',
 }: {
   assignedAccounts: readonly TestAssignedAccount[];
   pickedAccounts: readonly TestAssignedAccount[];
@@ -182,7 +184,7 @@ export async function connectInstagramAccountsThroughRoutes({
   token,
   accounts,
   clientBusinessId = nextClientBusinessId(),
-  subscription = 'success',
+  subscription = 'none',
   grantedPermissions,
 }: {
   app: FastifyInstance;

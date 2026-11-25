@@ -147,7 +147,7 @@ export class InstagramSendingService {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
   }): Promise<AppUsageOutput> {
-    const { organizationId, accountsUsed } = await withAppDatabaseContext({
+    const { organizationId, accountsUsed, liveAccounts } = await withAppDatabaseContext({
       scope,
       callback: async () => {
         const id = await this.requireReadableOrganization(scope);
@@ -155,7 +155,12 @@ export class InstagramSendingService {
           scope,
           organizationId: id,
         });
-        return { organizationId: id, accountsUsed: used };
+        // "Being set up" (plan §46, R40): no not-revoked account yet (BL16's accounts count).
+        const live = await this.channelAccountService.countLiveAccounts({
+          scope,
+          organizationId: id,
+        });
+        return { organizationId: id, accountsUsed: used, liveAccounts: live };
       },
     });
     const month = await this.monthCountService.readMonth({ scope, organizationId });
@@ -170,6 +175,7 @@ export class InstagramSendingService {
         maximum: planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN,
       },
       planAccess,
+      hasLiveAccount: liveAccounts > 0,
       now: new Date(Date.now()),
     });
   }

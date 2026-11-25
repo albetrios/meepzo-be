@@ -563,12 +563,13 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
   });
 
   describe('the writes', () => {
-    test('subscribed_apps: subscribe posts the three webhook fields, unsubscribe deletes, both read success: true', async () => {
+    test('subscribed_apps: subscribe posts the six webhook fields (WC-30), unsubscribe deletes, both read success: true', async () => {
       z.object({ success: z.literal(true) }).parse(subscribedAppsSuccessFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
         .query({
-          subscribed_fields: 'comments,messages,messaging_postbacks',
+          subscribed_fields:
+            'comments,live_comments,messages,messaging_postbacks,messaging_referral,message_reactions',
           ...appSecretProofQuery(),
         })
         .reply(200, subscribedAppsSuccessFixture);
@@ -583,8 +584,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       expect(INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS).toEqual([
         'comments',
+        'live_comments',
         'messages',
         'messaging_postbacks',
+        'messaging_referral',
+        'message_reactions',
       ]);
       await expect(subscribeInstagramWebhookFields(subscriptionOptions)).resolves.toBeUndefined();
       await expect(unsubscribeInstagramWebhookFields(subscriptionOptions)).resolves.toBeUndefined();

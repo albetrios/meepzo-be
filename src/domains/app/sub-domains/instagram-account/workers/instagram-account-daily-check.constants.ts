@@ -14,3 +14,11 @@ export const INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_PAGE_SIZE = 500;
  * accounts past the cap get no check that day, so the cap (or the page size) must be raised.
  */
 export const INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_MAX_PAGES = 200;
+
+/**
+ * Job name of the 10-minute webhook subscription sweep (feat-instagram-dm-sending WC-25, ROUTE row
+ * R40) — a second repeatable job on the daily-check queue (`scheduler.ts`), run by the daily-check
+ * worker: it hands each connected account one subscription check on `instagram-tasks`.
+ */
+export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME =
+  'sweep-instagram-webhook-subscriptions';

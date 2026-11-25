@@ -67,7 +67,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
         schema: {
           summary: 'Disconnect a channel account',
           description:
-            "Disconnects one account: unsubscribes it from its webhook events (best effort), then marks it revoked and stops its sending in one commit. The connection's token is erased only with the connection's last account. Automations stay live, contacts and history stay, and the plan frees one place. 404 channel_account_not_found when it is not this organization's or already revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+            "Disconnects one account: removes its starter questions and unsubscribes it from its webhook events at Instagram (each best effort), then marks it revoked and stops its sending in one commit. The connection's token is erased only with the connection's last account. Automations stay live, contacts and history stay, and the plan frees one place. 404 channel_account_not_found when it is not this organization's or already revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
           tags: ['Channel account'],
           params: channelAccountIdParamsDto,
         },

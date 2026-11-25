@@ -3,6 +3,10 @@ import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
+import {
+  INSTAGRAM_ACCOUNT_SETUP_JOB_NAME,
+  startInstagramAccountChainBestEffort,
+} from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
@@ -282,14 +286,14 @@ export class ChannelAccountService
    * Algorithm:
    * 1. One unit: the team check (`422`), the account (`404` when revoked), its Instagram row and
    *    its connection's token.
-   * 2. Outside any unit: `DELETE subscribed_apps` (best effort, logged — never blocks).
+   * 2. Outside any unit: the starter questions removed (`DELETE messenger_profile`, WC-31), then
+   *    `DELETE subscribed_apps` — each best effort, logged, never blocking.
    * 3. One commit: the account `revoked` with its Instagram row, its lanes stopped (sub-domain 6),
    *    and the connection's token deleted — with the connection revoked — only when no other
    *    not-revoked account uses that connection.
    *
    * Failure modes: `404 channel_account_not_found` (a repeat, a race), `422` personal organization.
-   * Side effects: the commit; one Meta call. Automations, contacts and history stay; the starter
-   * questions' removal is the account set-up's (ROUTE row R40).
+   * Side effects: the commit; two Meta calls. Automations, contacts and history stay.
    */
   async disconnectAccount({
     scope,
@@ -312,13 +316,20 @@ export class ChannelAccountService
       },
     });
     if (snapshot.instagram !== null && snapshot.token !== null) {
+      const access = {
+        account: snapshot.instagram,
+        instagramAccount: instagramKeyOf(snapshot.instagram),
+        encryptedAccessToken: snapshot.token.encryptedAccessToken,
+      };
+      // WC-31, AC-2.4: the starter questions removed first, then the webhook fields — both best effort.
+      await this.instagramAccountService.removeStarterQuestionsBestEffort({
+        scope,
+        access,
+        requestId,
+      });
       await this.instagramAccountService.unsubscribeWebhookFieldsBestEffort({
         scope,
-        access: {
-          account: snapshot.instagram,
-          instagramAccount: instagramKeyOf(snapshot.instagram),
-          encryptedAccessToken: snapshot.token.encryptedAccessToken,
-        },
+        access,
         requestId,
       });
     }
@@ -1263,27 +1274,24 @@ export class ChannelAccountService
     });
   }
 
-  /** After commit: each not-subscribed Instagram account subscribed to the webhook fields (best effort). */
-  async subscribeAccountsBestEffort({
+  /**
+   * After the pick's or the reconnect's commit: one account set-up task per Instagram account
+   * (WC-30, AC-1.7) — the webhook fields, starter questions and message-access probe run in the task
+   * worker, retried on their ladder; never throws.
+   */
+  async startAccountSetups({
     scope,
     accounts,
-    encryptedAccessToken,
-    requestId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     accounts: readonly ChannelConnectionAccount[];
-    encryptedAccessToken: string;
-    requestId: string;
   }): Promise<void> {
     for (const target of accounts) {
-      if (target.isWebhookSubscribed) continue;
-      const instagram = await this.readInstagramOfPortAccount({ scope, target });
-      if (instagram === null) continue;
-      await this.instagramAccountService.subscribeWebhookFieldsBestEffort({
-        scope,
-        account: instagram,
-        encryptedAccessToken,
-        requestId,
+      if (target.channel !== 'instagram') continue;
+      await startInstagramAccountChainBestEffort({
+        jobName: INSTAGRAM_ACCOUNT_SETUP_JOB_NAME,
+        organizationPublicId: scope.organizationPublicId,
+        channelAccountPublicId: target.publicId,
       });
     }
   }

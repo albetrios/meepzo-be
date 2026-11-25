@@ -14,7 +14,11 @@ import {
   type InstagramAccountDailyCheckJobData,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { instagramAccountDailyCheckJobDataSchema } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.job.schema.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from './instagram-account-daily-check.constants.js';
+import {
+  INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
+} from './instagram-account-daily-check.constants.js';
+import { runInstagramWebhookSubscriptionCheckSweep } from './instagram-account-tasks.processor.js';
 import {
   type InstagramAccountDailyCheckService,
   processInstagramAccountDailyCheckJob,
@@ -27,7 +31,9 @@ import {
  *
  * @remarks
  * - **Algorithm:** routes on `job.name` — the sweep job ({@link INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME},
- *   no payload) runs {@link runInstagramAccountDailyCheckSweep}; every other job validates its
+ *   no payload) runs {@link runInstagramAccountDailyCheckSweep}; the 10-minute webhook subscription
+ *   sweep ({@link INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME}, WC-25) runs
+ *   {@link runInstagramWebhookSubscriptionCheckSweep}; every other job validates its
  *   payload at the boundary (`parseJobDataOrDeadLetter`), carries the organization's public id
  *   (`organizationPublicId`) into the job scope, and runs {@link processInstagramAccountDailyCheckJob}
  *   under the propagated trace context. Concurrency `RETENTION_WORKER_CONCURRENCY` (one job at a
@@ -53,6 +59,9 @@ export function createInstagramAccountDailyCheckWorker({
     processor: async (job) => {
       if (job.name === INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME) {
         return runInstagramAccountDailyCheckSweep();
+      }
+      if (job.name === INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME) {
+        return runInstagramWebhookSubscriptionCheckSweep();
       }
       const jobData = await parseJobDataOrDeadLetter({
         schema: instagramAccountDailyCheckJobDataSchema,

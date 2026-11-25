@@ -535,7 +535,11 @@ erDiagram
   - `account_type` and `is_private` — the account's type and private flag (P42; a private account is
     a go-live warning, RC-31).
   - `starter_questions_set_at` — the last time this account's starter questions were sent to Meta;
-    emptied when a starter-question automation goes live, pauses or changes its questions (D42).
+    emptied when a starter-question automation goes live, pauses or changes its questions (D42). **Written R40**
+    by the starter-question sync (`InstagramAccountExtensionService.recordStarterQuestionsSet`): set when
+    Meta took a non-empty list, emptied when the list was removed; a change keeps the last time until
+    its sync ran ([P409](decisions.md)). `webhook_subscribed_at` is stamped by the set-up task and
+    emptied by the 10-minute check on a lost field (R40).
 - **Replaced:**
   - Accounts per organization: at most one not revoked (launch D5) → many, up to the plan's limit,
     checked at connect (D26), counted on `channel_account`.

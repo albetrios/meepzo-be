@@ -46,7 +46,7 @@ export function instagramSendingRoutes(service: InstagramSendingService): Fastif
         schema: {
           summary: 'Get the organization usage',
           description:
-            "Returns the organization's DM meter for this month of its time zone — messages sent into people's chats across every account (used), the plan's monthly limit, the day it starts again (resets_on, the 1st of next month) and its state (ok; nearly from 80 %; reached at 100 %) — the channel accounts in use against the plan's maximum, and the notices to show (limit nearly reached or reached, payment failed, plan ended, trial ends soon). Reads the database only; the meter may be up to 10 seconds behind. Team organizations only (404 team_organization_required). Requires ORGANIZATION_READ permission.",
+            "Returns the organization's DM meter for this month of its time zone — messages sent into people's chats across every account (used), the plan's monthly limit, the day it starts again (resets_on, the 1st of next month) and its state (ok; nearly from 80 %; reached at 100 %) — the channel accounts in use against the plan's maximum, and the notices to show (limit nearly reached or reached, payment failed, plan ended, trial ends soon, being set up — no account connected yet). Reads the database only; the meter may be up to 10 seconds behind. Team organizations only (404 team_organization_required). Requires ORGANIZATION_READ permission.",
           tags: ['Instagram sending'],
         },
       },

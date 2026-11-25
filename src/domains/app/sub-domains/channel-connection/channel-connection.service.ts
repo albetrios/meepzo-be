@@ -431,11 +431,9 @@ export class ChannelConnectionService {
       },
     });
 
-    await this.accountPort.subscribeAccountsBestEffort({
+    await this.accountPort.startAccountSetups({
       scope,
       accounts: committed.reconnected.map(({ account }) => account),
-      encryptedAccessToken: login.encryptedAccessToken,
-      requestId,
     });
 
     return {
@@ -558,12 +556,7 @@ export class ChannelConnectionService {
     const connectedAccounts = [...committed.picked.values()]
       .filter(({ result }) => result === 'connected')
       .map(({ account }) => account);
-    await this.accountPort.subscribeAccountsBestEffort({
-      scope,
-      accounts: connectedAccounts,
-      encryptedAccessToken: token.encryptedAccessToken,
-      requestId,
-    });
+    await this.accountPort.startAccountSetups({ scope, accounts: connectedAccounts });
 
     const results: ChannelAccountPickItemOutput[] = providerAccountIds.map((identifier) => {
       if (!assignedById.has(identifier)) {

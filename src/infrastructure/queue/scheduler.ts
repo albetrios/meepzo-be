@@ -48,7 +48,10 @@ import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-d
 import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-retention.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
+import {
+  INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
+} from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
@@ -138,6 +141,12 @@ const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
  * profiles, subscribe again what is not subscribed — after the 03:xx clean-ups.
  */
 const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
+/**
+ * feat-instagram-dm-sending WC-25 (ROUTE row R40): every 10 minutes
+ * (`INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_MINUTES`), each connected account's webhook subscription
+ * check is handed to the task queue, spread over the window by account.
+ */
+const DEFAULT_INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_CRON = '*/10 * * * *';
 /**
  * Launch D8 (routes-final § 3.B AU25, WC-13): every hour, cancel the runs that have waited more
  * than 7 days. A fixed cadence, not a setting.
@@ -538,6 +547,17 @@ export function getScheduledJobs(): ScheduledJob[] {
         schedulerId: 'daily-instagram-account-check',
         jobName: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON,
+      },
+    }),
+    // The 10-minute webhook subscription sweep rides the same queue (WC-25); its checks run on
+    // `instagram-tasks`.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+        schedulerId: 'instagram-webhook-subscription-sweep',
+        jobName: INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_CRON,
       },
     }),
     ...getAutomationCleanupScheduledJobs(timezone),

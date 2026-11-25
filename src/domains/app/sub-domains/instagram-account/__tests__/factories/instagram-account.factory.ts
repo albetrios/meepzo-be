@@ -102,7 +102,10 @@ export function buildInstagramProfile(
   };
 }
 
-/** How the mocked `subscribed_apps` call answers after a connect. */
+/**
+ * How the mocked `subscribed_apps` call answers after a connect — `none` by default: since ROUTE row R40
+ * the pick calls no `subscribed_apps` (the set-up is a task).
+ */
 export type TestSubscriptionOutcome = 'success' | 'failure' | 'none';
 
 /** The Channel account object `GET /app/social/channel-accounts/{channel_account_id}` answers (route 7). */
@@ -122,7 +125,7 @@ export async function connectInstagramAccount({
   app,
   token,
   profile,
-  subscription = 'success',
+  subscription = 'none',
   clientBusinessId,
 }: {
   app: FastifyInstance;

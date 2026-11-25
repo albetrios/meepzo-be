@@ -463,7 +463,7 @@ sequenceDiagram
   Service->>DB: BEGIN — pg_advisory_xact_lock(organization); count the not-revoked accounts
   Service->>Accounts: over channel_accounts_max → 409; else each pick a connected account with default settings
   Service->>DB: COMMIT
-  Service->>Meta: subscribe each new account to the webhook fields (best effort)
+  Service->>Accounts: after the commit, one instagram-account-setup task per account (WC-30, R40)
   Service-->>Client: 200 { results (connected / already_connected / connected_elsewhere / not_assigned), plan_room }
 ```
 
@@ -488,14 +488,14 @@ No Meta call runs inside the database context: read, close the unit of work, cal
 - **Meta down or throttling on the code exchange** → `503 instagram_unavailable` with `Retry-After`; **once the one-time code is spent** → `409 instagram_connect_restart_required` (D56); **a `META_*` setting unset** → `503 instagram_not_configured`.
 - **The picks exceed the plan's `channel_accounts_max`** → `409 plan_account_limit`, nothing saved; two picks at once in one organization are serialized by the organization lock. **A pick live in another organization** → `connected_elsewhere` for that pick, the others connect; a race with another organization at the same moment → `409 instagram_account_connected_elsewhere`.
 - **The connection is `error` or `revoked`, or Meta refuses its token on the pick** → `409 channel_connection_not_connected`: reconnect first.
-- **The webhook subscription fails after the pick's commit** → logged (`app.instagram_account.webhook_subscription_failed`), never fails the pick; the daily check retries it.
+- **The set-up fails after the pick's commit** → never fails the pick: the `instagram-account-setup` task (six webhook fields, starter questions, message-access probe) tries again after 1, 5, 15, 60 minutes, then hourly, and emails the owners once after the 60-minute try; the account shows `is_webhook_subscribed: false` meanwhile, and the daily check also subscribes it (feat-instagram-dm-sending R40, P409).
 - **No `channel-account:manage`** → `403 missing_permission`; **a personal organization** → `422`; **a missing or reused `X-Idempotency-Key`** on the callback or the pick → `422`.
 
 ## instagram-account-health-flow
 
 ### Trigger
 
-Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — profile and subscription only since feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends; the connection's own token check replaces this job at R51). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9). Since feat-instagram-dm-sending R8 the post and story pickers (routes 13–14) answer Meta's 190 by breaking the account's connection (MC11) — every `connected` account of it, each with its notice.
+Two background paths keep a connected Instagram account usable and tell the team when it is not (beside them, since feat-instagram-dm-sending R40, the 10-minute webhook subscription check on `instagram-tasks`: a field off on a subscribed account → the set-up again, a team alert and the missed-comment look — WC-25). **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — profile and subscription only since feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends; the connection's own token check replaces this job at R51). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9). Since feat-instagram-dm-sending R8 the post and story pickers (routes 13–14) answer Meta's 190 by breaking the account's connection (MC11) — every `connected` account of it, each with its notice.
 
 ### Sequence
 

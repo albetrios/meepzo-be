@@ -266,6 +266,7 @@ src/
     │   │   │   │   │   ├── instagram-account-erasure.service.unit.test.ts
     │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
@@ -327,6 +328,7 @@ src/
     │   │   │   ├── queues/
     │   │   │   │   ├── instagram-account-daily-check.job.schema.ts
     │   │   │   │   ├── instagram-account-daily-check.queue.ts
+    │   │   │   │   ├── instagram-account-tasks.queue.ts
     │   │   │   │   ├── instagram-reconnect-notice.job.schema.ts
     │   │   │   │   └── instagram-reconnect-notice.queue.ts
     │   │   │   ├── seed/
@@ -337,6 +339,7 @@ src/
     │   │   │   │   ├── instagram-account-daily-check.constants.ts
     │   │   │   │   ├── instagram-account-daily-check.processor.ts
     │   │   │   │   ├── instagram-account-daily-check.worker.ts
+    │   │   │   │   ├── instagram-account-tasks.processor.ts
     │   │   │   │   ├── instagram-reconnect-notice.processor.ts
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
     │   │   │   ├── instagram-account-erasure.service.ts

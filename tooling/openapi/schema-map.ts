@@ -12,6 +12,12 @@ import {
   updateContactBodyDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
 import {
+  createBroadcastBodyDto,
+  emptyBroadcastActionBodyDto,
+  sendBroadcastBodyDto,
+  updateBroadcastBodyDto,
+} from '@/domains/app/sub-domains/broadcast/broadcast.dto.js';
+import {
   createSegmentBodyDto,
   segmentAudienceCountBodyDto,
   updateSegmentBodyDto,
@@ -248,6 +254,11 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/segments': createSegmentBodyDto,
   'PATCH /api/v1/app/segments/{segment_id}': updateSegmentBodyDto,
   'POST /api/v1/app/segments/audience-count': segmentAudienceCountBodyDto,
+  // App: broadcasts (DM-sending routes-final § 7.A.8, routes 71, 73, 75 and 76).
+  'POST /api/v1/app/broadcasts': createBroadcastBodyDto,
+  'PATCH /api/v1/app/broadcasts/{broadcast_id}': updateBroadcastBodyDto,
+  'POST /api/v1/app/broadcasts/{broadcast_id}/send': sendBroadcastBodyDto,
+  'POST /api/v1/app/broadcasts/{broadcast_id}/cancel': emptyBroadcastActionBodyDto,
   // The failed-message retries (routes 26 and 37, ROUTE R19): strictly empty bodies.
   'POST /api/v1/app/contacts/{contact_id}/failed-messages/retry': emptyContactActionBodyDto,
   'POST /api/v1/app/automations/{automation_id}/failed-messages/retry': emptyAutomationActionDto,

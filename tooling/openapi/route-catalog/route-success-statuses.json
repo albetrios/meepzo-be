@@ -190,5 +190,12 @@
   "GET /api/v1/app/contacts/:contact_id/activity": 200,
   "GET /api/v1/app/contacts/:contact_id/failed-messages/summary": 200,
   "POST /api/v1/app/automations/:automation_id/failed-messages/retry": 200,
-  "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": 200
+  "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": 200,
+  "GET /api/v1/app/broadcasts": 200,
+  "POST /api/v1/app/broadcasts": 200,
+  "GET /api/v1/app/broadcasts/:broadcast_id": 200,
+  "PATCH /api/v1/app/broadcasts/:broadcast_id": 200,
+  "DELETE /api/v1/app/broadcasts/:broadcast_id": 204,
+  "POST /api/v1/app/broadcasts/:broadcast_id/send": 200,
+  "POST /api/v1/app/broadcasts/:broadcast_id/cancel": 200
 }

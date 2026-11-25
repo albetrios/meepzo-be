@@ -137,6 +137,12 @@ src/
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
     │   │   ├── broadcast/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── broadcast.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── broadcast.serializer.unit.test.ts
+    │   │   │   │   │   └── broadcast.validator.unit.test.ts
     │   │   │   ├── broadcast-segment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/
@@ -160,7 +166,20 @@ src/
     │   │   │   │   ├── broadcast-segment.service.ts
     │   │   │   │   ├── broadcast-segment.types.ts
     │   │   │   │   └── broadcast-segment.validator.ts
-    │   │   │   └── broadcast.overview.md
+    │   │   │   ├── seed/
+    │   │   │   │   ├── broadcast.bulk.seed.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── broadcast.constants.ts
+    │   │   │   ├── broadcast.controller.ts
+    │   │   │   ├── broadcast.dto.ts
+    │   │   │   ├── broadcast.overview.md
+    │   │   │   ├── broadcast.repository.ts
+    │   │   │   ├── broadcast.routes.ts
+    │   │   │   ├── broadcast.schema.ts
+    │   │   │   ├── broadcast.serializer.ts
+    │   │   │   ├── broadcast.service.ts
+    │   │   │   ├── broadcast.types.ts
+    │   │   │   └── broadcast.validator.ts
     │   │   ├── channel-account/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/

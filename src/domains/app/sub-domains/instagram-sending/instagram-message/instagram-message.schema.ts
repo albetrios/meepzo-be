@@ -18,6 +18,7 @@ import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-sc
 import { sqlLiteralList } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
+import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import {
   INSTAGRAM_DIRECT_MESSAGE_TYPES,
   INSTAGRAM_MESSAGE_ID_MAX_LENGTH,
@@ -176,7 +177,8 @@ function instagramMessageChecks(table: InstagramMessageTableColumns) {
  *   and a DEFAULT part; the shared upkeep (ROUTE row R49) drops a part about 30 days after its week.
  *   Drizzle declares the parent only. Primary key `(id, automation_run_started_at)`.
  * - **Keys:** `(organization_id, automation_run_id, automation_run_started_at)` → the run, `CASCADE`;
- *   the broadcast key is sub-domain 7's (R22). The account, automation and contact are copies without
+ *   `(organization_id, broadcast_id)` → `app.broadcasts`, `CASCADE` (SN17, added by sub-domain 7's
+ *   migration `20261125120000_app_broadcasts.sql`, ROUTE row R22). The account, automation and contact are copies without
  *   a reference; nothing points into this table.
  * - **One row per run, type and list place** (`idx_instagram_messages_run_type`, `NULLS NOT
  *   DISTINCT` in the migration — Drizzle's index builder has no such flag): asking again, or her next
@@ -200,6 +202,12 @@ export const instagram_messages = appSchema
         automation_runs.id,
         automation_runs.started_at,
       ],
+    }).onDelete('cascade'),
+    // The broadcast's messages (SN17) — added by sub-domain 7's migration (ROUTE row R22).
+    foreignKey({
+      name: 'instagram_messages_broadcast_fk',
+      columns: [table.organization_id, table.broadcast_id],
+      foreignColumns: [broadcasts.organization_id, broadcasts.id],
     }).onDelete('cascade'),
     uniqueIndex('idx_instagram_messages_public_id').on(
       table.public_id,
@@ -226,8 +234,9 @@ export const instagram_messages = appSchema
     index('idx_instagram_messages_automation_waiting')
       .on(table.organization_id, table.automation_id)
       .where(sql`${table.status} = 'waiting'`),
+    // A broadcast's messages, and the broadcast key's cascade (R22).
     index('idx_instagram_messages_broadcast')
-      .on(table.broadcast_id, table.status)
+      .on(table.organization_id, table.broadcast_id, table.status)
       .where(sql`${table.broadcast_id} IS NOT NULL`),
     index('idx_instagram_messages_instagram_message_id')
       .on(table.channel_account_id, table.instagram_message_id)

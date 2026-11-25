@@ -123,7 +123,14 @@
     "automationStepsTooLarge": "The steps are too large (at most 64 KB).",
     "automationRefCodeInvalid": "Use 1 to 64 letters, digits, \"_\", \"=\" or \"-\".",
     "automationChannelAccountUnknown": "This account is not one of the organization's accounts.",
-    "instagramHandleForm": "Use an Instagram handle: letters, digits, dots and underscores, up to 30"
+    "instagramHandleForm": "Use an Instagram handle: letters, digits, dots and underscores, up to 30",
+    "broadcastMessagesTooLarge": "The messages are too large (at most 64 KB).",
+    "broadcastAudienceBoth": "Send either segment_id or conditions, not both",
+    "broadcastSegmentUnknown": "This segment is not a saved segment of this account",
+    "broadcastStartAutomationUnknown": "This automation is not a live automation of this account",
+    "broadcastScheduledAtForMode": "scheduled_at goes with mode scheduled, and only with it",
+    "broadcastOpenWaitDaysForMode": "open_wait_days goes with mode when_chat_opens, and only with it",
+    "broadcastScheduledAtRange": "The time must be in the future and at most 30 days ahead"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -305,7 +312,8 @@
     "Channel account": "Channel account",
     "Ad account": "Ad account",
     "Payment method": "Payment method",
-    "Segment": "Segment"
+    "Segment": "Segment",
+    "Broadcast": "Broadcast"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",
@@ -363,5 +371,15 @@
   "automationWarnings": {
     "keywordShared": "\"{{keyword}}\" is also used by \"{{name}}\".",
     "accountPrivate": "@{{username}} is private. Comment automations can't work until it is public."
+  },
+  "broadcastTransitionNotAllowed": "This broadcast cannot do that now.",
+  "broadcastNotDraft": "Only a draft broadcast can be edited.",
+  "broadcastActive": "This broadcast is still active. Cancel it first.",
+  "broadcastIncomplete": "This broadcast is not ready to send.",
+  "messageMonthLimitReached": "You used all your DMs this month. Upgrade, or wait until the 1st.",
+  "broadcastProblems": {
+    "messages_missing": "Add at least one message.",
+    "audience_missing": "Choose who gets it: a segment or conditions.",
+    "file_not_usable": "This file is not uploaded or cannot be sent."
   }
 }

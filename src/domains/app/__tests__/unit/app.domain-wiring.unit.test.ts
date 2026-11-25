@@ -56,6 +56,7 @@ describe('app domain wiring', () => {
       'automationRunService',
       'automationService',
       'broadcastSegmentService',
+      'broadcastService',
       'channelAccountService',
       'channelConnectionMetaCallbackService',
       'channelConnectionService',
@@ -126,6 +127,7 @@ describe('app domain wiring', () => {
 
     expect(registeredRoutes.sort()).toEqual([
       `DELETE ${APP_PREFIX}/automations/:automation_id`,
+      `DELETE ${APP_PREFIX}/broadcasts/:broadcast_id`,
       `DELETE ${APP_PREFIX}/contacts/:contact_id`,
       `DELETE ${APP_PREFIX}/segments/:segment_id`,
       `DELETE ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
@@ -134,6 +136,8 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/automations/:automation_id`,
       `GET ${APP_PREFIX}/automations/:automation_id/backfills/:automation_backfill_id`,
       `GET ${APP_PREFIX}/automations/:automation_id/failed-messages/summary`,
+      `GET ${APP_PREFIX}/broadcasts`,
+      `GET ${APP_PREFIX}/broadcasts/:broadcast_id`,
       `GET ${APP_PREFIX}/contact-tags`,
       `GET ${APP_PREFIX}/contacts`,
       `GET ${APP_PREFIX}/contacts/:contact_id`,
@@ -154,6 +158,7 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/instagram/webhook-events`,
       `GET ${APP_PREFIX}/usage`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
+      `PATCH ${APP_PREFIX}/broadcasts/:broadcast_id`,
       `PATCH ${APP_PREFIX}/contacts/:contact_id`,
       `PATCH ${APP_PREFIX}/segments/:segment_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
@@ -164,6 +169,9 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/automations/:automation_id/go-live`,
       `POST ${APP_PREFIX}/automations/:automation_id/keyword-test`,
       `POST ${APP_PREFIX}/automations/:automation_id/pause`,
+      `POST ${APP_PREFIX}/broadcasts`,
+      `POST ${APP_PREFIX}/broadcasts/:broadcast_id/cancel`,
+      `POST ${APP_PREFIX}/broadcasts/:broadcast_id/send`,
       `POST ${APP_PREFIX}/contacts/:contact_id/failed-messages/retry`,
       `POST ${APP_PREFIX}/contacts/bulk-actions`,
       `POST ${APP_PREFIX}/segments`,
@@ -193,7 +201,7 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // sending, contact, contact tag event, automation, automation-run, automation-backfill, segment and webhook
+    // sending, contact, contact tag event, automation, automation-run, automation-backfill, segment, broadcast and webhook
     // event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
@@ -201,6 +209,6 @@ describe('app domain wiring', () => {
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(13);
+    expect(warn).toHaveBeenCalledTimes(14);
   });
 });

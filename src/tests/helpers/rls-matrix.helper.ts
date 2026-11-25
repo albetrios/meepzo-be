@@ -51,6 +51,7 @@ import { automation_comment_logs } from '@/domains/app/sub-domains/automation/au
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
 import { segments } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.schema.js';
+import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -837,6 +838,25 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     segmentIds[side] = segment!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'segments' }), segmentIds);
+
+  // Broadcasts (feat-instagram-dm-sending R22): one draft of each organization's account.
+  const broadcastIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [broadcast] = await database
+      .insert(broadcasts)
+      .values({
+        public_id: generatePublicId('broadcast'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        name: `RLS matrix broadcast ${side}`,
+      })
+      .returning();
+    broadcastIds[side] = broadcast!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'broadcasts' }), broadcastIds);
 
   // The automation sub-domain (feat-instagram-dm-sending R13): one draft comment automation of each
   // organization's channel account, its count slot and its reply state.

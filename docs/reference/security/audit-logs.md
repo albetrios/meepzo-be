@@ -134,6 +134,11 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | `app.segment.create` | `segment` | A segment saved on one channel account (`INFO`, `metadata.segment_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6) |
 | `app.segment.update` | `segment` | A segment's name or conditions changed (`INFO`, `metadata.segment_public_id`, `changed_fields` — names only); none when nothing changed |
 | `app.segment.delete` | `segment` | A segment deleted (soft, `WARNING`, `metadata.segment_public_id`) |
+| `app.broadcast.create` | `broadcast` | A broadcast draft made on one channel account (`INFO`, `metadata.broadcast_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6, ROUTE R22) |
+| `app.broadcast.update` | `broadcast` | A draft's name, audience, messages or button automation changed (`INFO`, `metadata.broadcast_public_id`, `changed_fields` — names only); none when nothing changed |
+| `app.broadcast.send` | `broadcast` | A draft sent — now, at a time or when her chat opens (`INFO`, `metadata.broadcast_public_id`, `mode`) |
+| `app.broadcast.cancel` | `broadcast` | A broadcast cancelled by its owner (`WARNING`, `metadata.broadcast_public_id`, `previous_status`) |
+| `app.broadcast.delete` | `broadcast` | A draft, done or cancelled broadcast deleted (soft, `WARNING`, `metadata.broadcast_public_id`, `status`) |
 
 No Instagram account row ever holds the Instagram token or the authorization code; the contact row never holds an erased value (launch CT12).
 

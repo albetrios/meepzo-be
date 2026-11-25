@@ -185,5 +185,17 @@
   "POST /api/v1/app/segments/audience-count": "team",
   "GET /api/v1/app/segments/:segment_id": "team",
   "PATCH /api/v1/app/segments/:segment_id": "team",
-  "DELETE /api/v1/app/segments/:segment_id": "team"
+  "DELETE /api/v1/app/segments/:segment_id": "team",
+  "GET /api/v1/app/broadcasts": "team",
+  "POST /api/v1/app/broadcasts": "team",
+  "GET /api/v1/app/broadcasts/:broadcast_id": "team",
+  "PATCH /api/v1/app/broadcasts/:broadcast_id": "team",
+  "DELETE /api/v1/app/broadcasts/:broadcast_id": "team",
+  "POST /api/v1/app/broadcasts/:broadcast_id/send": "team",
+  "POST /api/v1/app/broadcasts/:broadcast_id/cancel": "team",
+  "GET /api/v1/app/contacts/:contact_id/activity": "team",
+  "GET /api/v1/app/contacts/:contact_id/failed-messages/summary": "team",
+  "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": "team",
+  "GET /api/v1/app/automations/:automation_id/failed-messages/summary": "team",
+  "POST /api/v1/app/automations/:automation_id/failed-messages/retry": "team"
 }

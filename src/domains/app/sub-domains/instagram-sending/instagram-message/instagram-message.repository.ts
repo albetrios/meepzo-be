@@ -9,6 +9,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
@@ -91,6 +92,8 @@ export interface InstagramContactMessageRow {
   automation_public_id: string | null;
   automation_name: string | null;
   automation_run_public_id: string | null;
+  /** `brc_…` of a broadcast message's broadcast (sub-domain 7, R22), else `null`. */
+  broadcast_public_id: string | null;
   message_type: string;
   message_number: number | null;
   status: string;
@@ -533,7 +536,8 @@ export class InstagramMessageRepository {
 
   /**
    * Her messages of the last {@link INSTAGRAM_MESSAGE_KEEP_DAYS} days, newest first, after the
-   * keyset `(created_at, 'message', id)` (CT14) — with the automation's id and name and the run's id.
+   * keyset `(created_at, 'message', id)` (CT14) — with the automation's id and name, the run's id and
+   * a broadcast message's broadcast id (R22).
    */
   async listContactMessages({
     organizationId,
@@ -559,6 +563,7 @@ export class InstagramMessageRepository {
              to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,
              a.public_id AS automation_public_id, a.name AS automation_name,
              r.public_id AS automation_run_public_id,
+             b.public_id AS broadcast_public_id,
              m.message_type, m.message_number, m.status, m.reason, m.channel
       FROM ${instagram_messages} AS m
       LEFT JOIN ${automations} AS a
@@ -566,6 +571,8 @@ export class InstagramMessageRepository {
       LEFT JOIN ${automation_runs} AS r
         ON r.organization_id = m.organization_id AND r.id = m.automation_run_id
        AND r.started_at = m.automation_run_started_at
+      LEFT JOIN ${broadcasts} AS b
+        ON b.organization_id = m.organization_id AND b.id = m.broadcast_id
       WHERE m.organization_id = ${organizationId}
         AND m.contact_id = ${contactId}
         AND m.created_at >= now() - make_interval(days => ${INSTAGRAM_MESSAGE_KEEP_DAYS})

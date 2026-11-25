@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 192
+  Total routes: 199
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 53
+  Routes: 60
 ================================================================================
 
   — Sub Domains —
@@ -25,19 +25,26 @@ Legend:
   POST   /api/v1/app/automations/:automation_id/backfills         200  req  team  PERM: automation:update
   GET    /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id  200  -    team  PERM: automation:read
   POST   /api/v1/app/automations/:automation_id/duplicate         200  req  team  PERM: automation:create
-  POST   /api/v1/app/automations/:automation_id/failed-messages/retry  200  req  ???   PERM: automation:update
-  GET    /api/v1/app/automations/:automation_id/failed-messages/summary  200  -    ???   PERM: automation:read
+  POST   /api/v1/app/automations/:automation_id/failed-messages/retry  200  req  team  PERM: automation:update
+  GET    /api/v1/app/automations/:automation_id/failed-messages/summary  200  -    team  PERM: automation:read
   POST   /api/v1/app/automations/:automation_id/go-live           200  -    team  PERM: automation:update
   POST   /api/v1/app/automations/:automation_id/keyword-test      200  -    team  PERM: automation:read
   POST   /api/v1/app/automations/:automation_id/pause             200  -    team  PERM: automation:update
+  GET    /api/v1/app/broadcasts                                   200  -    team  PERM: automation:read
+  POST   /api/v1/app/broadcasts                                   200  req  team  PERM: automation:create
+  GET    /api/v1/app/broadcasts/:broadcast_id                     200  -    team  PERM: automation:read
+  PATCH  /api/v1/app/broadcasts/:broadcast_id                     200  -    team  PERM: automation:update
+  DELETE /api/v1/app/broadcasts/:broadcast_id                     204  -    team  PERM: automation:delete
+  POST   /api/v1/app/broadcasts/:broadcast_id/cancel              200  req  team  PERM: automation:update
+  POST   /api/v1/app/broadcasts/:broadcast_id/send                200  req  team  PERM: automation:update
   GET    /api/v1/app/contact-tags                                 200  -    team  PERM: contact:read
   GET    /api/v1/app/contacts                                     200  -    team  PERM: contact:read
   GET    /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:read
   PATCH  /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:update
   DELETE /api/v1/app/contacts/:contact_id                         204  -    team  PERM: contact:delete
-  GET    /api/v1/app/contacts/:contact_id/activity                200  -    ???   PERM: contact:read
-  POST   /api/v1/app/contacts/:contact_id/failed-messages/retry   200  req  ???   PERM: contact:update
-  GET    /api/v1/app/contacts/:contact_id/failed-messages/summary  200  -    ???   PERM: contact:read
+  GET    /api/v1/app/contacts/:contact_id/activity                200  -    team  PERM: contact:read
+  POST   /api/v1/app/contacts/:contact_id/failed-messages/retry   200  req  team  PERM: contact:update
+  GET    /api/v1/app/contacts/:contact_id/failed-messages/summary  200  -    team  PERM: contact:read
   POST   /api/v1/app/contacts/bulk-actions                        200  req  team  PERM: contact:update
   GET    /api/v1/app/segments                                     200  -    team  PERM: automation:read
   POST   /api/v1/app/segments                                     200  req  team  PERM: automation:create
@@ -283,16 +290,16 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 192
+  Total routes    : 199
   Public          : 20
   Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 104
+  Perm-guarded    : 111
   Token-guarded   : 5
-  Team-only (O)   : 56
+  Team-only (O)   : 68
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (30) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (33) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
@@ -302,6 +309,9 @@ Legend:
     POST /api/v1/app/automations/:automation_id/backfills
     POST /api/v1/app/automations/:automation_id/duplicate
     POST /api/v1/app/automations/:automation_id/failed-messages/retry
+    POST /api/v1/app/broadcasts
+    POST /api/v1/app/broadcasts/:broadcast_id/cancel
+    POST /api/v1/app/broadcasts/:broadcast_id/send
     POST /api/v1/app/contacts/:contact_id/failed-messages/retry
     POST /api/v1/app/contacts/bulk-actions
     POST /api/v1/app/segments

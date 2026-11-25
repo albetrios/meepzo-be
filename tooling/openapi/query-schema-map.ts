@@ -24,6 +24,7 @@ import {
   deleteAutomationQueryDto,
   listAutomationsQueryDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import { listBroadcastsQueryDto } from '@/domains/app/sub-domains/broadcast/broadcast.dto.js';
 import { listSegmentsQueryDto } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.dto.js';
 import { OauthCallbackQueryDto, OauthStartQueryDto } from '@/domains/auth/auth.dto.js';
 import { listInvoicesQueryDto } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
@@ -89,6 +90,8 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'DELETE /api/v1/app/automations/{automation_id}': deleteAutomationQueryDto,
   // App: segments (feat-instagram-dm-sending routes-final § 7.B.8, route 77).
   'GET /api/v1/app/segments': listSegmentsQueryDto,
+  // App: broadcasts (feat-instagram-dm-sending routes-final § 7.A.8, route 70).
+  'GET /api/v1/app/broadcasts': listBroadcastsQueryDto,
 };
 
 /** Routes that must document `after` and `limit` query parameters in OpenAPI. */

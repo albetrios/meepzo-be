@@ -58,6 +58,9 @@ import type { AutomationOpenRunCancelStep } from './sub-domains/automation/autom
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
 import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
+import { BroadcastRepository } from './sub-domains/broadcast/broadcast.repository.js';
+import { BroadcastService } from './sub-domains/broadcast/broadcast.service.js';
+import type { BroadcastFeatureCheck } from './sub-domains/broadcast/broadcast.types.js';
 import type { ChannelSendingPorts } from './app.channel-ports.js';
 import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
@@ -126,6 +129,8 @@ export type AppContainer = {
   automationReplyStateService: AutomationReplyStateService;
   automationRunService: AutomationRunService;
   broadcastSegmentService: BroadcastSegmentService;
+  /** Broadcasts (§ 7.A, ROUTE row R22): routes 70–76, the send, the segment delete's draft step. */
+  broadcastService: BroadcastService;
   /**
    * The channels' sending ports (AU35), one record shared by the automations and the run engine —
    * Instagram's is its message service (ROUTE row R19); tests may put a recording one.
@@ -221,25 +226,44 @@ function createInstagramAccountServices({
 }
 
 /**
- * The segment service (feat-instagram-dm-sending routes-final § 7.B, ROUTE row R21): the `segments`
- * switch through the channel account's one feature check (BC19).
+ * The broadcast sub-domain's services (feat-instagram-dm-sending routes-final § 7): segments
+ * (7.B, ROUTE row R21 — the `segments` switch through the channel account's one feature check, BC19)
+ * and broadcasts (7.A, ROUTE row R22 — the `broadcasts` switch, the account read, the month count
+ * and the usable-file read). The segment delete runs the broadcasts' draft step (BC17).
  *
  * @remarks
- * Notes: the delete step that empties drafts' segment (R22) and the background count (R46) join at
- * their rows; wiring only, no side effects.
+ * Notes: the segments' background count and the broadcasts' send queue join at ROUTE row R46;
+ * wiring only, no side effects.
  */
-function createSegmentService({
+function createBroadcastServices({
   organizationService,
   channelAccountService,
+  messageMonthCountService,
+  messageFilePort,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
-}): BroadcastSegmentService {
-  return new BroadcastSegmentService(
-    new BroadcastSegmentRepository(),
+  messageMonthCountService: MessageMonthCountService;
+  messageFilePort: AutomationMessageFilePort | undefined;
+}): { broadcastSegmentService: BroadcastSegmentService; broadcastService: BroadcastService } {
+  const segmentRepository = new BroadcastSegmentRepository();
+  const featureCheck: BroadcastFeatureCheck = (input) =>
+    channelAccountService.canChannelAccountUseFeature(input);
+  const broadcastService = new BroadcastService(
+    new BroadcastRepository(),
+    segmentRepository,
     organizationService,
-    (input) => channelAccountService.canChannelAccountUseFeature(input),
+    (input) => channelAccountService.readAutomationAccount(input),
+    featureCheck,
+    { monthLimit: messageMonthCountService, messageFilePort },
   );
+  const broadcastSegmentService = new BroadcastSegmentService(
+    segmentRepository,
+    organizationService,
+    featureCheck,
+    { deleteSteps: [(input) => broadcastService.clearDraftSegment(input)] },
+  );
+  return { broadcastSegmentService, broadcastService };
 }
 
 /**
@@ -702,7 +726,12 @@ export function createAppContainer({
     messageMonthCountService: sending.messageMonthCountService,
     sendingStateService: sending.sendingStateService,
     instagramSendingService,
-    broadcastSegmentService: createSegmentService({ organizationService, channelAccountService }),
+    ...createBroadcastServices({
+      organizationService,
+      channelAccountService,
+      messageMonthCountService: sending.messageMonthCountService,
+      messageFilePort,
+    }),
     instagramMessageService,
   };
 }

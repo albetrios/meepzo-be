@@ -107,7 +107,10 @@ function materializeOrganizationScopedPath(
     return `${path}?ad_account_id=1234567890123`;
   }
   // The contact list and the tag list name their channel account (feat-instagram-dm-sending CT2).
-  if (route.method === 'GET' && /\/app\/(contacts|contact-tags|segments)$/.test(route.path)) {
+  if (
+    route.method === 'GET' &&
+    /\/app\/(contacts|contact-tags|segments|broadcasts)$/.test(route.path)
+  ) {
     return `${path}?channel_account_id=${publicIdPlaceholderFor('channelAccount')}`;
   }
   return path;
@@ -134,6 +137,13 @@ const APP_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
     conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },
   },
   'PATCH /segments/:segment_id': { name: 'Matrix segment renamed' },
+  // The broadcast writes (feat-instagram-dm-sending R22): a bare draft, a rename, a send now.
+  'POST /broadcasts': {
+    channel_account_id: publicIdPlaceholderFor('channelAccount'),
+    name: 'Matrix broadcast',
+  },
+  'PATCH /broadcasts/:broadcast_id': { name: 'Matrix broadcast renamed' },
+  'POST /broadcasts/:broadcast_id/send': { mode: 'now' },
   'POST /segments/audience-count': {
     channel_account_id: publicIdPlaceholderFor('channelAccount'),
     conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },

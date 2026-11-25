@@ -1331,3 +1331,73 @@ export const segmentAudienceCountExample = {
   is_counting: false,
   counted_at: '2026-11-24T10:00:00.000Z',
 };
+
+// ── Broadcast (feat-instagram-dm-sending routes-final § 7.A.6) ──
+// Mirrors serializeBroadcast key for key. `conditions` is the BC12 tree and `messages` the automation
+// message list, both documented on the request.
+export const broadcastSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel_account_id: { type: 'string' },
+    name: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['draft', 'scheduled', 'sending', 'waiting_for_chats', 'done', 'cancelled'],
+    },
+    mode: { type: 'string', enum: ['now', 'scheduled', 'when_chat_opens'] },
+    segment_id: { type: 'string', nullable: true },
+    conditions: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        op: { type: 'string', enum: ['and', 'or'] },
+        items: { type: 'array', items: { type: 'object' } },
+      },
+    },
+    messages: { type: 'array', maxItems: 3, items: { type: 'object' } },
+    start_automation_id: { type: 'string', nullable: true },
+    scheduled_at: { type: 'string', format: 'date-time', nullable: true },
+    ends_at: { type: 'string', format: 'date-time', nullable: true },
+    started_at: { type: 'string', format: 'date-time', nullable: true },
+    finished_at: { type: 'string', format: 'date-time', nullable: true },
+    cancelled_at: { type: 'string', format: 'date-time', nullable: true },
+    cancel_reason: { type: 'string', enum: ['owner', 'plan_feature_off'], nullable: true },
+    numbers: {
+      type: 'object',
+      properties: {
+        matched: { type: 'integer', minimum: 0 },
+        sent: { type: 'integer', minimum: 0 },
+        skipped: { type: 'integer', minimum: 0 },
+        failed: { type: 'integer', minimum: 0 },
+        replies: { type: 'integer', minimum: 0 },
+        taps: { type: 'integer', minimum: 0 },
+      },
+    },
+    created_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const broadcastExample = {
+  id: 'brc_q8w2e4r6t1y3u5i7o9p0a',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'Black Friday drop',
+  status: 'sending',
+  mode: 'now',
+  segment_id: 'seg_p3k8x2m7q9r4t1v5a1b2c',
+  conditions: { op: 'and', items: [{ field: 'tags', match: 'any', values: ['vip'] }] },
+  messages: [{ kind: 'text', wait_minutes: 0, text: 'The drop is live — 30% off today only.' }],
+  start_automation_id: null,
+  scheduled_at: null,
+  ends_at: null,
+  started_at: '2026-11-25T10:00:00.000Z',
+  finished_at: null,
+  cancelled_at: null,
+  cancel_reason: null,
+  numbers: { matched: 312, sent: 120, skipped: 4, failed: 1, replies: 18, taps: 7 },
+  created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-25T09:30:00.000Z',
+  updated_at: '2026-11-25T10:00:00.000Z',
+};

@@ -111,6 +111,30 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'segments_channel_account_fk',
   ),
+  // feat-instagram-dm-sending R22 (7.3, 7.A.3): a broadcast names its account (CASCADE), its saved
+  // segment and its button's automation (SET NULL); a message names its broadcast (CASCADE, SN17).
+  link(
+    'app.broadcasts',
+    'channel_account_id',
+    'app.channel_accounts',
+    'cascade',
+    'broadcasts_channel_account_fk',
+  ),
+  link('app.broadcasts', 'segment_id', 'app.segments', 'set null', 'broadcasts_segment_fk'),
+  link(
+    'app.broadcasts',
+    'start_automation_id',
+    'app.automations',
+    'set null',
+    'broadcasts_start_automation_fk',
+  ),
+  link(
+    'app.instagram_messages',
+    'broadcast_id',
+    'app.broadcasts',
+    'cascade',
+    'instagram_messages_broadcast_fk',
+  ),
   // feat-instagram-dm-sending R11 (CT16): a tag event names its contact (CASCADE) and, as a copy of
   // the contact's, its account (RESTRICT).
   link(
@@ -401,6 +425,35 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
       `seg_${String(organization.id).padStart(21, '0')}`,
       organization.id,
       Number(channelAccount?.id),
+    ],
+  );
+  // One sending broadcast of the account with its saved segment and its button's automation, and
+  // one of its messages to the contact (R22, SN17).
+  const [broadcast] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.broadcasts (public_id, organization_id, channel_account_id, name, status, segment_id, conditions, messages, start_automation_id, started_at)
+       VALUES ($1, $2, $3, 'Drop', 'sending',
+               (SELECT id FROM app.segments WHERE organization_id = $2 LIMIT 1),
+               '{"op":"and","items":[{"field":"details","has":"email"}]}'::jsonb,
+               '[{"kind":"text","wait_minutes":0,"text":"Hi"}]'::jsonb, $4, now())
+       RETURNING id`,
+      [
+        `brc_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        Number(channelAccount?.id),
+        Number(automation?.id),
+      ],
+    ),
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.instagram_messages (public_id, organization_id, channel_account_id, broadcast_id, automation_run_started_at, contact_id, message_type, message_number, message_kind, lane, channel, is_counted_as_direct_message)
+     VALUES ($1, $2, $3, $4, now(), $5, 'broadcast', 1, 'text', 'broadcast', 'direct', true)`,
+    [
+      `igm_${String(organization.id).padStart(21, '0')}`,
+      organization.id,
+      Number(channelAccount?.id),
+      Number(broadcast?.id),
+      Number(contact?.id),
     ],
   );
   // One tag event of the contact (R11, CT16).

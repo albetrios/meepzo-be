@@ -300,6 +300,43 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
 
+  // ── Broadcasts (feat-instagram-dm-sending routes-final § 7.A, routes 70–76) ──
+  'GET /api/v1/app/broadcasts': {
+    statusCode: 200,
+    schema: wrapPaginated(schemas.broadcastSchema, [schemas.broadcastExample]),
+    example: null,
+  },
+  'POST /api/v1/app/broadcasts': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.broadcastSchema, schemas.broadcastExample),
+    example: null,
+  },
+  'GET /api/v1/app/broadcasts/{broadcast_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.broadcastSchema, schemas.broadcastExample),
+    example: null,
+  },
+  'PATCH /api/v1/app/broadcasts/{broadcast_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.broadcastSchema, schemas.broadcastExample),
+    example: null,
+  },
+  'DELETE /api/v1/app/broadcasts/{broadcast_id}': {
+    statusCode: 204,
+    schema: null,
+    example: null,
+  },
+  'POST /api/v1/app/broadcasts/{broadcast_id}/send': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.broadcastSchema, schemas.broadcastExample),
+    example: null,
+  },
+  'POST /api/v1/app/broadcasts/{broadcast_id}/cancel': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.broadcastSchema, schemas.broadcastExample),
+    example: null,
+  },
+
   // ── Segments (feat-instagram-dm-sending routes-final § 7.B, routes 77–82) ──
   'GET /api/v1/app/segments': {
     statusCode: 200,

@@ -3479,14 +3479,14 @@ BCQ1 (7.2) — the purge horizon; answered P75: 90 days.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `channel_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
-| `channel` | `varchar(10)` | no | `'instagram'` | the account's, copied (P48, BC18; added at R21 — [P309](decisions.md)) |
-| `channel` | `varchar(20)` | no | | copied from the account at create (P48; written here in rev 5 — P99); `chk_broadcasts_channel` (`instagram`) |
+| `channel` | `varchar(10)` | no | `'instagram'` | the account's, copied at create (P48, P99, BC18 — as `app.segments`, [P309](decisions.md)); `chk_broadcasts_channel` (`instagram`) |
 | `name` | `varchar(255)` | no | | 1–255 after trim |
 | `status` | `varchar(17)` | no | `'draft'` | `draft` · `scheduled` · `sending` · `waiting_for_chats` · `done` · `cancelled` |
 | `mode` | `varchar(15)` | no | `'now'` | `now` · `scheduled` · `when_chat_opens`; set by send |
 | `segment_id` | `bigint` | yes | | composite (`organization_id`, `segment_id`) → `app.segments` `ON DELETE SET NULL (segment_id)` |
-| `conditions` | `jsonb` | yes | | the one-off conditions, then the copy; set whenever `status <> 'draft'` |
-| `messages` | `jsonb` | no | `'[]'` | an array; 1–3 when `status <> 'draft'`; ≤ 64 KB |
+| `conditions` | `jsonb` | yes | | the one-off conditions, then the copy; set once sent (`status` not `draft` or `cancelled`) |
+| `messages` | `jsonb` | no | `'[]'` | an array; 1–3 once sent (`status` not `draft` or `cancelled` — a draft may be cancelled, BC9); ≤ 64 KB |
+| `start_automation_id` | `bigint` | yes | | the live automation of the same account its button starts (BC8); composite → `app.automations` `ON DELETE SET NULL (start_automation_id)` ([P213](decisions.md)) |
 | `scheduled_at` | `timestamptz` | yes | | `(mode = 'scheduled') = (scheduled_at IS NOT NULL)` when not `draft` |
 | `ends_at` | `timestamptz` | yes | | `(mode = 'when_chat_opens') = (ends_at IS NOT NULL)` when not `draft` |
 | `started_at`, `finished_at`, `cancelled_at` | `timestamptz` | yes | | `(status = 'cancelled') = (cancelled_at IS NOT NULL)` |
@@ -3498,8 +3498,9 @@ Indexes: unique `public_id`; unique (`organization_id`, `id`); `WHERE deleted_at
 `channel_account_id`, `created_at DESC`, `id DESC`) — the list; `(scheduled_at) WHERE status = 'scheduled'` — the start
 duty; (`organization_id`, `channel_account_id`) `WHERE status = 'waiting_for_chats'` — intake's "does a broadcast wait for
 her"; `(ends_at) WHERE status = 'waiting_for_chats'` and `(organization_id, id) WHERE status IN ('sending', 'cancelled')` —
-the end duty; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge; `(segment_id) WHERE segment_id IS NOT NULL` — the
-foreign key. RLS as 7.3; in `EXPECTED_FORCE_RLS_TABLES`.
+the end duty; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge; `(organization_id, segment_id) WHERE segment_id IS NOT NULL` — the
+foreign key (its columns lead, index hygiene); as built also `(organization_id, channel_account_id)` (the account cascade), the
+name sort, `(organization_id, start_automation_id)` and the user columns ([P213](decisions.md)). RLS as 7.3; in `EXPECTED_FORCE_RLS_TABLES`.
 
 #### 7.A.4 Permissions
 
@@ -3519,7 +3520,7 @@ As 7.5.
 
 **Broadcast**: `id` (`brc_…`), `channel_account_id`, `name`, `status`, `mode`, `segment_id`, `conditions` (the one-off
 conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at`, `started_at`, `finished_at`,
-`cancelled_at`, `cancel_reason`, `numbers` `{ matched, sent, skipped, failed, replies, taps }`, `created_by_user_id`,
+`cancelled_at`, `cancel_reason`, `numbers` `{ matched, sent, skipped, failed, replies, taps }`, `start_automation_id` (`aut_…` or `null`, [P213](decisions.md)), `created_by_user_id`,
 `created_at`, `updated_at`.
 
 #### 7.A.7 Routes (70–76)
@@ -3539,9 +3540,9 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
 | 70 | `channel_account_id*`, `status` (several), `mode`, `q`, `sort` = `created_at` (default, newest first) \| `name`, `order`, `limit`, `after` | — | Broadcast[] |
-| 71 | — | `channel_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3) | Broadcast |
+| 71 | — | `channel_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3), `start_automation_id` | Broadcast |
 | 72 | — | — | Broadcast |
-| 73 | — | optional: `name`, `segment_id` or `conditions` (sending one clears the other), `messages`; `expected_updated_at` | Broadcast |
+| 73 | — | optional: `name`, `segment_id` or `conditions` (sending one clears the other), `messages`, `start_automation_id` (`null` clears); `expected_updated_at` | Broadcast |
 | 74 | — | — | 204 |
 | 75 | — | `mode*` = `now` \| `scheduled` \| `when_chat_opens`; `scheduled_at` (exactly for `scheduled`); `open_wait_days` 1–7 (exactly for `when_chat_opens`) | Broadcast |
 | 76 | — | — (empty object) | Broadcast |
@@ -3577,6 +3578,7 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | # | Change |
 | --- | --- |
 | BCC6 | BC8–BC11: schema, repository, service, DTOs (the automation's message schema imported from its DTO — reuse, one schema), validators, serializer, controller and routes 70–76 with their schema blocks; the transitions in one guarded `UPDATE … WHERE status = <from>` each; the send transaction (copy, checks, audit after commit, the task add after commit); integration tests for every row of 7.A.9, a cursor across pages, and another organization's broadcast `404` (also as `meepzo_be_app` and in the `test:rls-role` lane) |
+| R22 as built | [AS-BUILT](../AS-BUILT.md) row R22, [P213](decisions.md): prefix `brc`; `start_automation_id` column for the button; FK-led indexes (`(organization_id, segment_id)`, the account cascade, the name sort) and the messages' `idx_instagram_messages_broadcast` rebuilt as `(organization_id, broadcast_id, status)` with `instagram_messages_broadcast_fk` in the broadcasts' migration; `started_at` of a `scheduled` send set by the start duty (R47); the send's background work behind `BroadcastSendQueuePort` (R46); cancel settles nothing until the end duty (R47); seeds in `broadcast/seed/` |
 | BCC7 | The repair duties: `workers/broadcast-start.duty.ts` (WC-28: due `scheduled` → `sending` + audience task) and `workers/broadcast-end.duty.ts` (WC-29: `done` and the cancelled settle, pieces of 500 until its 40 s budget — P94; the in-app notice); intake's hook `BroadcastService.handleChatOpened` for `when_chat_opens` (called by sub-domain 5 in its event transaction) |
 
 ---

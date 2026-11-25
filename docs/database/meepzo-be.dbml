@@ -16,6 +16,7 @@ TableGroup app {
   app.automation_run_open_keys
   app.automation_runs
   app.automations
+  app.broadcasts
   app.channel_accounts
   app.channel_connection_tokens
   app.channel_connection_usages
@@ -338,6 +339,43 @@ Table app.automations {
 
 Note app.automations {
   'RLS: enabled\nPolicies: automations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.broadcasts {
+  AND 
+  cancel_reason varchar(16)
+  cancelled_at timestamptz
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
+  conditions jsonb
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  deleted_at timestamptz
+  ends_at timestamptz
+  failed int [not null]
+  finished_at timestamptz
+  id bigint [pk, increment]
+  matched int [not null]
+  messages jsonb [not null]
+  mode varchar(15) [not null]
+  name varchar(255) [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  replies int [not null]
+  scheduled_at timestamptz
+  segment_id bigint
+  sent int [not null]
+  skipped int [not null]
+  start_automation_id bigint
+  started_at timestamptz
+  status varchar(17) [not null]
+  taps int [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.broadcasts {
+  'RLS: enabled\nPolicies: broadcasts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.channel_accounts {

@@ -74,6 +74,11 @@ export const PUBLIC_ID_PREFIXES = {
    * feat-instagram-dm-sending SN1; prefix chosen at kickoff, P22) — carried in fast tickets.
    */
   instagramMessage: 'igm',
+  /**
+   * One broadcast of one channel account (`app.broadcasts`, feat-instagram-dm-sending BC1; prefix
+   * chosen at kickoff, P22) — carried in its messages' button payloads.
+   */
+  broadcast: 'brc',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */
@@ -158,6 +163,7 @@ export const PARAM_NAME_TO_ENTITY = {
   channel_connection_id: 'channelConnection',
   channel_account_id: 'channelAccount',
   segment_id: 'segment',
+  broadcast_id: 'broadcast',
 } as const satisfies Record<string, PublicIdEntity>;
 
 /** Deterministic placeholder id for an entity (valid shape, never a real row). */

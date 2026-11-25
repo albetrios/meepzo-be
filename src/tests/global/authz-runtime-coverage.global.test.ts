@@ -85,6 +85,15 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'GET /api/v1/app/segments/:segment_id': 'cross-organization-resource: segment',
   'PATCH /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment PATCH',
   'DELETE /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment DELETE',
+  // feat-instagram-dm-sending R22: broadcast.integration.test.ts reads, edits, sends, cancels and
+  // deletes another organization's broadcast → 404 broadcast_not_found, and reads the row back
+  // unchanged.
+  'GET /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-resource: broadcast',
+  'PATCH /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-mutation: broadcast PATCH',
+  'DELETE /api/v1/app/broadcasts/:broadcast_id': 'cross-organization-mutation: broadcast DELETE',
+  'POST /api/v1/app/broadcasts/:broadcast_id/send': 'cross-organization-mutation: broadcast send',
+  'POST /api/v1/app/broadcasts/:broadcast_id/cancel':
+    'cross-organization-mutation: broadcast cancel',
   // feat-instagram-dm-sending R13: automation.integration.test.ts runs the four actions on another
   // organization's automation → 404 automation_not_found, and reads the row back unchanged.
   'POST /api/v1/app/automations/:automation_id/go-live':

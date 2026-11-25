@@ -45,7 +45,8 @@
     "Automation": "What answers comments, DMs, story replies and the other ways to start on each channel account — save drafts, list, read, save content, go live, pause, duplicate, try a keyword and delete",
     "Instagram sending": "How an organization's Instagram accounts are sending: an account's sending status (waiting messages, stops, today's results) and the organization's monthly DM meter",
     "Segments": "Saved audiences of one channel account that broadcasts reuse — list, save, read, change and delete them, and count an audience",
-    "Automation backfill": "An automation's past-comments reads — answer the comments of the last 1 to 7 days, and follow a read"
+    "Automation backfill": "An automation's past-comments reads — answer the comments of the last 1 to 7 days, and follow a read",
+    "Broadcasts": "Messages sent to the people of one channel account who match an audience — list, draft, read, edit, send, cancel and delete them"
   },
   "components": {
     "bearerAuthDescription": "JWT access token obtained from the login or token refresh endpoint."

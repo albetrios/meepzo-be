@@ -283,7 +283,7 @@ export class InstagramMessageService implements ChannelSendingPort {
           ? null
           : { id: row.automation_public_id, name: row.automation_name ?? '' },
       automationRunPublicId: row.automation_run_public_id,
-      broadcastPublicId: null,
+      broadcastPublicId: row.broadcast_public_id,
       messageType: row.message_type,
       messageNumber: row.message_number,
       status: row.status,

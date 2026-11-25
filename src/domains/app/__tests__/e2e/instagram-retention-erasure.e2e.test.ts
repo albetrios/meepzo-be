@@ -88,6 +88,7 @@ import {
   say,
   writeHistory,
   writeSegmentHistory,
+  writeBroadcastHistory,
   writeSendingHistory,
 } from './instagram-retention-erasure.helper.js';
 
@@ -664,6 +665,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         await writeHistory({ app, team, person, automations });
         await writeSendingHistory(team.organization.id);
         await writeSegmentHistory(team.organization.id);
+        await writeBroadcastHistory(team.organization.id);
         teams.push(team);
       }
       const [team, otherTeam] = teams as [ConnectedInstagramTeam, ConnectedInstagramTeam];

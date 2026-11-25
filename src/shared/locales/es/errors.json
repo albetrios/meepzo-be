@@ -123,7 +123,14 @@
     "automationStepsTooLarge": "Los pasos son demasiado grandes (máximo 64 KB).",
     "automationRefCodeInvalid": "Usa de 1 a 64 letras, dígitos, \"_\", \"=\" o \"-\".",
     "automationChannelAccountUnknown": "Esta cuenta no es de la organización.",
-    "instagramHandleForm": "Usa un usuario de Instagram: letras, números, puntos y guiones bajos, hasta 30"
+    "instagramHandleForm": "Usa un usuario de Instagram: letras, números, puntos y guiones bajos, hasta 30",
+    "broadcastMessagesTooLarge": "Los mensajes son demasiado grandes (máximo 64 KB).",
+    "broadcastAudienceBoth": "Envía segment_id o conditions, no ambos",
+    "broadcastSegmentUnknown": "Este segmento no es un segmento guardado de esta cuenta",
+    "broadcastStartAutomationUnknown": "Esta automatización no es una automatización activa de esta cuenta",
+    "broadcastScheduledAtForMode": "scheduled_at va con el modo scheduled, y solo con él",
+    "broadcastOpenWaitDaysForMode": "open_wait_days va con el modo when_chat_opens, y solo con él",
+    "broadcastScheduledAtRange": "La hora debe ser futura y como máximo 30 días adelante"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -305,7 +312,8 @@
     "Channel account": "Cuenta de canal",
     "Ad account": "Cuenta publicitaria",
     "Payment method": "Método de pago",
-    "Segment": "el segmento"
+    "Segment": "el segmento",
+    "Broadcast": "Difusión"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",
@@ -363,5 +371,15 @@
   "automationWarnings": {
     "keywordShared": "\"{{keyword}}\" también lo usa \"{{name}}\".",
     "accountPrivate": "@{{username}} es privada. Las automatizaciones de comentarios no funcionan hasta que sea pública."
+  },
+  "broadcastTransitionNotAllowed": "Esta difusión no puede hacer eso ahora.",
+  "broadcastNotDraft": "Solo se puede editar una difusión en borrador.",
+  "broadcastActive": "Esta difusión sigue activa. Cancélala primero.",
+  "broadcastIncomplete": "Esta difusión no está lista para enviarse.",
+  "messageMonthLimitReached": "Usaste todos tus DM de este mes. Mejora tu plan o espera al día 1.",
+  "broadcastProblems": {
+    "messages_missing": "Añade al menos un mensaje.",
+    "audience_missing": "Elige quién la recibe: un segmento o condiciones.",
+    "file_not_usable": "Este archivo no está subido o no se puede enviar."
   }
 }

@@ -743,3 +743,14 @@ export async function writeSegmentHistory(organizationId: number): Promise<void>
            '{"op":"and","items":[{"field":"details","has":"email"}]}'::jsonb
       FROM app.channel_accounts WHERE organization_id = ${organizationId}`;
 }
+
+/**
+ * One draft broadcast (feat-instagram-dm-sending § 7.A, R22) on every segment of the organization —
+ * so the organization delete is seen erasing `app.broadcasts` too. Call after `writeSegmentHistory`.
+ */
+export async function writeBroadcastHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.broadcasts (public_id, organization_id, channel_account_id, name, segment_id)
+    SELECT 'brc_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, 'Drop', id
+      FROM app.segments WHERE organization_id = ${organizationId}`;
+}

@@ -1219,10 +1219,10 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
   });
 
   describe('a read-only plan (D27, AC-4.16)', () => {
-    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
     afterEach(() => {
-      env.BILLING_READ_ONLY_ENFORCED = enforced;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
     });
 
     it('leaves the contact delete open — a team can still honour an erase request', async () => {
@@ -1236,7 +1236,7 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
         instagramAccountId: account.id,
       });
       await endPaidPlanWithoutPaying(team.organization.id);
-      env.BILLING_READ_ONLY_ENFORCED = true;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
 
       const response = await erase({ contactPublicId: contact.public_id });
 

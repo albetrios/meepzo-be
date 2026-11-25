@@ -61,21 +61,21 @@ describe('Instagram plan change (R52, WC-37, WC-38)', () => {
   let creator: { id: number };
   let studio: { id: number };
   let accounts: TestAccount[];
-  const readOnlyEnforced = env.BILLING_READ_ONLY_ENFORCED;
+  const readOnlyEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
   beforeAll(() => {
     containers = createDomainContainers();
   });
 
   afterAll(async () => {
-    env.BILLING_READ_ONLY_ENFORCED = readOnlyEnforced;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = readOnlyEnforced;
     await cleanupDatabase();
   });
 
   beforeEach(async () => {
     await cleanupDatabase();
     await seedAllPermissions();
-    env.BILLING_READ_ONLY_ENFORCED = true;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
     await getOperatorDatabase().update(plans).set({ is_active: false });
     await createTestPlan({
       name: `Free ${randomUUID()}`,

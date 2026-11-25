@@ -27,7 +27,6 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `AUTH_SESSION_IDLE_TIMEOUT_SECONDS` | — | `1800` |  | — |
 | `AUTH_SESSION_RETENTION_DAYS` | — | `30` |  | — |
 | `BILLING_DUNNING_GRACE_DAYS` | — | `14` |  | — |
-| `BILLING_READ_ONLY_ENFORCED` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active. |
 | `BLOCK_DISPOSABLE_EMAIL` | — | `true` |  | — |
 | `CAPTCHA_BYPASS_ALLOWED` | — | `false` |  | — |
 | `CAPTCHA_BYPASS_HEADER` | — | — *(optional)* |  | — |
@@ -145,6 +144,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `ORGANIZATION_API_KEY_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `ORGANIZATION_NOTIFICATION_POLICY_MAX_PER_ORG` | — | `100` |  | — |
 | `ORGANIZATION_NOTIFICATION_POLICY_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
+| `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active. |
 | `ORGANIZATION_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS` | integer 0–60000 (ms; 0 disables) | `2000` | ✓ | Overload-guard shed threshold: how long the oldest unit of work may wait for a pooled connection before new requests get a 503. |
 | `OVERLOAD_DB_POOL_SHED_RATIO` | number 0–10 | `10` | ✓ | Multiple of DATABASE_POOL_MAX in-flight units of work (running plus waiting for a connection) at which the overload guard sheds requests; above 1 lets a bounded queue form. |

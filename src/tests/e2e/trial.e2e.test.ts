@@ -84,14 +84,14 @@ describe('Flow: a trial from start to its end (R59)', () => {
   let team: InstagramTeamFixture;
   let catalog: Catalog;
   let accounts: TestAccount[];
-  const readOnlyEnforced = env.BILLING_READ_ONLY_ENFORCED;
+  const readOnlyEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
   beforeAll(async () => {
     ({ app } = await createTestApp());
   });
 
   afterAll(async () => {
-    env.BILLING_READ_ONLY_ENFORCED = readOnlyEnforced;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = readOnlyEnforced;
     await app.close();
   });
 
@@ -100,7 +100,7 @@ describe('Flow: a trial from start to its end (R59)', () => {
     await seedAllPermissions();
     nock.cleanAll();
     handedTasks.length = 0;
-    env.BILLING_READ_ONLY_ENFORCED = true;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
     await getOperatorDatabase().update(plans).set({ is_active: false });
     catalog = {
       free: await createTestPlan({

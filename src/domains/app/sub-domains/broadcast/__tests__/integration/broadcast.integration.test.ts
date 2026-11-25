@@ -741,10 +741,10 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
   });
 
   describe('a read-only plan', () => {
-    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
     afterEach(() => {
-      env.BILLING_READ_ONLY_ENFORCED = enforced;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
     });
 
     it('refuses the send with 403 organization_read_only', async () => {
@@ -753,7 +753,7 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       // The Creator plan lapses: only the ended paid plan is left.
       await operatorQuery`DELETE FROM billing.subscriptions WHERE organization_id = ${team.organization.id}`;
       await endPaidPlanWithoutPaying(team.organization.id);
-      env.BILLING_READ_ONLY_ENFORCED = true;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
       const refused = await send(draft.id);
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');

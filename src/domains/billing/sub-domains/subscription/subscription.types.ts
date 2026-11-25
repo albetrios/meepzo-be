@@ -105,7 +105,7 @@ export interface SubscriptionUpdateData {
 
 /**
  * An organization's plan state (owner decision D3, 2026-10-17; routes-final BL3): `active` on a live
- * plan — Free never ends — (and always while `BILLING_READ_ONLY_ENFORCED` is off, and for a PERSONAL
+ * plan — Free never ends — (and always while `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` is off, and for a PERSONAL
  * organization), `grace` while a lapsed paid plan's dunning grace runs, `read_only` once it has ended
  * or a cancelled paid plan passed its period end — the automation writes under
  * `/api/v1/app/automations` are then refused (launch D27).

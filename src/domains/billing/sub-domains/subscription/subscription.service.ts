@@ -624,7 +624,7 @@ export class SubscriptionService {
    *   and the catalog's Free plan ({@link SubscriptionRepository.findPlanAccessSubject}), decided by
    *   `resolvePlanAccess` (BL3: Free never ends; a lapsed paid plan has its dunning grace, then
    *   `read_only`; a cancelled paid plan is `read_only` from its period end). With
-   *   `BILLING_READ_ONLY_ENFORCED` off the state is always `active`; the plan and features are read
+   *   `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` off the state is always `active`; the plan and features are read
    *   either way. PERSONAL organizations are always `active` on Free.
    * - **Failure modes:** a query failure propagates; a malformed plan row's features throw (BL12); an
    *   organization that does not exist reads `active` with no plan (the route's own checks answer).
@@ -653,7 +653,7 @@ export class SubscriptionService {
     return resolvePlanAccess({
       subject,
       now: new Date(Date.now()),
-      isReadOnlyEnforced: env.BILLING_READ_ONLY_ENFORCED,
+      isReadOnlyEnforced: env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING,
     });
   }
 

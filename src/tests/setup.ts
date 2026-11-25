@@ -50,7 +50,7 @@ process.env.MAIL_RESERVED_DOMAIN_SKIP_ENABLED = 'false';
 // Read-only mode is ON by default (BL4) — the harness pins it OFF with a plain assignment so the suites
 // that do not test billing (and build organizations with lapsed or odd subscriptions) are not turned
 // into 403s. The suites that cover it switch it on.
-process.env.BILLING_READ_ONLY_ENFORCED = 'false';
+process.env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = 'false';
 // Sending (feat-instagram-dm-sending SN7) ships ON in `.env.example` (P74), so pin it OFF with a
 // plain assignment: no suite sends, and the suites that cover the switch set it per test. The
 // environment id is the harness's own.

@@ -535,10 +535,10 @@ describe('Channel account routes', () => {
   });
 
   describe('a read-only plan (P10, AC-2.9)', () => {
-    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
     afterEach(() => {
-      env.BILLING_READ_ONLY_ENFORCED = enforced;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
     });
 
     it('lets the owner pause, resume and disconnect — the lanes stay, wake, then stop — while other writes are refused', async () => {
@@ -549,7 +549,7 @@ describe('Channel account routes', () => {
       const channelAccountId = Number(row?.id);
       // The plan ended: the account holds `plan_ended` and its lanes are stopped, as R24 leaves it.
       await endPaidPlanWithoutPaying(team.organization.id);
-      env.BILLING_READ_ONLY_ENFORCED = true;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
       await operatorQuery`
         UPDATE app.channel_accounts SET plan_stop_reason = 'plan_ended', plan_stopped_at = now()
         WHERE id = ${channelAccountId}`;

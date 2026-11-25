@@ -442,10 +442,10 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
   });
 
   describe('a read-only plan (AU4 (1), P10, AC-6.8, AC-6.24)', () => {
-    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
     afterEach(() => {
-      env.BILLING_READ_ONLY_ENFORCED = enforced;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
     });
 
     it('refuses go-live with 403 organization_read_only; drafts, pause and delete stay open', async () => {
@@ -456,7 +456,7 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
         steps: completeAutomationSteps(),
       });
       await endPaidPlanWithoutPaying(team.organization.id);
-      env.BILLING_READ_ONLY_ENFORCED = true;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
 
       const draft = await create({
         body: commentAutomationBody({ channelAccountPublicId: account.public_id }),

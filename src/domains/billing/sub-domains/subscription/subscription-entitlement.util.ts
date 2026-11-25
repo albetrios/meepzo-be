@@ -101,7 +101,7 @@ function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' |
  *   plan row carries Free's features itself (P80), so it needs no case here — only
  *   `isPlanChoiceRequired` names it (BL24: a live row on a switched-off plan). A missing plan row
  *   reads as Free.
- * - **`isReadOnlyEnforced` false** (`BILLING_READ_ONLY_ENFORCED` off): the state is always `active`
+ * - **`isReadOnlyEnforced` false** (`ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` off): the state is always `active`
  *   with no grace date; the plan and features are decided as above.
  * - **Failure modes:** none — pure. `plan` and `features` are `null` only when the catalog has no
  *   Free plan and the subscription grants none.

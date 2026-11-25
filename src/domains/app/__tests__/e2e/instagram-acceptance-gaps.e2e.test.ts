@@ -258,10 +258,10 @@ describe('Instagram acceptance across features (e2e)', () => {
   });
 
   describe('a read-only plan (AC-5.20, AQ8, D27)', () => {
-    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
 
     afterEach(() => {
-      env.BILLING_READ_ONLY_ENFORCED = enforced;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
     });
 
     it('refuses go-live while live automations run on: waiting runs finish and a new comment starts one', async () => {
@@ -272,7 +272,7 @@ describe('Instagram acceptance across features (e2e)', () => {
           current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 day'
         WHERE organization_id = ${flow.team.organization.id}`;
       await endPaidPlanWithoutPaying(flow.team.organization.id);
-      env.BILLING_READ_ONLY_ENFORCED = true;
+      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
 
       // feat-instagram-dm-sending P10 (AU4 (1)): only go-live is refused; a draft may still be saved.
       const asOwner = { token: flow.team.ownerToken };

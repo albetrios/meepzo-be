@@ -70,13 +70,13 @@ const dunningOrganization = (days: number): PlanAccessSubject => ({
 });
 
 describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', () => {
-  const originalEnforced = env.BILLING_READ_ONLY_ENFORCED;
+  const originalEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
   afterEach(() => {
-    env.BILLING_READ_ONLY_ENFORCED = originalEnforced;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = originalEnforced;
   });
 
-  it('with BILLING_READ_ONLY_ENFORCED off, every organization is active — the plan is still read', async () => {
-    env.BILLING_READ_ONLY_ENFORCED = false;
+  it('with ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING off, every organization is active — the plan is still read', async () => {
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = false;
     const { service, repository } = serviceReading(dunningOrganization(400));
 
     await expect(service.getPlanAccess({ organizationPublicId: 'org_old' })).resolves.toEqual({
@@ -94,7 +94,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
   });
 
   it('a TEAM organization with no subscription is active on Free — Free never ends', async () => {
-    env.BILLING_READ_ONLY_ENFORCED = true;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
     const { service, repository } = serviceReading({
       organization: { type: 'TEAM' },
       subscription: null,
@@ -115,7 +115,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
   });
 
   it('refuses a write from a read-only organization with 403 organization_read_only', async () => {
-    env.BILLING_READ_ONLY_ENFORCED = true;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
     const { service } = serviceReading(dunningOrganization(40));
 
     const refusal = await service
@@ -131,7 +131,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
   });
 
   it('lets an organization in its grace write', async () => {
-    env.BILLING_READ_ONLY_ENFORCED = true;
+    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
     const { service } = serviceReading(dunningOrganization(3));
 
     await expect(

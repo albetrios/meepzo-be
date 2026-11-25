@@ -2,6 +2,7 @@ import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { META_GRAPH_BASE_URL } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
+  eraseContactRow,
   insertContact,
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
@@ -140,6 +141,18 @@ describe('InstagramFastLaneRules (database)', () => {
     return (await readInstagramMessages(organization.id)).find(
       (row) => row.public_id === publicId,
     )!;
+  }
+
+  /** Erases her once the core claimed the message, before its compose (a commit mid-send). */
+  function eraseAfterClaim(contactId: number, statuses: string[]) {
+    harness.beforeCompose.value = async (claimed) => {
+      statuses.push((await messageOf(claimed.public_id)).status);
+      await eraseContactRow({
+        organizationPublicId: organization.public_id,
+        organizationId: organization.id,
+        contactId,
+      });
+    };
   }
 
   beforeEach(async () => {
@@ -489,6 +502,75 @@ describe('InstagramFastLaneRules (database)', () => {
     expect(await messageOf(message.public_id)).toMatchObject({
       status: 'skipped',
       reason: 'opted_out',
+    });
+  });
+
+  it('settles a claimed DM `skipped` · `contact_deleted` without a Meta call when she is erased mid-send, its place back (plan §30.2)', async () => {
+    const contact = await contactWith();
+    const message = await waitingFast({ contactId: contact.id });
+    const statuses: string[] = [];
+    eraseAfterClaim(contact.id, statuses);
+    const meta = metaSends([{ status: 200, body: { message_id: 'mid.never' } }]);
+    await harness.fast(message);
+    expect(statuses).toEqual(['sending']);
+    expect(meta.isDone()).toBe(false);
+    expect(await messageOf(message.public_id)).toMatchObject({
+      status: 'skipped',
+      reason: 'contact_deleted',
+    });
+    expect(harness.recorded).toEqual([
+      expect.objectContaining({ step: 'messages', result: 'skipped', reason: 'contact_deleted' }),
+    ]);
+    expect(
+      (await readLaneRow({ organizationId: organization.id, account, lane: 'fast' })).sending_count,
+    ).toBe(0);
+    const [month] = await operatorQuery<{ used: number }[]>`
+      SELECT coalesce(sum(count), 0)::int AS used FROM app.message_month_counts
+      WHERE organization_id = ${organization.id}`;
+    expect(month?.used ?? 0).toBe(0);
+  });
+
+  it('settles a claimed follow check `skipped` · `contact_deleted` without reading her follow when she is erased mid-send (plan §30.9)', async () => {
+    const contact = await contactWith();
+    const check = await waitingFast({
+      contactId: contact.id,
+      message: {
+        message_type: 'follow_check',
+        message_number: null,
+        channel: null,
+        is_counted_as_direct_message: false,
+      },
+    });
+    const statuses: string[] = [];
+    eraseAfterClaim(contact.id, statuses);
+    const read = nock(META_GRAPH_BASE_URL)
+      .get(`/v27.0/${contact.instagram_user_id}`)
+      .query(true)
+      .reply(200, { username: 'riya.k', is_user_follow_business: true });
+    await harness.fast(check);
+    expect(statuses).toEqual(['sending']);
+    expect(read.isDone()).toBe(false);
+    expect(await messageOf(check.public_id)).toMatchObject({
+      status: 'skipped',
+      reason: 'contact_deleted',
+    });
+  });
+
+  it('skips a message of an erased person `contact_deleted` at its check, before any claim (plan §30.2 step 6)', async () => {
+    const contact = await contactWith();
+    const message = await waitingFast({ contactId: contact.id });
+    await eraseContactRow({
+      organizationPublicId: organization.public_id,
+      organizationId: organization.id,
+      contactId: contact.id,
+    });
+    const meta = metaSends([{ status: 200, body: { message_id: 'mid.never' } }]);
+    await harness.fast(message);
+    expect(meta.isDone()).toBe(false);
+    expect(await messageOf(message.public_id)).toMatchObject({
+      status: 'skipped',
+      reason: 'contact_deleted',
+      tries: 0,
     });
   });
 });

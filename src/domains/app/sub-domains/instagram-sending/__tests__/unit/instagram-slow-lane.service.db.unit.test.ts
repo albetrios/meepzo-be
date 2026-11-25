@@ -21,6 +21,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-lane-harness.factory.js';
 import { InstagramSendComposeService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-compose.service.js';
 import { InstagramSlowLaneRules } from '@/domains/app/sub-domains/instagram-sending/instagram-slow-lane.service.js';
+import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.repository.js';
+import { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
+import { InstagramSendStopRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -418,5 +421,57 @@ describe('InstagramSlowLaneRules (database)', () => {
       channelAccountId: account.channel_account_id,
     });
     expect(lines).toEqual([{ automation_id: expect.stringMatching(/^aut_/), count: 1 }]);
+  });
+
+  it('settles the claimed message when an organization delete stops the lanes mid-turn, and picks nothing after (R6 × R61, CA8)', async () => {
+    const first = await contactWith();
+    const second = await contactWith({ username: 'second.one' });
+    const openings = [
+      await waitingOpening({ contactId: first.id, minutesAgo: 2 }),
+      await waitingOpening({ contactId: second.id, commentId: '17900000000000002', minutesAgo: 1 }),
+    ];
+    const laneService = new InstagramSendLaneService(
+      new InstagramSendLaneRepository(),
+      new InstagramSendStopRepository(),
+    );
+    const composed: string[] = [];
+    harness.beforeCompose.value = async (message) => {
+      composed.push(message.public_id);
+      // The organization delete's Instagram erase commits its lane stop while this turn holds a claim.
+      await laneService.stopLanes({
+        scope: scope(),
+        organizationId: organization.id,
+        channelAccountId: account.channel_account_id,
+      });
+    };
+    const meta = metaSends([
+      { status: 200, body: { message_id: 'mid.claimed' } },
+      { status: 200, body: { message_id: 'mid.never' } },
+    ]);
+
+    await harness.turn('slow');
+    harness.beforeCompose.value = null;
+
+    const byId = new Map(
+      (await readInstagramMessages(organization.id)).map((row) => [row.public_id, row]),
+    );
+    // One message claimed and composed in the turn; it settles, the other stays waiting.
+    expect(composed).toHaveLength(1);
+    const left = openings.find((opening) => opening.public_id !== composed[0])!;
+    expect(byId.get(composed[0]!)).toMatchObject({ status: 'sent' });
+    expect(byId.get(left.public_id)).toMatchObject({ status: 'waiting' });
+    const lane = await readLaneRow({ organizationId: organization.id, account, lane: 'slow' });
+    expect(lane).toMatchObject({ state: 'stopped', working_turn: null, next_run_at: null });
+    expect(lane.sending_count).toBe(0);
+    expect(harness.enqueued).toEqual([]);
+
+    // A late ticket of the stopped lane claims no turn: nothing else is picked or sent.
+    await harness.turn('slow');
+    expect(
+      (await readInstagramMessages(organization.id)).find(
+        (row) => row.public_id === left.public_id,
+      ),
+    ).toMatchObject({ status: 'waiting' });
+    expect(meta.pendingMocks()).toHaveLength(1);
   });
 });

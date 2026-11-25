@@ -2,6 +2,7 @@ import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { META_GRAPH_BASE_URL } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
+  eraseContactRow,
   insertContact,
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
@@ -356,5 +357,39 @@ describe('InstagramReplyLaneRules (database)', () => {
     expect(
       (await readLaneRow({ organizationId: organization.id, account, lane: 'reply' })).last_sent_at,
     ).toBeNull();
+  });
+
+  it('settles a claimed reply and hide `skipped` · `contact_deleted` without a Meta call when she is erased mid-send; the reply counted out (plan §29.5 rule 4)', async () => {
+    const automation = await automationWith({ isLikePerson: false });
+    await setReplyState({ automationId: automation.id, boxStart: null, lastTextNumber: 1 });
+    const { reply, hide } = await waitingReply({
+      automationId: automation.id,
+      commentId: '17900000000000031',
+      withHide: true,
+    });
+    const statuses: string[] = [];
+    harness.beforeCompose.value = async (claimed) => {
+      const rows = await readInstagramMessages(organization.id);
+      statuses.push(rows.find((row) => row.public_id === claimed.public_id)!.status);
+      await eraseContactRow({
+        organizationPublicId: organization.public_id,
+        organizationId: organization.id,
+        contactId,
+      });
+    };
+    const replied = metaReplies('17900000000000031');
+    const hidden = metaHides('17900000000000031');
+    await harness.turn('reply');
+    harness.beforeCompose.value = null;
+    await harness.turn('reply');
+    expect(statuses).toEqual(['sending']);
+    expect(replied.isDone()).toBe(false);
+    expect(hidden.isDone()).toBe(false);
+    const rows = await readInstagramMessages(organization.id);
+    expect(rows.map((row) => [row.public_id, row.status, row.reason])).toEqual([
+      [reply!.public_id, 'skipped', 'contact_deleted'],
+      [hide!.public_id, 'skipped', 'contact_deleted'],
+    ]);
+    expect(await readReplyState(automation.id)).toMatchObject({ waiting_count: 0 });
   });
 });

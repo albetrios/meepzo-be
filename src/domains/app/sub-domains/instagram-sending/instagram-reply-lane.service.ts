@@ -393,7 +393,8 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
    * @remarks
    * Algorithm: one unit reads the automation, run and her and, for a reply, picks the line and
    * writes the reply state; the call outside it. Failure modes: database errors propagate. Side
-   * effects: the reply state.
+   * effects: the reply state. Notes: she erased after the claim → `skipped` · `contact_deleted`
+   * with no call (a reply counted out, its line kept).
    */
   async composeMessage({
     scope,
@@ -429,6 +430,16 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
         if (message.message_type !== 'public_reply' || automation === null) {
           return { automation, run, contact, lineNumber: null };
         }
+        if (contact === null) {
+          // Erased after the pick's check: counted out with its line kept, as that check ends it.
+          await this.countReplyOut({
+            scope,
+            organizationId,
+            automationId,
+            channelAccountId: message.channel_account_id,
+          });
+          return { automation, run, contact, lineNumber: null };
+        }
         const key = { organizationId, automationId };
         const state = await this.dependencies.replyStateService.lockReplyState({ scope, key });
         const lineNumber = pickReplyLineNumber({
@@ -451,6 +462,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
     if (automation === null || automation.deleted_at !== null || run === null) {
       return { kind: 'skip', reason: 'automation_deleted' };
     }
+    if (contact === null) return { kind: 'skip', reason: 'contact_deleted' };
     const commentId = run.trigger_instagram_comment_id;
     if (commentId === null) return { kind: 'skip', reason: 'deleted_comment' };
     if (message.message_type === 'hide_comment') {

@@ -131,25 +131,32 @@ export function mockMetaPick({
   assignedAccounts,
   pickedAccounts,
   subscription = 'none',
+  profileDelayMilliseconds = 0,
 }: {
   assignedAccounts: readonly TestAssignedAccount[];
   pickedAccounts: readonly TestAssignedAccount[];
   subscription?: 'success' | 'failure' | 'none';
+  /** Holds each profile read this long — two racing picks both pass their checks first. */
+  profileDelayMilliseconds?: number;
 }): nock.Scope {
   const graph = nock(META_GRAPH_BASE_URL)
     .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
     .query(true)
     .reply(200, { data: assignedAccounts });
   for (const account of pickedAccounts) {
-    graph.get(`/${META_GRAPH_VERSION}/${account.id}`).query(true).reply(200, {
-      id: account.id,
-      username: account.username,
-      name: 'Handmade Shop',
-      profile_picture_url: 'https://scontent.cdninstagram.com/v/test-profile.jpg',
-      followers_count: 1204,
-      follows_count: 87,
-      media_count: 54,
-    });
+    graph
+      .get(`/${META_GRAPH_VERSION}/${account.id}`)
+      .query(true)
+      .delay(profileDelayMilliseconds)
+      .reply(200, {
+        id: account.id,
+        username: account.username,
+        name: 'Handmade Shop',
+        profile_picture_url: 'https://scontent.cdninstagram.com/v/test-profile.jpg',
+        followers_count: 1204,
+        follows_count: 87,
+        media_count: 54,
+      });
   }
   for (const account of pickedAccounts) {
     if (subscription === 'none') break;

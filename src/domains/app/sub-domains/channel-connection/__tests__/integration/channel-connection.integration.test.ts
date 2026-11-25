@@ -432,6 +432,55 @@ describe('Channel connection routes', () => {
       expect(live).toHaveLength(1);
     });
 
+    it('lets only one of two organizations picking the same account at the same moment connect it: the other 409 instagram_account_connected_elsewhere (MC7)', async () => {
+      const otherTeam = await createInstagramTeam();
+      const shared = nextAccount();
+      const connectionOf = async (token: string) => {
+        const state = await start(token);
+        mockMetaLogin({ clientBusinessId: nextClientBusinessId(), assignedAccounts: [shared] });
+        const response = await callback({ state, token });
+        expect(response.statusCode, response.body).toBe(200);
+        return dataOf<{ channel_connection: { id: string } }>(response).channel_connection.id;
+      };
+      const ours = await connectionOf(team.ownerToken);
+      const theirs = await connectionOf(otherTeam.ownerToken);
+      nock.cleanAll();
+      // Both picks read "not live elsewhere" before either commits: each profile read is held.
+      for (let index = 0; index < 2; index += 1) {
+        mockMetaPick({
+          assignedAccounts: [shared],
+          pickedAccounts: [shared],
+          subscription: 'none',
+          profileDelayMilliseconds: 500,
+        });
+      }
+      nock(/graph\.facebook\.com/)
+        .persist()
+        .post(/subscribed_apps/)
+        .query(true)
+        .reply(200, { success: true });
+      const answers = await Promise.all([
+        pick({ channelConnectionPublicId: ours, providerAccountIds: [shared.id] }),
+        pick({
+          channelConnectionPublicId: theirs,
+          providerAccountIds: [shared.id],
+          token: otherTeam.ownerToken,
+        }),
+      ]);
+      expect(answers.map((answer) => answer.statusCode).sort()).toEqual([200, 409]);
+      const won = answers.find((answer) => answer.statusCode === 200)!;
+      const lost = answers.find((answer) => answer.statusCode === 409)!;
+      expect(
+        dataOf<{ results: Array<{ result: string }> }>(won).results.map((item) => item.result),
+      ).toEqual(['connected']);
+      expect(reasonOf(lost)).toBe('instagram_account_connected_elsewhere');
+      const live = [
+        ...(await readInstagramAccountRows(team.organization.id)),
+        ...(await readInstagramAccountRows(otherTeam.organization.id)),
+      ].filter((row) => row.connection_status !== 'revoked');
+      expect(live.map((row) => row.instagram_user_id)).toEqual([shared.id]);
+    });
+
     it('answers already_connected for an account already here, and requires the key (AC-1.16)', async () => {
       const account = nextAccount();
       const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({

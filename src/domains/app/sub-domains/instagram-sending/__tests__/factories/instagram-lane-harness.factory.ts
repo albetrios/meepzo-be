@@ -10,6 +10,7 @@ import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram
 import { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 import { InstagramSendStopRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { SendingStateService } from '@/domains/app/sub-domains/instagram-sending/sending-state.service.js';
+import type { InstagramMessageRow } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.repository.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type {
   InstagramSendAccess,
@@ -37,6 +38,11 @@ export interface LaneHarness {
   /** Meta's usage pace each send reads (tests change it). */
   pace: { value: MetaUsageDecision };
   messageService: InstagramMessageService;
+  /**
+   * Runs after the core claimed a message and before its lane composes it (`null` = nothing) — a
+   * test erases her or stops the lanes there, as a commit landing mid-send would.
+   */
+  beforeCompose: { value: ((message: InstagramMessageRow) => Promise<void>) | null };
   /** Works one turn of the account's lane with its current turn number. */
   turn(lane: 'slow' | 'reply' | 'broadcast'): Promise<void>;
   /** The fast tickets the core added (a used try's next ticket). */
@@ -76,6 +82,7 @@ export function buildLaneHarness({
   const enqueued: LaneHarness['enqueued'] = [];
   const fastTickets: LaneHarness['fastTickets'] = [];
   const pace = { value: { pace: 'normal', waitUntil: null } as MetaUsageDecision };
+  const beforeCompose: LaneHarness['beforeCompose'] = { value: null };
   const laneService = new InstagramSendLaneService(
     new InstagramSendLaneRepository(),
     new InstagramSendStopRepository(),
@@ -119,7 +126,7 @@ export function buildLaneHarness({
       markConnectionBroken: async () => true,
       markAccountBroken: async () => true,
     },
-    laneRules: laneRules(messageService),
+    laneRules: withBeforeCompose({ rules: laneRules(messageService), beforeCompose }),
     producers: {
       enqueueLaneTurn: async (input) => {
         enqueued.push(input);
@@ -144,6 +151,7 @@ export function buildLaneHarness({
     enqueued,
     pace,
     messageService,
+    beforeCompose,
     fastTickets,
     fast: async (message) => {
       await core.sendFastMessage({
@@ -176,6 +184,24 @@ export function buildLaneHarness({
       });
     },
   };
+}
+
+/** Each lane's rules with the harness's {@link LaneHarness.beforeCompose} run before its compose. */
+function withBeforeCompose({
+  rules,
+  beforeCompose,
+}: {
+  rules: Partial<Record<InstagramSendLane, InstagramSendLaneRules>>;
+  beforeCompose: LaneHarness['beforeCompose'];
+}): Partial<Record<InstagramSendLane, InstagramSendLaneRules>> {
+  for (const laneRules of Object.values(rules)) {
+    const compose = laneRules.composeMessage.bind(laneRules);
+    laneRules.composeMessage = async (input) => {
+      await beforeCompose.value?.(input.message);
+      return compose(input);
+    };
+  }
+  return rules;
 }
 
 /** The account's lane row of `lane`, read through the lane repository. */

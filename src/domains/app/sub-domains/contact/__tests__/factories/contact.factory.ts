@@ -4,7 +4,14 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
-import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
+import {
+  type ContactRow,
+  createWorkerContactRepository,
+} from '@/domains/app/sub-domains/contact/contact.repository.js';
+import {
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 
@@ -168,6 +175,28 @@ export async function readContactRow(contactId: number): Promise<ContactFixtureR
     .where(eq(contacts.id, contactId))
     .limit(1);
   return contact as ContactFixtureRow | undefined;
+}
+
+/**
+ * Erases one contact with the repository's erase (route 23, CT11) in a job's organization unit — her
+ * row kept, `deleted_at` set, every personal column cleared — without the erasure steps, as a commit
+ * landing while one of her messages is already claimed.
+ */
+export async function eraseContactRow({
+  organizationPublicId,
+  organizationId,
+  contactId,
+}: {
+  organizationPublicId: string;
+  organizationId: number;
+  contactId: number;
+}): Promise<void> {
+  const erased = await withAppDatabaseContext({
+    scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
+    callback: (databaseHandle) =>
+      createWorkerContactRepository(databaseHandle).erase({ organizationId, contactId }),
+  });
+  if (erased === null) throw new Error('contact fixture erase found no live contact');
 }
 
 /** Updates one contact's activity row as the operator (S5) — a test ages her times this way. */

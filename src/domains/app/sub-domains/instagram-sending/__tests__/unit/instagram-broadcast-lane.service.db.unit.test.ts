@@ -12,6 +12,7 @@ import { BroadcastRecipientService } from '@/domains/app/sub-domains/broadcast/b
 import { parseBroadcastButtonPayload } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient-button-payload.util.js';
 import {
   type ContactFixtureRow,
+  eraseContactRow,
   insertContact,
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
@@ -390,5 +391,40 @@ describe('InstagramBroadcastLaneRules (database)', () => {
       status: 'waiting',
       tries: 0,
     });
+  });
+
+  it('settles a claimed broadcast message `skipped` · `contact_deleted` without a Meta call when she is erased mid-send, her recipient too', async () => {
+    const contact = await lead(1);
+    const broadcast = await insertBroadcast();
+    await buildAudience(broadcast.public_id);
+    const statuses: string[] = [];
+    harness.beforeCompose.value = async (claimed) => {
+      const rows = await readInstagramMessages(organization.id);
+      statuses.push(rows.find((row) => row.public_id === claimed.public_id)!.status);
+      await eraseContactRow({
+        organizationPublicId: organization.public_id,
+        organizationId: organization.id,
+        contactId: contact.id,
+      });
+    };
+    const meta = metaSends([{ status: 200, body: { recipient_id: '1', message_id: 'mid.never' } }]);
+
+    await harness.turn('broadcast');
+
+    expect(statuses).toEqual(['sending']);
+    expect(meta.isDone()).toBe(false);
+    const [message] = await readInstagramMessages(organization.id);
+    expect(message).toMatchObject({ status: 'skipped', reason: 'contact_deleted' });
+    const [recipient] = await readRecipients(broadcast.id);
+    expect(recipient).toMatchObject({
+      contact_id: contact.id,
+      status: 'skipped',
+      reason: 'contact_deleted',
+    });
+    expect(await monthUsed()).toBe(0);
+    expect(
+      (await readLaneRow({ organizationId: organization.id, account, lane: 'broadcast' }))
+        .sending_count,
+    ).toBe(0);
   });
 });

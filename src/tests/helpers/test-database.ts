@@ -24,7 +24,9 @@ let wipeTargetCheck: Promise<void> | undefined;
 
 /**
  * Clean up all test data from the database.
- * Uses a single TRUNCATE ... CASCADE (built in PL/pgSQL) to reduce deadlock risk; retries on deadlock.
+ * Uses a single TRUNCATE ... CASCADE (built in PL/pgSQL) over the non-partition tables — a
+ * partitioned parent empties its parts — to reduce deadlock risk, with the statement timeout lifted
+ * for that one transaction; retries on deadlock.
  * Requires `TEST_MODE` (see {@link isDataWipeAllowed}) and, on a developer machine, a connection to
  * the local test database ({@link assertConnectedToTestDatabase}, checked once per process).
  */
@@ -42,30 +44,39 @@ export async function cleanupDatabase(): Promise<void> {
     try {
       // Elevated on purpose: TRUNCATE across every table is not something the application
       // role may do, and under `pnpm test:rls-role` the pool under test IS that role.
-      await getOperatorDatabase().execute(sql`
-        DO $$ DECLARE
-          tables text;
-        BEGIN
-          -- Cleanup can occasionally exceed per-statement limits in CI matrix shards.
-          -- Scope timeout override to this transaction only.
-          PERFORM set_config('statement_timeout', '0', true);
-          -- public.schema_migrations is the migration audit trail and MUST NOT be truncated.
-          -- Wiping it forces the vitest global-setup pnpm db:migrate to re-apply
-          -- every migration from the top on the next test run, which trips DDL
-          -- non-idempotency in older migrations (e.g. CREATE POLICY without
-          -- IF NOT EXISTS) and silently leaves the DB in a pre-fix state.
-          -- public.permissions is exempted for the same reason (system reference data).
-          SELECT string_agg(quote_ident(schemaname) || '.' || quote_ident(tablename), ', ')
-          INTO tables
-          FROM pg_tables
-          WHERE schemaname IN ('public', 'auth', 'tenancy', 'billing', 'notify', 'audit', 'upload', 'app')
-          AND tablename != 'permissions'
-          AND NOT (schemaname = 'public' AND tablename = 'schema_migrations');
-          IF tables IS NOT NULL AND tables != '' THEN
-            EXECUTE 'TRUNCATE TABLE ' || tables || ' RESTART IDENTITY CASCADE';
-          END IF;
-        END $$;
-      `);
+      // One transaction, so the timeout override below is scoped to the wipe alone. It must be a
+      // statement of its own BEFORE the wipe: Postgres arms a statement's timer when the statement
+      // starts, so a `set_config` inside the wipe's own DO block never lifted it (57014 once many
+      // partition parts existed).
+      await getOperatorDatabase().transaction(async (transaction) => {
+        await transaction.execute(sql`SET LOCAL statement_timeout = 0`);
+        await transaction.execute(sql`
+          DO $$ DECLARE
+            tables text;
+          BEGIN
+            -- public.schema_migrations is the migration audit trail and MUST NOT be truncated.
+            -- Wiping it forces the vitest global-setup pnpm db:migrate to re-apply
+            -- every migration from the top on the next test run, which trips DDL
+            -- non-idempotency in older migrations (e.g. CREATE POLICY without
+            -- IF NOT EXISTS) and silently leaves the DB in a pre-fix state.
+            -- public.permissions is exempted for the same reason (system reference data).
+            -- Partition parts are left out: TRUNCATE of a partitioned parent empties every part,
+            -- and naming each of the hundreds of day / week / month parts took a lock per part.
+            SELECT string_agg(quote_ident(namespace.nspname) || '.' || quote_ident(relation.relname), ', ')
+            INTO tables
+            FROM pg_class relation
+            JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+            WHERE relation.relkind IN ('r', 'p')
+            AND NOT relation.relispartition
+            AND namespace.nspname IN ('public', 'auth', 'tenancy', 'billing', 'notify', 'audit', 'upload', 'app')
+            AND relation.relname != 'permissions'
+            AND NOT (namespace.nspname = 'public' AND relation.relname = 'schema_migrations');
+            IF tables IS NOT NULL AND tables != '' THEN
+              EXECUTE 'TRUNCATE TABLE ' || tables || ' RESTART IDENTITY CASCADE';
+            END IF;
+          END $$;
+        `);
+      });
       await cleanupTestRedis();
       // In-process memos are invisible to a TRUNCATE. A suite that seeds a catalog and asserts on
       // it would otherwise read the previous file's memory.

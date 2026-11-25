@@ -67,6 +67,7 @@ import { InstagramMessageService } from './sub-domains/instagram-sending/instagr
 import { InstagramSendAccessService } from './sub-domains/instagram-sending/instagram-send-access.service.js';
 import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
+import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
 import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
@@ -147,6 +148,12 @@ export type AppContainer = {
    * (AC-15.4); the `attachment-upload` task's body for R46.
    */
   instagramAttachmentService: InstagramAttachmentService;
+  /**
+   * The work the Instagram send and task workers hand their tickets to (SN2, SN24, ROUTE row R37):
+   * none yet — the lane turn is ROUTE rows R42–R45's, the fast send R42 / R44's, the task handlers
+   * R40 / R41 / R46's; until then a ticket is logged and finished without touching a row.
+   */
+  instagramSendWork: InstagramSendWork;
 };
 
 /**
@@ -226,6 +233,13 @@ function createInstagramAccountServices({
   };
 }
 
+/** No ticket work is built yet (ROUTE row R37): every ticket is logged and finished. */
+const NO_INSTAGRAM_SEND_WORK: InstagramSendWork = {
+  laneTurn: null,
+  fastMessage: null,
+  taskHandlers: {},
+};
+
 /**
  * The sending sub-domain's root services (routes-final § 6.A, ROUTE row R18): the lanes and their
  * stops, the global sending row (registered as the readiness body's sending check, SNC9), the
@@ -268,6 +282,9 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     sendingStateService,
     messageMonthCountService,
     channelConnectionUsageService,
+    // The tickets' work (SN2, SN24, R37): none until the lane turn (R42–R45), the fast send (R42,
+    // R44) and the task handlers (R40, R41, R46) are built.
+    instagramSendWork: NO_INSTAGRAM_SEND_WORK,
   };
 }
 
@@ -690,6 +707,7 @@ export function createAppContainer({
     instagramMessageService,
   });
   return {
+    ...sending,
     channelConnectionService,
     channelConnectionTokenService,
     channelAccountService,
@@ -707,8 +725,6 @@ export function createAppContainer({
     automationReplyStateService,
     automationRunService,
     channelSendingPorts,
-    // The lanes, the month count, the sending state and the connection's usage (§ 6.A, R18).
-    ...sending,
     instagramSendingService,
     instagramMessageService,
     ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),

@@ -27,3 +27,26 @@ export function getWorkerConcurrencyStripe(): number {
 export function getWorkerConcurrencyInstagram(): number {
   return env.WORKER_CONCURRENCY_INSTAGRAM ?? env.WORKER_CONCURRENCY;
 }
+
+/** Job places of the Instagram slow-lane send queue per process (SN2, P91 — its own maximum). */
+export function getWorkerConcurrencyInstagramSendSlow(): number {
+  return env.WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW;
+}
+
+/** Job places of the Instagram fast-message send queue per process (SN2, P91). */
+export function getWorkerConcurrencyInstagramSendFast(): number {
+  return env.WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST;
+}
+
+/** Job places of the Instagram task queue per process (SN2, P91). */
+export function getWorkerConcurrencyInstagramTasks(): number {
+  return env.WORKER_CONCURRENCY_INSTAGRAM_TASKS;
+}
+
+/**
+ * Size of the in-process database limiter the Instagram send, intake and task workers share
+ * (SN24, P91) — what the worker connection budget counts for them, once per process.
+ */
+export function getWorkerInstagramDatabaseSlots(): number {
+  return env.WORKER_INSTAGRAM_DATABASE_SLOTS;
+}

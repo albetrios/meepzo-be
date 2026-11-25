@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**22 / 253** variables migrated to an explicit `{ allowed, description }` entry.
+**22 / 257** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -255,10 +255,14 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `WEBHOOK_URL_ALLOWLIST` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY` | — | `4` |  | — |
 | `WORKER_CONCURRENCY_INSTAGRAM` | — | — *(optional)* |  | — |
+| `WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST` | — | `100` |  | — |
+| `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` | — | `50` |  | — |
+| `WORKER_CONCURRENCY_INSTAGRAM_TASKS` | — | `20` |  | — |
 | `WORKER_CONCURRENCY_MAIL` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_NOTIFY` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_STRIPE` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_WEBHOOK` | — | — *(optional)* |  | — |
 | `WORKER_HEALTH_PORT` | — | `9090` |  | — |
 | `WORKER_HEALTH_STALL_TIMEOUT_MS` | — | `300000` |  | — |
+| `WORKER_INSTAGRAM_DATABASE_SLOTS` | — | `16` |  | — |
 | `WORKER_QUEUE_FAMILIES` | — | `all` |  | — |

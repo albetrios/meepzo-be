@@ -16,8 +16,9 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). The queues and workers (R37), the send core (R42), the lanes (R43), the repair duties (R47)
-and the watches (R48) come with their rows. No table here has a public id; route 63 takes the account's `cha_` id.
+connection's usage, SN23). The send core (R42), the lanes (R43), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
+to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
 ## Routes (under `/api/v1/app`)
 
@@ -63,6 +64,18 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   business's entries — a business-wide 95 % holds every account of the connection, S13) and the connection's usage
   recorder for the call. The lanes keep no usage of their own.
 - `instagram-attachment/` — the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md).
+- `queues/` — `instagram-send-slow` (one ticket per lane turn of `slow`, `reply`, `broadcast`; job id
+  `<lane>-<cha_…>-<turn>`, a broadcast turn at priority 10) and `instagram-send-fast` (one ticket per fast message,
+  `fast-<igm_…>-<tries>`), family **`instagram-send`** — the send service; `instagram-tasks` (the jobs around sending,
+  each owner's job name), family `instagram`. Ids only, one attempt per ticket, no rate limiter, never paused by the
+  Instagram circuit.
+- `workers/` — one plain worker per queue (`isEnabled: env.SENDING_ENABLED`) and `instagram-send-ticket.processor.ts`:
+  every ticket asks `mayTakeTickets` first (a task only when it calls Meta) and goes back a minute later, no try used,
+  when the server may not send; every unit of work runs in a slot of the process's **Instagram database limiter**
+  (`WORKER_INSTAGRAM_DATABASE_SLOTS`, the budget counts it once per process); a ticket with no slot within 2 s goes
+  back, no try used (AC-17.20). The work is `appDomain.instagramSendWork` (`InstagramLaneTurnWork`,
+  `InstagramFastMessageWork`, `InstagramTaskHandler`s): none until R42–R46 — a ticket for missing work is logged and
+  finished, no row touched.
 - `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
 
 ## Rules

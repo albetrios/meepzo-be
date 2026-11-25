@@ -35,11 +35,11 @@ BullMQ workers run as a **separate process** (`node dist/worker.js` / `Dockerfil
 
 ## Splitting worker services by family
 
-Workers are grouped into seven families in the [worker registry](../../reference/runtime/workers-and-events.md#worker-registry-and-queue-families): `mail`, `notify`, `webhook`, `stripe`, `instagram`, `retention`, `observability`. `WORKER_QUEUE_FAMILIES` (default `all` = monolithic) selects which families a process runs.
+Workers are grouped into eight families in the [worker registry](../../reference/runtime/workers-and-events.md#worker-registry-and-queue-families): `mail`, `notify`, `webhook`, `stripe`, `instagram`, `instagram-send`, `retention`, `observability`. `WORKER_QUEUE_FAMILIES` (default `all` = monolithic) selects which families a process runs.
 
 | When to split                                              | Why                                                                                                                     |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 64 Postgres slots; splitting reduces per-process demand and avoids contention.                       |
+| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 61 Postgres connections, plus the Instagram database limiter (16) while sending is on; splitting reduces per-process demand and avoids contention. |
 | Retention crons compete with throughput jobs at peak hours | Isolate `retention` to its own service so audit/tombstone runs do not steal connections from `mail`/`webhook`/`stripe`. |
 | Need to size memory or replicas differently per workload   | Throughput families benefit from more replicas; retention typically needs only one replica.                             |
 
@@ -50,6 +50,7 @@ Recommended layout (see [resource-limits.md → Example Railway split](resource-
 | `worker-throughput`    | `mail,notify,webhook,stripe,instagram` | `true`              | Horizontal-scale freely; replicas multiply pool demand.                          |
 | `worker-retention`     | `retention`                  | `true`              | Run **one replica** — cron jobs are not idempotent across overlapping processes. |
 | `worker-observability` | `observability`              | `true`              | Mostly Redis-only (`dlq-auto-retry` takes one Postgres connection); tiny footprint. |
+| `worker-send`          | `instagram-send`             | `true`              | The Instagram send service (SN24, P91): the slow-lane and fast-message queues only, apart from the API and the other workers, so its pool is sized on its own — `WORKER_INSTAGRAM_DATABASE_SLOTS` (16–24) Postgres connections a replica, `DATABASE_POOL_MAX` = slots + 4. Its job places (`WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` / `_FAST`) wait on Meta and cost no connection. `SENDING_ENABLED=true` and `SENDING_ENVIRONMENT_ID` set, or it runs nothing. |
 
 Keep `SCHEDULER_ENABLED=true` (the default) on **every** worker service. The scheduler in each process registers only the crons of the queues whose workers run in that process, so turning it off on a service leaves that service's crons unregistered — on `worker-throughput` that means the mail outbox sweeper, commit-dispatch recovery, the Stripe reclaim / catch-up / retention and the webhook delivery reclaim never run, and lost work is never recovered. Registration is an idempotent upsert keyed by scheduler id, so replicas never double a cron. A process that runs cron queues with the scheduler off logs `scheduler.disabled.crons_not_registered` listing them.
 

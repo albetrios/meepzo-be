@@ -81,6 +81,13 @@ import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domain
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
+import { createInstagramSendSlowWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-slow.worker.js';
+import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
+import { createInstagramSendFastWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-fast.worker.js';
+import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
+import { createInstagramTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.worker.js';
+import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { INSTAGRAM_DATABASE_SLOT_LIMITER_NAME } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
@@ -93,8 +100,10 @@ import {
 import type { WorkerHandle } from '@/infrastructure/queue/bootstrap.js';
 import { RETENTION_WORKER_CONCURRENCY } from '@/infrastructure/queue/worker-runtime/worker-options.js';
 import type { WorkerQueueFamily } from '@/infrastructure/queue/worker-runtime/worker-queue-family.constants.js';
+import { env } from '@/shared/config/env.config.js';
 import {
   getWorkerConcurrencyInstagram,
+  getWorkerInstagramDatabaseSlots,
   getWorkerConcurrencyMail,
   getWorkerConcurrencyNotify,
   getWorkerConcurrencyStripe,
@@ -141,6 +150,13 @@ export type WorkerQueueRegistrationDefinition = {
    */
   readonly holdsConnectionDuringExternalIo?: boolean;
   readonly resolvePostgresConcurrency?: (workerContainers: DomainContainers | undefined) => number;
+  /**
+   * The in-process database limiter this worker's units of work take their slots from (SN24, P91).
+   * Its `resolvePostgresConcurrency` reports the limiter's size, and the connection budget counts
+   * each named limiter **once per process**, whatever number of queues share it — slots, not job
+   * places.
+   */
+  readonly databaseSlotLimiterName?: string;
   readonly isEnabled?: (workerContainers: DomainContainers) => boolean;
   readonly create: (workerContainers: DomainContainers) => WorkerHandle;
 };
@@ -400,6 +416,63 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     logLabel: 'instagram webhook event retention worker',
     create: () => createInstagramWebhookEventRetentionWorker(),
   }),
+  // feat-instagram-dm-sending SN2, SN24 (P91, ROUTE row R37): the send and task queues. Their job
+  // places wait on Meta, not Postgres: every unit of work takes a slot of the process's Instagram
+  // database limiter, which the budget counts once (`WORKER_INSTAGRAM_DATABASE_SLOTS`). Not
+  // provider-pausable — the lanes' stops decide. Off unless this deployment may send
+  // (`SENDING_ENABLED`); each ticket also asks `mayTakeTickets` (SN7). The two send queues are
+  // family `instagram-send`: the send service runs them apart from the API and the other workers.
+  {
+    queueName: INSTAGRAM_SEND_SLOW_QUEUE_NAME,
+    family: 'instagram-send',
+    logLabel: 'Instagram send worker (slow, reply and broadcast lane turns)',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    isEnabled: () => env.SENDING_ENABLED,
+    create: (workerContainers) =>
+      createInstagramSendSlowWorker({
+        sendingGate: workerContainers.appDomain.sendingStateService,
+        laneTurn: workerContainers.appDomain.instagramSendWork.laneTurn,
+      }),
+  },
+  {
+    queueName: INSTAGRAM_SEND_FAST_QUEUE_NAME,
+    family: 'instagram-send',
+    logLabel: 'Instagram send worker (fast messages)',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    isEnabled: () => env.SENDING_ENABLED,
+    create: (workerContainers) =>
+      createInstagramSendFastWorker({
+        sendingGate: workerContainers.appDomain.sendingStateService,
+        fastMessage: workerContainers.appDomain.instagramSendWork.fastMessage,
+      }),
+  },
+  {
+    queueName: INSTAGRAM_TASKS_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'Instagram task worker',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    isEnabled: () => env.SENDING_ENABLED,
+    create: (workerContainers) =>
+      createInstagramTasksWorker({
+        sendingGate: workerContainers.appDomain.sendingStateService,
+        taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
+      }),
+  },
   retentionDefinition({
     queueName: WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME,
     family: 'retention',

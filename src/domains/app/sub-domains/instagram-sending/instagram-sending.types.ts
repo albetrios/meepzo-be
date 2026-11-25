@@ -3,9 +3,11 @@ import type { ChannelAccountPortScope } from '@/domains/app/sub-domains/channel-
 import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
+import type { z } from 'zod';
 import type {
   InstagramSendLane,
   InstagramSendLaneState,
+  InstagramSlowQueueLane,
   InstagramSendStopReason,
   InstagramSendWaitReason,
 } from './instagram-sending.constants.js';
@@ -150,6 +152,81 @@ export interface InstagramSendingStatusSources {
 /** The reader of route 63's caller: the verified organization scope. */
 export interface InstagramSendingCaller {
   scope: OrganizationPrincipalDatabaseScope;
+}
+
+/**
+ * What a send or task ticket's work gets from its worker (SN24, P91): its job id and the process's
+ * database limiter. Every unit of work — the claim, the one result save, a task piece — runs through
+ * `runInDatabaseSlot`; no slot within 2 s throws `WorkerDatabaseSlotUnavailableError`, which the
+ * worker turns into "the ticket goes back, no try used" while nothing has been sent yet.
+ */
+export interface InstagramSendTicketContext {
+  jobId: string;
+  runInDatabaseSlot<T>(callback: () => Promise<T>): Promise<T>;
+}
+
+/** One lane turn's ticket on `instagram-send-slow` (SN2), as validated by its job schema. */
+export interface InstagramSendLaneTurnTicket {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  lane: InstagramSlowQueueLane;
+  turnNumber: number;
+}
+
+/** One fast message's ticket on `instagram-send-fast` (SN2), as validated by its job schema. */
+export interface InstagramSendFastMessageTicket {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  instagramMessagePublicId: string;
+  automationRunStartedAt: string;
+  tries: number;
+}
+
+/**
+ * The work of one lane turn — the send core (ROUTE row R42) with the slow and reply lanes (R43) and
+ * the broadcast lane (R45): claim the turn (`InstagramSendLaneService.claimLaneTurn`), send, save,
+ * release it (`releaseLaneTurn`) with the lane's limits from `resolveInstagramEffectiveLimits`.
+ */
+export interface InstagramLaneTurnWork {
+  workLaneTurn(input: {
+    ticket: InstagramSendLaneTurnTicket;
+    context: InstagramSendTicketContext;
+  }): Promise<void>;
+}
+
+/** The send of one fast message — the send core (R42) with the fast lane and its caps (R44, S21). */
+export interface InstagramFastMessageWork {
+  sendFastMessage(input: {
+    ticket: InstagramSendFastMessageTicket;
+    context: InstagramSendTicketContext;
+  }): Promise<void>;
+}
+
+/**
+ * One task kind on `instagram-tasks` (SN2), registered under its job name by its owner (R40, R41,
+ * R46): whether it calls Meta (then it asks `mayTakeTickets` first, AC-17.21), the schema of its
+ * `taskInput` and its work.
+ */
+export interface InstagramTaskHandler {
+  callsMeta: boolean;
+  inputSchema: z.ZodType<Record<string, unknown>>;
+  run(input: {
+    organizationPublicId: string;
+    taskInput: Record<string, unknown>;
+    context: InstagramSendTicketContext;
+  }): Promise<void>;
+}
+
+/**
+ * The work the Instagram send and task workers hand their tickets to (the worker composition root's
+ * `appDomain.instagramSendWork`). `null` / no handler until the row that builds it: the lane turn
+ * R42–R45, the fast message R42 / R44, the tasks R40 / R41 / R46 — a ticket for missing work is
+ * logged and finished without touching a row.
+ */
+export interface InstagramSendWork {
+  laneTurn: InstagramLaneTurnWork | null;
+  fastMessage: InstagramFastMessageWork | null;
+  taskHandlers: Readonly<Record<string, InstagramTaskHandler>>;
 }
 
 /**

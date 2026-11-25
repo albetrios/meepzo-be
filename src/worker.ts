@@ -54,6 +54,9 @@ import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-e
 import { closeInstagramAccountDailyCheckQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
+import { closeInstagramSendFastQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
+import { closeInstagramTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
 
 // Initialize Sentry before anything else
 initSentry();
@@ -147,6 +150,11 @@ async function main() {
         closeInstagramReconnectNoticeQueue(),
         // WH12 / WH15: a job that yielded adds its follow-up; the stuck-event pick-up adds jobs.
         closeInstagramWebhookQueue(),
+        // SN2 (R37): the send and task producers — a released turn, a repair duty or a task adds
+        // the next ticket.
+        closeInstagramSendSlowQueue(),
+        closeInstagramSendFastQueue(),
+        closeInstagramTasksQueue(),
       ]);
       // Pooled BullMQ clients (queue gauges, readiness depth probes, the Redis-saturation
       // sampler) hold Redis sockets for the process lifetime — release them before the

@@ -71,6 +71,8 @@ describe('principal-scope minting confinement', () => {
       'domains/app/__tests__/e2e/instagram-comment-flow.helper.ts',
       // The broadcast flow's lane-turn and fast tickets, run as the send workers run them (R56).
       'domains/app/__tests__/e2e/instagram-broadcast-flow.helper.ts',
+      // The comment-to-DM flow's send tickets, run as the send workers run them (R54).
+      'domains/app/__tests__/e2e/instagram-send-flow.helper.ts',
       // The lane tests' harness: the send core's ticket turn as the send workers run it (R43–R45).
       'domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-lane-harness.factory.ts',
     ];

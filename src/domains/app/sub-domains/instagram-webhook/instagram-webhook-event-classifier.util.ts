@@ -195,8 +195,19 @@ function readAttachmentTypes(message: MetaObject): string[] {
     .filter((type): type is string => typeof type === 'string');
 }
 
-/** A message attachment type that shares a post (5.A.10, Meta test). */
-const SHARED_POST_ATTACHMENT_TYPES: ReadonlySet<string> = new Set(['share', 'ig_post']);
+/**
+ * The message attachment types that share a post or a reel (5.A.10, Meta's messaging examples):
+ * `share` (the legacy post share), `ig_post`, and a shared reel's `ig_reel` / `reel`.
+ */
+export const INSTAGRAM_SHARED_POST_ATTACHMENT_TYPES: readonly string[] = [
+  'share',
+  'ig_post',
+  'ig_reel',
+  'reel',
+];
+
+/** A reaction's `action` when she takes it back (Meta's `message_reactions` example). */
+const INSTAGRAM_REACTION_REMOVED_ACTION = 'unreact';
 
 /** The payload prefix of a starter-question tap (5.A.10 `ice_breaker`, WH8). */
 const STARTER_QUESTION_PAYLOAD_PREFIX = 'starter:';
@@ -241,6 +252,16 @@ function messageRule({
   const message = asMetaObject(item.message);
   const messageId = readIdentifier(message?.mid);
   if (message === null || messageId === null) return null;
+  // A Meta Business Agent handoff notice (`admin_text`, `handoff_reason`): business-facing, never
+  // her message nor one the owner typed — skipped before the echo rule.
+  if (message.admin_text !== undefined || message.handoff_reason !== undefined) {
+    return {
+      eventKind: 'unknown',
+      prefix: 'handoff',
+      parts: [messageId],
+      kindSkipReason: 'unsupported',
+    };
+  }
   // The account's own DM — an echo (`is_echo`, `is_self`, or sent by the account): saved
   // `received` for the owner's quiet time (WH10) unless the receiver finds it is ours (WH9 step 3).
   if (
@@ -265,6 +286,15 @@ function messageRule({
       kindSkipReason: 'unsupported',
     };
   }
+  // Media Instagram cannot hand over (`is_unsupported`): no text, nothing an automation can read.
+  if (message.is_unsupported === true) {
+    return {
+      eventKind: 'unknown',
+      prefix: 'unsupported',
+      parts: [messageId],
+      kindSkipReason: 'unsupported',
+    };
+  }
   const referral = referralRule({
     referral: asMetaObject(message.referral) ?? asMetaObject(item.referral),
     item,
@@ -276,7 +306,7 @@ function messageRule({
   let eventKind: InstagramWebhookEventKind = 'message';
   if (storyId !== null) eventKind = 'story_reply';
   else if (attachmentTypes.includes('story_mention')) eventKind = 'story_mention';
-  else if (attachmentTypes.some((type) => SHARED_POST_ATTACHMENT_TYPES.has(type))) {
+  else if (attachmentTypes.some((type) => INSTAGRAM_SHARED_POST_ATTACHMENT_TYPES.includes(type))) {
     eventKind = 'shared_post';
   }
   return { eventKind, prefix: 'message', parts: [messageId], kindSkipReason: null };
@@ -327,15 +357,13 @@ function reactionOrEditRule(item: MetaObject): MessagingRule | null {
   const reaction = asMetaObject(item.reaction);
   const reactionMessageId = readIdentifier(reaction?.mid);
   if (reaction !== null && reactionMessageId !== null) {
+    const action = readIdentifier(reaction.action) ?? '';
     return {
       eventKind: 'reaction',
       prefix: 'reaction',
-      parts: [
-        reactionMessageId,
-        readIdentifier(reaction.action) ?? '',
-        readIdentifier(item.timestamp) ?? '',
-      ],
-      kindSkipReason: null,
+      parts: [reactionMessageId, action, readIdentifier(item.timestamp) ?? ''],
+      // Taking a reaction back (`unreact`) is no activity of hers: it never refreshes her window.
+      kindSkipReason: action === INSTAGRAM_REACTION_REMOVED_ACTION ? 'unsupported' : null,
     };
   }
   const messageEdit = asMetaObject(item.message_edit);
@@ -394,6 +422,14 @@ function classifyMessagingItem({
   };
 }
 
+/**
+ * A comment change's comment id: `value.id` (Business Login for Instagram), else `value.comment_id`
+ * (the Unified Login / Facebook Login for Business example of Meta's docs); `null` without either.
+ */
+export function readInstagramWebhookCommentId(value: MetaObject | null): string | null {
+  return readIdentifier(value?.id) ?? readIdentifier(value?.comment_id);
+}
+
 /** The two comment fields of 5.A.10 and the kind each is saved as. */
 const COMMENT_CHANGE_KINDS: Readonly<Record<string, InstagramWebhookEventKind>> = {
   comments: 'comment',
@@ -419,7 +455,7 @@ function classifyChangeItem({
   const commentKind = Object.hasOwn(COMMENT_CHANGE_KINDS, field)
     ? COMMENT_CHANGE_KINDS[field]
     : undefined;
-  const commentId = commentKind === undefined ? null : readIdentifier(value?.id);
+  const commentId = commentKind === undefined ? null : readInstagramWebhookCommentId(value);
   if (value !== null && commentKind !== undefined && commentId !== null) {
     const fromId = readNestedUserId({ object: value, key: 'from' });
     // The account's own comment — its public reply comes back as a comment change (WH8, P24).
@@ -452,19 +488,22 @@ function classifyChangeItem({
  * for a read receipt, which is never saved.
  *
  * @remarks
- * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>`, `live_comments` →
- *   `live_comment:<value.id>` (either skipped `own_comment` when `from.id` is the account itself,
+ * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>` (`value.comment_id` under
+ *   Unified Login), `live_comments` → `live_comment:<value.id>` (either skipped `own_comment` when `from.id` is the account itself,
  *   P24), `messages` → read as a `messaging[]` item (D18), any other field →
  *   `change:<field>:<SHA-256 of value>`, skipped `unsupported`. A `messaging[]` item — a read
- *   receipt → `null`; a message (`is_echo`, `is_self` or sent by the account → `echo:<mid>`
+ *   receipt → `null`; a message (a handoff notice — `admin_text` / `handoff_reason` →
+ *   `handoff:<mid>` skipped `unsupported`; `is_echo`, `is_self` or sent by the account → `echo:<mid>`
  *   `received`, carrying `echoMessageId` for the own-message drop; `is_deleted` → `deleted:<mid>`
- *   skipped `unsupported`; a `referral` → `referral`; `reply_to.story.id` → `story_reply`; a
- *   `story_mention` attachment → `story_mention`; a `share` / `ig_post` attachment → `shared_post`;
+ *   and `is_unsupported` → `unsupported:<mid>`, both skipped `unsupported`; a `referral` →
+ *   `referral` (her text rides on it to the dispatch); `reply_to.story.id` → `story_reply`; a
+ *   `story_mention` attachment → `story_mention`; a `share` / `ig_post` / `ig_reel` / `reel` attachment →
+ *   `shared_post`;
  *   else `message` — all but the referral keyed `message:<mid>`), a postback (`ice_breaker` when its
  *   payload starts `starter:`, else `postback`; `postback:<mid>`, or without `mid`
  *   `postback:<sender>:<timestamp>:<SHA-256 of payload>`), a `messaging_referral` →
  *   `referral:<sender>:<timestamp>:<SHA-256 of ref and source>`, a reaction →
- *   `reaction:<mid>:<action>:<timestamp>` `received`, `edit:<mid>:<num_edit>` skipped `edit`,
+ *   `reaction:<mid>:<action>:<timestamp>` `received` (an `unreact` skipped `unsupported`), `edit:<mid>:<num_edit>` skipped `edit`,
  *   anything else (a story repost, an opt-in) `messaging:<SHA-256 of item>` skipped `unsupported`.
  *   Keys longer than 512 characters become `<prefix>:sha256:<hash of parts>`.
  * - **Failure modes:** none — every object item but a read receipt gets a kind; an item missing the

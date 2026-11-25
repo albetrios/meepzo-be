@@ -5,7 +5,11 @@ import {
   parseAutomationButtonPayload,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
 import type { InstagramWebhookEventKind } from './instagram-webhook-event/instagram-webhook-event.constants.js';
-import { readInstagramWebhookUserId } from './instagram-webhook-event-classifier.util.js';
+import {
+  INSTAGRAM_SHARED_POST_ATTACHMENT_TYPES,
+  readInstagramWebhookCommentId,
+  readInstagramWebhookUserId,
+} from './instagram-webhook-event-classifier.util.js';
 import { InstagramWebhookEventPermanentError } from './instagram-webhook.types.js';
 
 /** A JSON object as Meta sent it. */
@@ -70,7 +74,8 @@ interface CommentDispatchFields {
  *   the payload names it); a broadcast message's button (`<brc_…>::<igm_…>`, § 7.A.10) carries
  *   `broadcastPublicId` and its message instead;
  * - `starter_question` — `handleButtonClick` with the question's text;
- * - `referral` — `handleButtonClick` with the link's `ref` code or the ad's id;
+ * - `referral` — `handleButtonClick` with the link's `ref` code or the ad's id, and the message it
+ *   rode on (`carriedMessage`) for the match to fall back to;
  * - `reaction` — her window only;
  * - `owner_message` — the owner's hand-typed echo to her (the quiet time, WH10).
  *
@@ -108,9 +113,22 @@ export type InstagramWebhookEventDispatch =
       contactInstagramUserId: string;
       refCode: string | null;
       adId: string | null;
+      /**
+       * The message the referral rode on (a click-to-DM ad's or a link's first message — Meta's
+       * `message.referral`): its text, quick reply and email; `null` for a `messaging_referral`
+       * item, which carries no message.
+       */
+      carriedMessage: InstagramWebhookCarriedMessage | null;
     }
   | { inboundKind: 'reaction'; contactInstagramUserId: string }
   | { inboundKind: 'owner_message'; contactInstagramUserId: string; instagramMessageId: string };
+
+/** What a message hands on beside its kind: her text, the quick reply's payload, an email. */
+export interface InstagramWebhookCarriedMessage {
+  text: string | null;
+  quickReplyPayload: string | null;
+  attachmentEmail: string | null;
+}
 
 /** The stored event fields the dispatch is read from (`app.instagram_webhook_events` columns). */
 export interface InstagramWebhookStoredEvent {
@@ -179,7 +197,10 @@ function readAttachmentEmail(message: MetaObject): string | null {
   return null;
 }
 
-/** The id in the first attachment of one of `types` (`payload.id`, `payload.ig_post_media_id`). */
+/**
+ * The id in the first attachment of one of `types` (`payload.ig_post_media_id`, a reel's
+ * `payload.reel_video_id`, else `payload.id`).
+ */
 function readAttachmentId({
   message,
   types,
@@ -190,7 +211,11 @@ function readAttachmentId({
   for (const attachment of readAttachments(message)) {
     if (typeof attachment.type !== 'string' || !types.includes(attachment.type)) continue;
     const payload = asMetaObject(attachment.payload);
-    return readOptionalId(payload?.ig_post_media_id) ?? readOptionalId(payload?.id);
+    return (
+      readOptionalId(payload?.ig_post_media_id) ??
+      readOptionalId(payload?.reel_video_id) ??
+      readOptionalId(payload?.id)
+    );
   }
   return null;
 }
@@ -212,7 +237,10 @@ function readComment({
     inboundKind,
     contactInstagramUserId,
     username: readText(asMetaObject(value.from)?.username),
-    instagramCommentId: requireInstagramId({ value: value.id, reason: 'comment_id_missing' }),
+    instagramCommentId: requireInstagramId({
+      value: readInstagramWebhookCommentId(value),
+      reason: 'comment_id_missing',
+    }),
     instagramMediaId: requireInstagramId({ value: media?.id, reason: 'comment_media_missing' }),
     parentCommentId: readInstagramWebhookUserId(value.parent_id),
     adId: readOptionalId(media?.ad_id),
@@ -244,14 +272,21 @@ function readMessage({
   return {
     inboundKind,
     contactInstagramUserId,
-    text: readText(message.text),
-    quickReplyPayload: readText(asMetaObject(message.quick_reply)?.payload),
-    attachmentEmail: readAttachmentEmail(message),
+    ...readCarriedMessage(message),
     storyId,
     sharedMediaId:
       inboundKind === 'shared_post'
-        ? readAttachmentId({ message, types: ['share', 'ig_post'] })
+        ? readAttachmentId({ message, types: INSTAGRAM_SHARED_POST_ATTACHMENT_TYPES })
         : null,
+  };
+}
+
+/** A message's text, its quick reply's payload and its first attachment's email. */
+function readCarriedMessage(message: MetaObject): InstagramWebhookCarriedMessage {
+  return {
+    text: readText(message.text),
+    quickReplyPayload: readText(asMetaObject(message.quick_reply)?.payload),
+    attachmentEmail: readAttachmentEmail(message),
   };
 }
 
@@ -334,7 +369,10 @@ function readStarterQuestion({
   };
 }
 
-/** A stored referral (`messaging_referral`, or one carried by her message): the ref or the ad. */
+/**
+ * A stored referral (`messaging_referral`, or one carried by her message): the ref or the ad, and
+ * the message it rode on.
+ */
 function readReferral({
   payload,
   contactInstagramUserId,
@@ -352,6 +390,7 @@ function readReferral({
     contactInstagramUserId,
     refCode: adId === null ? readText(referral.ref) : null,
     adId,
+    carriedMessage: message === null ? null : readCarriedMessage(message),
   };
 }
 
@@ -377,7 +416,8 @@ function readOwnerMessage({
  * - **Algorithm:** the person is the stored `contact_instagram_user_id` (the classifier's — an
  *   echo's recipient); the kind maps through {@link INSTAGRAM_INBOUND_EVENT_KIND_OF}; each reader
  *   takes the change's `value` (comments) or the messaging item (a `messages` change's `value`,
- *   D18) and reads only ids, the text, the quick reply's payload and an attachment's email.
+ *   D18) and reads only ids, the text, the quick reply's payload and an attachment's email — a
+ *   referral that rode on her message hands that message on too (`carriedMessage`).
  * - **Failure modes:** throws {@link InstagramWebhookEventPermanentError}
  *   (`event_payload_invalid:<reason>`) for an event no retry can handle: no person, a comment
  *   without its digits-only id or post, a message without `message`, a story reply without its

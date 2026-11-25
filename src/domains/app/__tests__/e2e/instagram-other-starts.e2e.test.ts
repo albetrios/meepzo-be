@@ -318,6 +318,23 @@ describe('Flow — every other way to start (e2e)', () => {
       expect(hellosSent()).toEqual(['AD1203 hello']);
       expect(await flow.runsOf(ad)).toHaveLength(1);
     });
+
+    it('"Send message" on an ad no automation takes: her ready text goes on as her message — the keyword automation answers it (webhook gap 3)', async () => {
+      const available = await automationOf('AVAILABLE', {
+        trigger_type: 'dm_keyword',
+        keywords: ['available'],
+      });
+      await riyaWrites('Hi! Is this available?', {
+        referral: {
+          source: 'ADS',
+          type: 'OPEN_THREAD',
+          ad_id: '9999',
+          ads_context_data: { ad_title: 'Spring sale' },
+        },
+      });
+      expect(hellosSent()).toEqual(['AVAILABLE hello']);
+      expect(await flow.runsOf(available)).toHaveLength(1);
+    });
   });
 
   describe('what never starts, and the quiet after the owner typed (AC-20.7, AC-20.8, AC-20.11)', () => {

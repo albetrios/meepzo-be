@@ -119,6 +119,30 @@ describe('InstagramWebhookEventService.recordReceivedEvents (database)', () => {
     expect(key?.event_day).toBe(commentTime.toISOString().slice(0, 10));
   });
 
+  it('saves a comment Meta delivers again across UTC midnight once — its day is the send time, which the retry moved (WH20)', async () => {
+    const midnight = new Date(new Date().toISOString().slice(0, 10)).getTime();
+    // First try sent at 23:59 yesterday; Meta's retry sent at 00:01 today (and one 36 h later).
+    const firstTry = commentEvent('18000000000000009', { occurredAt: new Date(midnight - 60_000) });
+    expect(await store({ events: [firstTry] })).toHaveLength(1);
+    const retry = commentEvent('18000000000000009', { occurredAt: new Date(midnight + 60_000) });
+    expect(await store({ events: [retry] })).toEqual([]);
+    const lastRetry = commentEvent('18000000000000009', {
+      occurredAt: new Date(midnight + 36 * 60 * 60 * 1000 - 60_000),
+    });
+    expect(
+      await store({ events: [lastRetry], now: new Date(midnight + 36 * 60 * 60 * 1000) }),
+    ).toEqual([]);
+    // Another comment on the new day is still new.
+    expect(
+      await store({
+        events: [commentEvent('18000000000000010', { occurredAt: retry.occurredAt })],
+      }),
+    ).toHaveLength(1);
+
+    expect(await countRows('instagram_webhook_events', organization.id)).toBe(2);
+    expect(await countRows('instagram_webhook_event_keys', organization.id)).toBe(2);
+  });
+
   it('never saves an event whose Meta time is over 8 days old (the replay guard, AC-16.4)', async () => {
     const stored = await store({
       events: [

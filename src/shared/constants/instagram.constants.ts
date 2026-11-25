@@ -121,6 +121,19 @@ export const META_USAGE_DEFAULT_WAIT_MINUTES = 15;
 export const INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8;
 
 /**
+ * How many UTC days either side of its own day the store function looks for an event's key before
+ * saving it (WH9 step 6, WH20): a repeat whose day moved is still a repeat.
+ *
+ * @remarks
+ * A `changes[]` item (a comment) has no time of its own, so its day is the entry's `time` — when
+ * Meta *sent* it, which moves with every retry (Meta retries for up to 36 hours, so at most two UTC
+ * days later), and the missed-comment check files the same comment under the comment's own time.
+ * Keys are ids (`comment:<id>`, `message:<mid>`) or carry their own time, so a key found on a nearby
+ * day is always the same event.
+ */
+export const INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS = 2;
+
+/**
  * The webhook store unit's `statement_timeout`, in milliseconds (feat-instagram-dm-sending § 5,
  * WH2, WHC2; plan `WEBHOOK_SAVE_TIMEOUT_MS`): a statement of the unit that runs longer is
  * cancelled, nothing is stored and Meta is answered `503` — inside its 5-second budget — so it
@@ -131,6 +144,19 @@ export const INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8;
  * Rationale: `src/POLICIES.md`.
  */
 export const INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS = 3_000;
+
+/**
+ * How many accounts' entries of one Meta delivery the receiver stores at once (WH9, WH2): Meta
+ * batches up to 1,000 updates across accounts, and one after another each slow unit (up to
+ * {@link INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS}) would add up past Meta's answer budget, so the whole
+ * batch would be delivered again.
+ *
+ * @remarks
+ * One account's entries still go one after another, in delivery order (its events' `created_at`
+ * order is intake's claim order). Each running unit holds one connection of the HTTP pool
+ * (`DATABASE_POOL_MAX`, 80 by default), so 8 leaves the pool's headroom to other requests.
+ */
+export const INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY = 8;
 
 /** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
 export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;

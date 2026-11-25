@@ -5,7 +5,10 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { recordInstagramWebhookUnknownAccountEntry } from '@/infrastructure/observability/metrics/prometheus-metrics.js';
-import { INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS } from '@/shared/constants/instagram.constants.js';
+import {
+  INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY,
+  INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS,
+} from '@/shared/constants/instagram.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { cleanStorableJson } from '@/shared/utils/text/storable-text.util.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -111,6 +114,43 @@ function receivedIntakeGroupsOf(
 }
 
 /**
+ * Runs `storeOne` over a delivery's entries, at most
+ * {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY} accounts at once: the entries of one account
+ * (the same `entry.id`) one after another in delivery order; an entry without a readable id on its
+ * own. `storeOne` never throws (it records its failure).
+ */
+async function storeEntriesByAccount({
+  entries,
+  storeOne,
+}: {
+  entries: readonly unknown[];
+  storeOne: (entry: { entryIndex: number; rawEntry: unknown }) => Promise<void>;
+}): Promise<void> {
+  const accountQueues = new Map<string, Array<{ entryIndex: number; rawEntry: unknown }>>();
+  for (const [entryIndex, rawEntry] of entries.entries()) {
+    const entryId =
+      typeof rawEntry === 'object' && rawEntry !== null
+        ? readInstagramWebhookUserId((rawEntry as { id?: unknown }).id)
+        : null;
+    const queueKey = entryId ?? `entry:${entryIndex}`;
+    const queue = accountQueues.get(queueKey) ?? [];
+    queue.push({ entryIndex, rawEntry });
+    accountQueues.set(queueKey, queue);
+  }
+  const queues = [...accountQueues.values()];
+  let nextQueue = 0;
+  const runner = async () => {
+    while (nextQueue < queues.length) {
+      const queue = queues[nextQueue] ?? [];
+      nextQueue += 1;
+      for (const entry of queue) await storeOne(entry);
+    }
+  };
+  const runnerCount = Math.min(INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY, queues.length);
+  await Promise.all(Array.from({ length: runnerCount }, runner));
+}
+
+/**
  * The Instagram webhook receiver (feat-instagram-dm-sending routes-final § 5.A, routes 60–61):
  * Meta's subscription check, and the save of each delivered event before Meta gets its answer — it
  * saves only; intake per kind decides later (WH5, ROUTE row R38).
@@ -126,7 +166,8 @@ function receivedIntakeGroupsOf(
  *   of what Postgres refuses (NUL and lone surrogates, D53): its Instagram user id (digits; else the
  *   entry is dropped with a log line), instagram-account's resolver for the organization (step 4 —
  *   `null`: an account no organization holds or a revoked one, logged and counted, never saved,
- *   WH3), then **one unit of work** in that organization's `PRINCIPAL_SCOPE.VERIFIED` scope whose
+ *   WH3) — up to {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY} accounts at once, one account's
+ *   entries in delivery order — then **one unit of work** in that organization's `PRINCIPAL_SCOPE.VERIFIED` scope whose
  *   first statement caps every statement at {@link INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS} (WH2): the
  *   account's state, every item classified (step 2 — a read receipt is dropped), the echoes of our
  *   own sent messages dropped through the {@link InstagramOwnSentMessageLookup} (step 3, WHQ1), the
@@ -194,9 +235,10 @@ export class InstagramWebhookService {
    * and returns what it saved, in counts.
    *
    * @remarks
-   * Algorithm: as the class describes for route 61; entries are stored one after another, each in
-   * its own unit of work, whatever happened to the ones before. Failure modes: after the last entry,
-   * the first entry's failure is thrown (the answer is not `200`); each is one error log line — the
+   * Algorithm: as the class describes for route 61; each entry is stored in its own unit of work,
+   * whatever happened to the others — up to {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY}
+   * accounts at once, one account's entries one after another in delivery order. Failure modes:
+   * after every entry, the failure of the first failed entry (in delivery order) is thrown (the answer is not `200`); each is one error log line — the
    * request id, the entry's place and the error's name. Side effects: inserts events; log lines; the
    * unknown-account metric; the intake enqueue per kind group.
    */
@@ -225,8 +267,14 @@ export class InstagramWebhookService {
     }
 
     result.entryCount = delivery.data.entry.length;
-    const failures: unknown[] = [];
-    for (const [entryIndex, rawEntry] of delivery.data.entry.entries()) {
+    const failures: Array<{ entryIndex: number; failure: unknown }> = [];
+    const storeOne = async ({
+      entryIndex,
+      rawEntry,
+    }: {
+      entryIndex: number;
+      rawEntry: unknown;
+    }) => {
       try {
         const entryOutcome = await this.storeEntry({
           rawEntry: cleanStorableJson(rawEntry),
@@ -242,7 +290,7 @@ export class InstagramWebhookService {
         }
       } catch (error) {
         // D53: one entry is one organization's — its failure must not cost the others their events.
-        failures.push(toInstagramWebhookStoreFailure(error));
+        failures.push({ entryIndex, failure: toInstagramWebhookStoreFailure(error) });
         result.failedEntryCount += 1;
         logger.error(
           {
@@ -253,9 +301,11 @@ export class InstagramWebhookService {
           'instagram.webhook.entry_store_failed',
         );
       }
-    }
+    };
+    await storeEntriesByAccount({ entries: delivery.data.entry, storeOne });
     logger.info({ requestId, ...result }, 'instagram.webhook.delivery_received');
-    if (failures.length > 0) throw failures[0];
+    const firstFailure = failures.sort((left, right) => left.entryIndex - right.entryIndex)[0];
+    if (firstFailure !== undefined) throw firstFailure.failure;
     return result;
   }
 
@@ -286,6 +336,11 @@ export class InstagramWebhookService {
       );
     }
     if (items.length === 0) {
+      if (Array.isArray(entry.data.changed_fields)) {
+        // The app's webhook "Include values" is off: Meta named the fields, not what changed —
+        // nothing to save (a dashboard setting; the field names only, never a value).
+        logger.warn({ requestId, instagramUserId }, 'instagram.webhook.entry_without_values');
+      }
       return {
         outcome: 'stored',
         storedEventCount: 0,

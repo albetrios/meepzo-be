@@ -672,6 +672,78 @@ describe('Instagram webhook — routes 16–17', () => {
       ]);
     });
 
+    it('saves Meta docs’ corner cases as their kind says: a Unified Login comment by `comment_id` received; unsupported media, a handoff notice and an unreact skipped (webhook gaps 1, 5, 6)', async () => {
+      const contact = { id: TEST_CONTACT_INSTAGRAM_USER_ID };
+      const rawBody = deliveryBody({
+        changes: [
+          {
+            field: 'comments',
+            value: {
+              from: { id: TEST_CONTACT_INSTAGRAM_USER_ID, username: 'acme_customer' },
+              comment_id: '18000000000000088',
+              text: 'price?',
+              media: { id: '1790000000001' },
+            },
+          },
+        ],
+        messaging: [
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            message: { mid: 'm_unsupported', is_unsupported: true },
+          },
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            message: { mid: 'm_handoff', admin_text: 'Handed off', handoff_reason: 'other' },
+          },
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            reaction: { mid: 'm_text', action: 'unreact' },
+          },
+        ],
+      });
+
+      await deliver({ rawBody });
+
+      expect(
+        (await storedEvents(team.organization.id)).map(
+          ({ event_kind, event_key, skip_reason, status }) => ({
+            event_kind,
+            event_key,
+            skip_reason,
+            status,
+          }),
+        ),
+      ).toEqual([
+        {
+          event_kind: 'comment',
+          event_key: 'comment:18000000000000088',
+          skip_reason: null,
+          status: 'received',
+        },
+        {
+          event_kind: 'unknown',
+          event_key: 'unsupported:m_unsupported',
+          skip_reason: 'unsupported',
+          status: 'skipped',
+        },
+        {
+          event_kind: 'unknown',
+          event_key: 'handoff:m_handoff',
+          skip_reason: 'unsupported',
+          status: 'skipped',
+        },
+        {
+          event_kind: 'reaction',
+          event_key: `reaction:m_text:unreact:${ITEM_TIME_MILLISECONDS}`,
+          skip_reason: 'unsupported',
+          status: 'skipped',
+        },
+      ]);
+    });
+
     it('an event whose Meta time is over 8 days old saves nothing — the replay guard (WH9 step 5)', async () => {
       const nineDaysAgoSeconds = Math.floor(Date.now() / 1000) - 9 * 24 * 3600;
       const rawBody = JSON.stringify({

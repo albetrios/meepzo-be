@@ -1,3 +1,4 @@
+import { and, between, eq, inArray } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -14,13 +15,14 @@ export interface InstagramWebhookEventKeyDay {
 
 /**
  * Drizzle access to `app.instagram_webhook_event_keys` (routes-final § 5.B.3, WH20, WHC12): the one
- * write — claim a delivery's keys, so only the new ones get an event row. No routes, no reads by
- * id, no updates; the keys go with their day part (the shared upkeep, ROUTE R49).
+ * write — claim a delivery's keys, so only the new ones get an event row — and the one read, the
+ * same keys on nearby days (a repeat whose day moved). No routes, no reads by id, no updates; the keys go with their day part (the shared upkeep, ROUTE R49).
  *
  * @remarks
  * - **Algorithm:** one `INSERT … ON CONFLICT DO NOTHING RETURNING` on the primary key
  *   `(organization_id, channel_account_id, event_key, event_day)`: a key already seen on that Meta
- *   day returns nothing.
+ *   day returns nothing. The nearby-day read is one `SELECT` on the same key's prefix columns plus
+ *   the day range (the parts it names).
  * - **Failure modes:** a database error propagates — the store unit then fails as a whole and Meta
  *   delivers again.
  * - **Side effects:** inserts key rows only.
@@ -32,6 +34,44 @@ export class InstagramWebhookEventKeyRepository {
 
   private db(): RequestScopedPostgresDatabase {
     return resolveRepositoryDatabaseHandle(this.databaseHandle);
+  }
+
+  /**
+   * The keys of one account already saved on a day between `fromDay` and `toDay` (inclusive) — the
+   * store function's look for a repeat whose Meta day moved (WH20).
+   */
+  async findKeysBetweenDays({
+    organizationId,
+    channelAccountId,
+    eventKeys,
+    fromDay,
+    toDay,
+  }: {
+    /** `tenancy.organizations.id`. */
+    organizationId: number;
+    /** `app.channel_accounts.id`. */
+    channelAccountId: number;
+    eventKeys: readonly string[];
+    /** `YYYY-MM-DD`. */
+    fromDay: string;
+    /** `YYYY-MM-DD`. */
+    toDay: string;
+  }): Promise<InstagramWebhookEventKeyDay[]> {
+    if (eventKeys.length === 0) return [];
+    return this.db()
+      .select({
+        eventKey: instagram_webhook_event_keys.event_key,
+        eventDay: instagram_webhook_event_keys.event_day,
+      })
+      .from(instagram_webhook_event_keys)
+      .where(
+        and(
+          eq(instagram_webhook_event_keys.organization_id, organizationId),
+          eq(instagram_webhook_event_keys.channel_account_id, channelAccountId),
+          inArray(instagram_webhook_event_keys.event_key, [...eventKeys]),
+          between(instagram_webhook_event_keys.event_day, fromDay, toDay),
+        ),
+      );
   }
 
   /**

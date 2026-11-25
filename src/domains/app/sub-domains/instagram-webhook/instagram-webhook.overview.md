@@ -189,7 +189,7 @@ stateDiagram-v2
     stored --> listed: route 62 — masked, newest first
     handled --> listed: route 62
     failed --> listed: route 62
-    listed --> [*]: its day part dropped after 8 days (R49; the launch's clean-up until then)
+    listed --> [*]: its day part dropped after 8 days (the partition upkeep, R49)
 ```
 
 ## Failure modes

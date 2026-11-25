@@ -334,6 +334,17 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → the public route echoes longer caller-chosen text.
 - **Last reviewed**: 2026-11-22
 
+## APP_PARTITION_MAKE_AHEAD_DAYS / APP_PARTITION_READY_ALERT_DAYS / APP_PARTITION_OVERDUE_ALERT_SECONDS
+
+- **Value**: parts made **14 days** ahead; an alert below **7** ready days; an alert when the oldest kept part is more than **1 day** (86,400 s) past its drop time
+- **Source**: [src/domains/app/workers/app-partition-upkeep.constants.ts](src/domains/app/workers/app-partition-upkeep.constants.ts) — the floors (14 ahead, keep ≥ 8) are also checked inside `app.fn_manage_time_partitions` (`migrations/20261125190000_app_partition_upkeep.sql`)
+- **Rationale**: The shared partition upkeep of the seven time-split `app` tables (feat-instagram-dm-sending WC-55, S17, P92, P97): a row whose day has no part lands in the DEFAULT part, and that day cannot get its part until the rows are moved, so two weeks of parts give a week of warning before the first alert and another week to fix it. The overdue alert is P92's "oldest row past its keep time … alerts after 1 day", measured per part: the hourly drop retries a lock time-out 24 times before it fires.
+- **Consequences of change**:
+  - Decreasing the days ahead → less time between an upkeep outage and rows landing in a DEFAULT part (the function refuses below 14).
+  - Increasing the ready alert → more noise on a normal day; decreasing it → less warning.
+  - Decreasing the overdue alert → a lock time-out on a busy hour pages the team.
+- **Last reviewed**: 2026-11-25
+
 ## AUTOMATION_RUN_KEEP_DAYS / AUTOMATION_RUN_PART_DROP_AFTER_DAYS / AUTOMATION_TOMBSTONE_RETENTION_DAYS
 
 - **Value**: runs, their run events and comment logs are kept **90 days** (`AUTOMATION_RUN_KEEP_DAYS`, feat-instagram-dm-sending D16 — was 180); since the tables are split by month (P96, AU36) a runs part (with its run-events part) is dropped once its month ended more than **98 days** ago (`AUTOMATION_RUN_PART_DROP_AFTER_DAYS` = 90 + the 7-day wait + 1), a comment-log part 90 days after its month; a deleted automation stays **180 days** (`AUTOMATION_TOMBSTONE_RETENTION_DAYS`) once no run or comment log points at it

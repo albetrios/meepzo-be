@@ -11,7 +11,6 @@ import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub
 import { STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-reclaim.constants.js';
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
-import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
@@ -42,6 +41,7 @@ import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains
 import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
+import { APP_PARTITION_UPKEEP_QUEUE_NAME } from '@/domains/app/workers/app-partition-upkeep.constants.js';
 
 /**
  * Every BullMQ queue a worker consumes — the one list the queue-depth gauges, the DLQ depth sampler
@@ -71,7 +71,6 @@ export const WORKER_QUEUE_NAMES = [
   STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME,
   STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
-  INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
   INSTAGRAM_TASKS_QUEUE_NAME,
   INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
@@ -98,6 +97,7 @@ export const WORKER_QUEUE_NAMES = [
   CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
   AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
   AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
+  APP_PARTITION_UPKEEP_QUEUE_NAME,
   IDEMPOTENCY_CARDINALITY_QUEUE_NAME,
   DLQ_DEPTH_QUEUE_NAME,
   DLQ_AUTO_RETRY_QUEUE_NAME,

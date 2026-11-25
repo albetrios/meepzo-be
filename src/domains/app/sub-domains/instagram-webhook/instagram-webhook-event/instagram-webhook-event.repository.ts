@@ -19,10 +19,6 @@ import {
   resolveRepositoryDatabaseHandle,
   setLocalDatabaseConfig,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
-import {
-  type BatchDeleteResult,
-  deleteInBatchesByCondition,
-} from '@/infrastructure/database/utils/batch-delete.util.js';
 import { countWithCap } from '@/infrastructure/database/utils/capped-count.util.js';
 import { fieldValidationError } from '@/shared/errors/index.js';
 import {
@@ -247,8 +243,8 @@ function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
  * 5.B.10, WHC11): the insert of a delivery's new events, the claim of a kind group's oldest waiting
  * event (a `MATERIALIZED` CTE), the guarded final marks (which clear the body, WH22) and the claim
  * release, intake's reads (the flood count, the owner's echoes, the waiting count), route 62's
- * keyset list, the stuck-event pick-up's read and the launch's clean-up (retired by the part drops
- * at ROUTE R49).
+ * keyset list and the stuck-event pick-up's read (the launch's batch clean-up is retired: rows go
+ * with their day part, ROUTE R49).
  *
  * @remarks
  * - **Algorithm:** every row statement names `organization_id` (and the channel account and the row
@@ -268,7 +264,7 @@ function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
  *   `VERIFIED` scope, route 62's request scope); workers bind a handle through
  *   {@link createWorkerInstagramWebhookEventRepository} (processing, under the job's organization
  *   scope its worker mints) or {@link createRetentionInstagramWebhookEventRepository} (the
- *   clean-up's retention context). The repository never mints a scope itself.
+ *   stuck-event pick-up's retention context). The repository never mints a scope itself.
  */
 export class InstagramWebhookEventRepository {
   constructor(private readonly databaseHandle?: RequestScopedPostgresDatabase) {}
@@ -866,22 +862,6 @@ export class InstagramWebhookEventRepository {
       args: { limit: filters.limit, total, filterFingerprint },
     });
   }
-
-  /**
-   * The 30-day clean-up (WH19): deletes every event received before `cutoff`, whatever its status,
-   * in capped batches (`deleteInBatchesByCondition`). Needs the retention context (the table's
-   * `USING` sweep arm) — bind it through {@link createRetentionInstagramWebhookEventRepository}.
-   */
-  async deleteReceivedBefore(cutoff: Date): Promise<BatchDeleteResult> {
-    return deleteInBatchesByCondition({
-      databaseHandle: this.db(),
-      table: instagram_webhook_events,
-      idColumn: instagram_webhook_events.id,
-      whereCondition: lt(instagram_webhook_events.created_at, cutoff),
-      logContext: 'instagram-webhook-event-retention',
-      tableLabel: 'app.instagram_webhook_events',
-    });
-  }
 }
 
 /**
@@ -899,7 +879,8 @@ export function createWorkerInstagramWebhookEventRepository(
 /**
  * {@link InstagramWebhookEventRepository} bound to a retention maintenance handle
  * (`runGlobalRetentionWorkerJob`) — the cross-organization reads and deletes through the sweep arm
- * the policy carries in `USING` only: the 30-day clean-up (WH19) and the stuck-event pick-up (WH15).
+ * the policy carries in `USING` only: the stuck-event pick-up (WH15). (Events and keys expire by
+ * day-part drops — the shared partition upkeep, WC-55.)
  */
 export function createRetentionInstagramWebhookEventRepository(
   databaseHandle: WorkerDatabaseHandle,

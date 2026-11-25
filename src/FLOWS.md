@@ -626,9 +626,9 @@ sequenceDiagram
   loop each organization, its own PRINCIPAL_SCOPE.JOB
     Worker->>Engine: cancelExpiredWaitingRuns — re-check, cancelled · wait_expired, its open key deleted, one status_changed event, log cancelled, its waiting messages cancelled through the channel's port (WC-45)
   end
-  Scheduler->>Worker: 03:00 — instagram-webhook-event-retention
-  Worker->>DB: events received more than 30 days ago, any status
-  Note over Scheduler,DB: runs, run events and comment logs expire by month-part drops (the shared upkeep, R49) — no batch delete since feat-instagram-dm-sending R14
+  Scheduler->>Worker: every hour at :37 — app-partition-upkeep (drop-expired-app-partitions)
+  Worker->>DB: app.fn_manage_time_partitions per table, maintenance role only — parts made 14 days ahead; expired parts detached and dropped (events and keys 8 days, attempts 8, messages 30 after their week, comment logs 90 and run events then runs 98 after their month; a runs part with an open run kept)
+  Note over Scheduler,DB: no batch delete remains on the seven time-split tables (feat-instagram-dm-sending R14, R49); the daily 02:23 make pass and one at worker start keep the parts coming
   Scheduler->>Worker: 03:40 — automation-tombstone-retention
   Worker->>DB: automations deleted more than 180 days ago that nothing points at (the others wait for a later day)
 

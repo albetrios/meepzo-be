@@ -372,6 +372,13 @@ the per-environment migration role: local Compose superuser / hosted `meepzo_be_
 (BYPASSRLS, granted by meepzo-infra's provisioning). Verify resolver behavior after
 provisioning any new hosted environment.
 
+**Maintenance-only definer** (feat-instagram-dm-sending P410): `app.fn_manage_time_partitions`
+makes and drops the parts of the seven time-split `app` tables. Partition DDL needs the parent's
+owner and the maintenance login is no owner member, so the function runs as its (migration-role)
+owner — but its EXECUTE is granted to `meepzo_be_maintenance` alone (`MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP`),
+never to `meepzo_be_app`; it accepts the seven tables only and returns counts and part names. It
+reads the parts directly (a part carries no policy), so it does not depend on the owner's RLS posture.
+
 End-state (operator-gated): after every hosted environment provisions the maintenance
 URL, a migration adds `current_user = 'meepzo_be_maintenance'` to the bypass arms — bypass
 authority then requires the dedicated **connection**, not just a GUC, so a compromised

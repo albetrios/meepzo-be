@@ -32,6 +32,7 @@ import {
 } from './instagram-message/instagram-send-attempt.repository.js';
 import type {
   InstagramMessageChannel,
+  InstagramMessageReason,
   InstagramSendAttemptCountGroup,
 } from './instagram-message/instagram-message.constants.js';
 import type { InstagramSendResultInput } from './instagram-message/instagram-message.types.js';
@@ -54,6 +55,7 @@ import {
 import type { InstagramSendLaneService } from './instagram-send-lane.service.js';
 import { planStopHoldsLane } from './instagram-send-lane.util.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_CORE_SETTINGS,
   INSTAGRAM_SEND_STOP_ENDED_BY,
   INSTAGRAM_SLOW_QUEUE_LANES,
@@ -576,8 +578,10 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
    *
    * @remarks
    * Algorithm: rules, access, the message still `waiting` in the fast lane, the holds (the fast
-   * lane's own stop and its test), `not_before` and the pace (the ticket back), then
-   * {@link sendMessage}; a used try adds the next try's ticket, a sure "not sent" puts this one back.
+   * lane's own stop and its test), `not_before` and the pace (the ticket back), the lane's
+   * `checkFastMessage` (ended, moved or later — R44), then {@link sendMessage}; a used try adds the
+   * next try's ticket, a sure "not sent" puts this one back; her busy contact (1 s) or full places
+   * (500 ms) put it back too.
    * Failure modes: as {@link workLaneTurn}. Side effects: as the class says.
    */
   async sendFastMessage({
@@ -618,6 +622,17 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       if (ready.isTest) await this.endTest({ target, context });
       await context.returnTicket(Math.max(pace.waitUntil.getTime() - now.getTime(), 0));
     }
+    const check =
+      rules.checkFastMessage === undefined
+        ? ({ kind: 'send' } as const)
+        : await context.runInDatabaseSlot(() =>
+            rules.checkFastMessage!({ scope, target, key, now }),
+          );
+    if (check.kind !== 'send') {
+      if (ready.isTest) await this.endTest({ target, context });
+      if (check.kind === 'later') await context.returnTicket(check.delayMilliseconds);
+      return;
+    }
     const limits = await rules.readLimits({ scope, access, now });
     const result = await this.sendMessage({ target, access, rules, limits, key, context });
     if (ready.isTest && ready.row !== null) {
@@ -637,7 +652,11 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     context: InstagramSendTicketContext;
   }): Promise<void> {
     if (result.kind === 'refused') {
-      if (
+      if (result.reason === 'person_busy') {
+        await context.returnTicket(FAST_LANE_SETTINGS.personBusyRetryMilliseconds);
+      } else if (result.reason === 'fast_busy') {
+        await context.returnTicket(FAST_LANE_SETTINGS.accountBusyRetryMilliseconds);
+      } else if (
         result.reason === 'hour_limit' ||
         result.reason === 'gate_one' ||
         result.reason === 'person_limit'
@@ -907,6 +926,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     const startedAt = Date.now();
     let reading = readingOf('sent');
     let instagramMessageId: string | null = null;
+    let answerReason: InstagramMessageReason | null = null;
     let callError: unknown = null;
     try {
       const answer = await composition.call({
@@ -915,6 +935,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         recordUsage: this.dependencies.accessService.buildUsageRecorder({ scope, access }),
       });
       instagramMessageId = answer.instagramMessageId;
+      answerReason = answer.reason ?? null;
     } catch (error) {
       callError = error;
       reading = classifyInstagramSendError({ error, channel });
@@ -939,13 +960,18 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
           }),
       });
     }
-    const outcome = decideInstagramSendOutcome({
+    const decided = decideInstagramSendOutcome({
       reading,
       lane,
       messageType: message.message_type,
       channel,
       tries: message.tries,
     });
+    // A follow check's `sent` carries what Meta said: following or not (P130).
+    const outcome =
+      decided.status === 'sent' && answerReason !== null
+        ? { ...decided, reason: answerReason }
+        : decided;
     const result = await settle({ reading, outcome, instagramMessageId, durationMilliseconds });
     await this.applyStops({ target, access, outcome, reading, callError, context });
     return result;

@@ -451,3 +451,35 @@ export const REPLY_LANE_SETTINGS = {
   /** Gate 2's limit for the `reply` group: no real limit (§29.5 rule 1), counted for the watch. */
   hourLimitForCounting: 1_000_000,
 } as const;
+
+/**
+ * The fast lane's numbers (plan §30, WC-7, S21): the waits of one fast message's ticket, the
+ * per-account and per-organization in-flight caps, the answer delays and the Live reply's age.
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ * The organization cap is a quarter of the default fast places of one server
+ * (`WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST` 100, scale review S21).
+ */
+export const FAST_LANE_SETTINGS = {
+  /** Her contact is being claimed, or another of her messages is `sending` (`FAST_PERSON_BUSY_RETRY_MS`). */
+  personBusyRetryMilliseconds: 1000,
+  /** The account's (or the organization's) places are all taken (`FAST_ACCOUNT_BUSY_RETRY_MS`). */
+  accountBusyRetryMilliseconds: 500,
+  /** Audio messages of one account `sending` at once (`AUDIO_MAX_PARALLEL_PER_ACCOUNT`). */
+  audioSendingMax: 5,
+  /** Fast messages of one organization `sending` at once across its accounts (S21). */
+  organizationSendingMax: 25,
+  /** The random delay before an answer, lowest (`ANSWER_DELAY_MIN_MS`, plan §30.2 step 13). */
+  answerDelayMinimumMilliseconds: 500,
+  /** The random delay before an answer, highest (`ANSWER_DELAY_MAX_MS`). */
+  answerDelayMaximumMilliseconds: 2000,
+  /** Her event + both delays at most this long (`BOT_ANSWER_MAX_SECONDS` 30 − 5 safety, §30.12). */
+  answerLatestMilliseconds: 25_000,
+  /** A follow check's second try comes after a random wait, lowest (`FOLLOW_CHECK_RETRY_MIN_MS`). */
+  followCheckRetryMinimumMilliseconds: 2000,
+  /** … and highest (`FOLLOW_CHECK_RETRY_MAX_MS`). */
+  followCheckRetryMaximumMilliseconds: 5000,
+  /** A Live private reply older than this is `expired` · `live_ended` without a call (`LIVE_REPLY_MAX_AGE_MINUTES`). */
+  liveReplyMaximumAgeMinutes: 240,
+} as const;

@@ -2954,6 +2954,15 @@ again ends a message through `InstagramMessageService.endWaitingMessage`; the re
 automation and its box start; the text is composed at the last moment by `InstagramSendComposeService` (the fast lane
 reuses it, R44).
 
+**As built (ROUTE row R44, [P412](decisions.md)).** WC-7 is `InstagramFastLaneRules`
+(`instagram-sending/instagram-fast-lane.service.ts`), plugged into the core's lane rules: its `checkFastMessage` runs
+§30.2 step 6 before the claim; the claim's one commit takes her contact (`NO KEY UPDATE SKIP LOCKED`), one of hers
+`sending` at a time, and — on the locked fast lane row — the account's 20 (`sending_count`, given back by the result
+save), 5 audio and **S21**'s 25 fast sends in flight per organization. The ticket `fast-<igm>-<tries>` is added by
+the message service after the waiting save's commit, at a `not_before` of 500–2,000 ms (plus the PRO extra delay on her
+event's first answer, cut at 25 s; at once after a follow check). Buttons carry `<aut>::<run>::<igm>`. "Seen" after a
+reply is not sent while `mark_seen` is go-live-gated (P36).
+
 Rules: no piece sends twice (the `sending` claim, `unknown` never sent again by itself, Instagram refuses a second
 private reply); intake and the repair never send; Redis is never called inside a transaction; Meta is never called inside
 one; every database unit of a send, intake or task worker takes a slot of the in-process limiter first (SN24).

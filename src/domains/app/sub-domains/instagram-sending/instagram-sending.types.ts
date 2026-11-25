@@ -315,7 +315,11 @@ export type InstagramSendCall = (input: {
   access: InstagramSendAccess;
   attachmentId: string | null;
   recordUsage: MetaGraphUsageRecorder | undefined;
-}) => Promise<{ instagramMessageId: string | null }>;
+}) => Promise<{
+  instagramMessageId: string | null;
+  /** A follow check's answer (`following` / `not_following`), saved as its `sent` reason (P130). */
+  reason?: 'following' | 'not_following' | undefined;
+}>;
 
 /**
  * What a lane composes for a claimed message: `skip` (it can never go — the reason), or the call
@@ -344,7 +348,11 @@ export type InstagramSendResult =
         | 'month_limit'
         | 'not_sendable'
         | 'usage_wait'
-        | 'gate_one';
+        | 'gate_one'
+        /** A fast message: her contact is being claimed, or another of hers is `sending` (§30.2). */
+        | 'person_busy'
+        /** A fast message: the account's 20, its 5 audio or the organization's places are taken. */
+        | 'fast_busy';
     }
   | {
       kind: 'done';
@@ -364,6 +372,12 @@ export type InstagramSendOutcomeStatus =
   | 'skipped'
   | 'expired'
   | 'waiting';
+
+/** What a fast message's checks before its claim decided (plan §30.2 step 6). */
+export type InstagramFastMessageCheck =
+  | { kind: 'send' }
+  | { kind: 'later'; delayMilliseconds: number }
+  | { kind: 'ended' };
 
 /**
  * One lane's own rules, plugged into the send core (feat-instagram-dm-sending § 6 WC-5–WC-8): the
@@ -388,6 +402,16 @@ export interface InstagramSendLaneRules {
     /** Meta's usage pace of the connection (`slow` at 80 %: the boxes double, SN23). */
     pace: MetaUsagePace;
   }): Promise<InstagramSendPick>;
+  /**
+   * A fast message's checks just before its claim (plan §30.2 step 6): `send`, `later` (the ticket
+   * back after the delay), or `ended` (the check ended or moved the message, the ticket is done).
+   */
+  checkFastMessage?(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    target: InstagramSendLaneTarget;
+    key: InstagramSendMessageKey;
+    now: Date;
+  }): Promise<InstagramFastMessageCheck>;
   /** The claimed message's Meta call, read from Postgres at the last moment (plan §24.4). */
   composeMessage(input: {
     scope: OrganizationPrincipalDatabaseScope;

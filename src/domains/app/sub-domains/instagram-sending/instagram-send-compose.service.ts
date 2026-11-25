@@ -203,6 +203,7 @@ export class InstagramSendComposeService {
       buttonPayload: buildAutomationButtonPayload({
         automationPublicId: automation.public_id,
         runPublicId: run.public_id,
+        messagePublicId: message.public_id,
       }),
       newestMediaId: read.newestMediaId,
       translate: this.options.translate ?? translateDefault,

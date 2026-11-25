@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import {
   MILLISECONDS_PER_HOUR,
@@ -9,6 +10,7 @@ import type {
   InstagramMessageReason,
 } from './instagram-message/instagram-message.constants.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_ATTACHMENT_UPLOAD_MAX_TRIES,
   INSTAGRAM_SEND_CORE_SETTINGS,
   INSTAGRAM_SEND_ERROR_CODE_GROUPS,
@@ -101,7 +103,8 @@ function groupOfCode({
  *   `never_connected` (surely not sent); a timeout, a cut connection or an unreadable answer →
  *   `no_answer` (D17: maybe sent). Anything that is not Meta's error (our own failure before the
  *   call left, such as a token that does not decrypt) → `never_connected`. A hide's error that is
- *   not a stop or a gone comment → `hide_failed`; a follow check's (no channel) → `check_not_possible`.
+ *   not a stop or a gone comment → `hide_failed`; a follow check's (no channel) that is not a stop —
+ *   a time-out too — → `check_not_possible`.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
  * - **Notes:** the circuit (`metaGraphCircuit`) stays the backstop of every call class — an open
@@ -124,9 +127,8 @@ export function classifyInstagramSendError({
   ) {
     return { ...reading, group: 'hide_failed' };
   }
-  if (channel === null && reading.group !== 'no_answer') {
-    return { ...reading, group: 'check_not_possible' };
-  }
+  // A follow check sends her nothing: a time-out is a failed try too, never `unknown` (§30.9 rule 6).
+  if (channel === null) return { ...reading, group: 'check_not_possible' };
   return reading;
 }
 
@@ -339,8 +341,8 @@ function stopOf({
  *   `person` / `other_app` → `skipped` · `person_error`; `window_closed` → `skipped`;
  *   `comment_gone` → `skipped` · `deleted_comment`; `live_ended` → `expired`; `wrong_permission` →
  *   `failed`; `bad_text` and `hide_failed` → `failed` · `bad_text`; `check_not_possible` → one more
- *   try, then `sent` · `assumed_following`; `already_sent_first` → `skipped` · `duplicate`.
- * - **Failure modes:** none — pure.
+ *   try after a random 2–5 s, then `sent` · `assumed_following`; `already_sent_first` → `skipped` · `duplicate`.
+ * - **Failure modes:** none — pure but for the follow check's random retry wait.
  * - **Side effects:** none.
  * - **Notes:** the counts stay for a final status: Meta was tried (WC-20's daily check compares the
  *   month with the tried DMs). The comment's re-read before `deleted_comment` is the lane's call
@@ -398,7 +400,13 @@ export function decideInstagramSendOutcome({
       return settle({ status: 'failed', reason: 'wrong_permission' });
     case 'check_not_possible':
       return tries < SETTINGS.followCheckTries
-        ? putBack({ isTryUsed: true })
+        ? putBack({
+            isTryUsed: true,
+            delayMilliseconds: randomInt(
+              FAST_LANE_SETTINGS.followCheckRetryMinimumMilliseconds,
+              FAST_LANE_SETTINGS.followCheckRetryMaximumMilliseconds + 1,
+            ),
+          })
         : settle({ status: 'sent', reason: 'assumed_following' });
     case 'already_sent_first':
       return settle({ status: 'skipped', reason: 'duplicate' });

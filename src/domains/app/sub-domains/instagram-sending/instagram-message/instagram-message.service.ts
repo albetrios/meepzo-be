@@ -1,7 +1,13 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import { randomInt } from 'node:crypto';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
+import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.repository.js';
+import type { enqueueInstagramSendFastMessage } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { InstagramSendDayCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import type { InstagramSendDayCounts } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import { InstagramSendMinuteCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-minute-count.repository.js';
@@ -27,6 +33,7 @@ import type {
   InstagramSendingStatusOutput,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_LANES,
   type InstagramSendLane,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
@@ -55,6 +62,7 @@ import type {
 import {
   channelResultOf,
   chooseInstagramMessagePlace,
+  drawInstagramExtraDelayMilliseconds,
   instagramMessageStepOf,
   isInstagramChatWindowOpen,
 } from './instagram-message.util.js';
@@ -129,6 +137,8 @@ export class InstagramMessageService implements ChannelSendingPort {
       retryQueue?: InstagramMessageRetryQueue | undefined;
       /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
       recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
+      /** A fast message's ticket after the save's commit (R44); absent → the repair finds it. */
+      enqueueFastMessage?: typeof enqueueInstagramSendFastMessage | undefined;
     },
   ) {}
 
@@ -173,7 +183,9 @@ export class InstagramMessageService implements ChannelSendingPort {
     if (place.kind === 'skip') {
       return { messagePublicId: null, status: 'skipped', reason: place.reason };
     }
-    const notBefore = input.notBefore ?? now;
+    const notBefore =
+      input.notBefore ??
+      (place.lane === 'fast' ? await this.fastNotBefore({ input, place, now }) : now);
     if ('automationRunId' in input.source) {
       const existing = await repository.lockRunPlace({
         organizationId: input.organizationId,
@@ -184,7 +196,20 @@ export class InstagramMessageService implements ChannelSendingPort {
         messageKind: input.messageKind,
       });
       if (existing !== null) {
-        return this.reuseRunPlace({ repository, existing, place, input, notBefore });
+        const reused = await this.reuseRunPlace({ repository, existing, place, input, notBefore });
+        if (reused.status === 'waiting' && existing.status !== 'waiting') {
+          await this.addFastTicketAfterCommit({
+            input,
+            place,
+            ticket: {
+              publicId: reused.messagePublicId,
+              automationRunStartedAt: existing.automation_run_started_at,
+              tries: 0,
+            },
+            notBefore,
+          });
+        }
+        return reused;
       }
     }
     const row = await repository.insertWaiting({
@@ -209,7 +234,133 @@ export class InstagramMessageService implements ChannelSendingPort {
       notBefore,
       triggerOccurredAt: isRun ? input.triggerOccurredAt : null,
     });
+    await this.addFastTicketAfterCommit({
+      input,
+      place,
+      ticket: {
+        publicId: row.public_id,
+        automationRunStartedAt: row.automation_run_started_at,
+        tries: row.tries,
+      },
+      notBefore,
+    });
     return { messagePublicId: row.public_id, status: 'waiting' };
+  }
+
+  /**
+   * A fast message's `not_before` when the engine gave none (plan §30.2 step 13, §30.12): `none` →
+   * now; `next` → a random 500–2,000 ms; `answer` → that plus, on a direct message whose plan holds the
+   * extra delay, min + (max − min) × (r1 + r2) ÷ 2 of the account's extra delay — her event, both
+   * delays at most 25 s (the extra delay is cut).
+   */
+  private async fastNotBefore({
+    input,
+    place,
+    now,
+  }: {
+    input: SaveWaitingMessageInput;
+    place: { channel: string | null };
+    now: Date;
+  }): Promise<Date> {
+    const answerDelay = input.answerDelay ?? 'next';
+    if (answerDelay === 'none') return now;
+    const random = randomInt(
+      FAST_LANE_SETTINGS.answerDelayMinimumMilliseconds,
+      FAST_LANE_SETTINGS.answerDelayMaximumMilliseconds + 1,
+    );
+    let extra = 0;
+    if (
+      answerDelay === 'answer' &&
+      input.isExtraDelayAllowed === true &&
+      place.channel === 'direct'
+    ) {
+      const settings = await new InstagramAccountSettingsRepository(
+        input.databaseHandle as RequestScopedPostgresDatabase,
+      ).findByChannelAccount({
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+      });
+      extra = drawInstagramExtraDelayMilliseconds({
+        minimumSeconds: settings?.extra_delay_seconds_min ?? null,
+        maximumSeconds: settings?.extra_delay_seconds_max ?? null,
+        firstRandom: randomInt(0, 1_000_001) / 1_000_000,
+        secondRandom: randomInt(0, 1_000_001) / 1_000_000,
+      });
+    }
+    const delay = Math.min(
+      random + extra,
+      Math.max(FAST_LANE_SETTINGS.answerLatestMilliseconds, random),
+    );
+    return new Date(now.getTime() + delay);
+  }
+
+  /**
+   * A fast message's ticket `fast-<igm_…>-<tries>` at its `not_before`, added after the caller's
+   * commit (plan §30.2 step 13, WC-7): needs the job's organization public id and the producer wired;
+   * otherwise the repair's late-message duty (WC-13, R47) finds the row. An enqueue error is logged.
+   */
+  private async addFastTicketAfterCommit({
+    input,
+    place,
+    ticket,
+    notBefore,
+  }: {
+    input: SaveWaitingMessageInput;
+    place: { lane: InstagramSendLane };
+    ticket: { publicId: string; automationRunStartedAt: Date; tries: number };
+    notBefore: Date;
+  }): Promise<void> {
+    const enqueue = this.options.enqueueFastMessage;
+    const organizationPublicId = input.organizationPublicId;
+    if (place.lane !== 'fast' || enqueue === undefined || organizationPublicId === undefined)
+      return;
+    const account = await new ChannelAccountRepository(
+      input.databaseHandle as RequestScopedPostgresDatabase,
+    ).findById({ organizationId: input.organizationId, channelAccountId: input.channelAccountId });
+    if (account === null) return;
+    await runEnqueueAfterCommit(async () => {
+      try {
+        await enqueue({
+          organizationPublicId,
+          channelAccountPublicId: account.public_id,
+          instagramMessagePublicId: ticket.publicId,
+          automationRunStartedAt: ticket.automationRunStartedAt.toISOString(),
+          tries: ticket.tries,
+          delayMilliseconds: Math.max(notBefore.getTime() - Date.now(), 0),
+        });
+      } catch (error) {
+        logger.warn(
+          { error_name: (error as Error | null)?.name },
+          'app.instagram_send.enqueue_failed',
+        );
+      }
+    });
+  }
+
+  /**
+   * A message `unknown` proved `sent` by her tap on its button — the payload's third part
+   * (`<aut_…>::<run_…>::<igm_…>`, plan §14, WH8): the intake calls it in the event's unit (ROUTE row
+   * R38), before the tap moves the run. Answers whether it moved.
+   *
+   * @remarks
+   * Algorithm: one guarded update `unknown` → `sent` on the caller's handle. Failure modes: database
+   * errors roll the caller's unit back. Side effects: the row; the engine is not told — her tap is
+   * the engine's own input in the same unit.
+   */
+  async markTappedMessageSent({
+    databaseHandle,
+    organizationId,
+    messagePublicId,
+  }: {
+    databaseHandle: SaveWaitingMessageInput['databaseHandle'];
+    organizationId: number;
+    messagePublicId: string;
+  }): Promise<boolean> {
+    const moved = await new InstagramMessageRepository(databaseHandle).markUnknownSent({
+      organizationId,
+      publicId: messagePublicId,
+    });
+    return moved !== null;
   }
 
   /** A run place saved again (SN16, D17): reopen a `sent` question or an `unknown` step once more. */
@@ -572,6 +723,14 @@ export class InstagramMessageService implements ChannelSendingPort {
                 errorSubcode: input.errorSubcode,
               });
         if (message === null) return null;
+        if (message.lane === 'fast') {
+          // The claim's place on the account's fast lane comes back (plan §30.2 step 12).
+          await new InstagramSendLaneRepository(databaseHandle).addToSendingCount({
+            organizationId: message.organization_id,
+            channelAccountId: message.channel_account_id,
+            delta: -1,
+          });
+        }
         if (input.attempt !== null) {
           await new InstagramSendAttemptRepository(databaseHandle).finish({
             key: input.attempt,
@@ -689,8 +848,9 @@ export class InstagramMessageService implements ChannelSendingPort {
 
   /**
    * Ends one waiting message a lane turn's check passed over for good (plan §28.1 step 7, §29.5
-   * rule 4): `expired`, or `skipped` (she opted out, the owner excluded her, she was erased) — with
-   * today's line and the engine told in the same commit, as the result save does. Answers whether
+   * rule 4, §30.2 step 6): `expired`, or `skipped` (she opted out, the owner excluded her, she was
+   * erased, her window closed) — with today's line and the engine told in the same commit, as the
+   * result save does; or `cancelled` (a nudge she answered — nothing else told). Answers whether
    * it ended (a message no longer waiting is left alone).
    *
    * @remarks
@@ -706,7 +866,7 @@ export class InstagramMessageService implements ChannelSendingPort {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     key: InstagramMessageKey;
-    status: 'skipped' | 'expired';
+    status: 'skipped' | 'expired' | 'cancelled';
     reason: InstagramMessageReason;
   }): Promise<boolean> {
     return withAppDatabaseContext({
@@ -718,6 +878,8 @@ export class InstagramMessageService implements ChannelSendingPort {
           reason,
         });
         if (message === null) return false;
+        // A nudge she answered first (§30.7 rule 4): her tap already moved the run.
+        if (status === 'cancelled') return true;
         await this.recordSettledMessage({
           input: { scope, reason },
           status,

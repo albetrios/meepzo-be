@@ -84,6 +84,8 @@ import type { InstagramSendWork } from './sub-domains/instagram-sending/instagra
 import { InstagramSendComposeService } from './sub-domains/instagram-sending/instagram-send-compose.service.js';
 import { InstagramReplyLaneRules } from './sub-domains/instagram-sending/instagram-reply-lane.service.js';
 import { InstagramSlowLaneRules } from './sub-domains/instagram-sending/instagram-slow-lane.service.js';
+import { InstagramFastLaneRules } from './sub-domains/instagram-sending/instagram-fast-lane.service.js';
+import { enqueueInstagramSendFastMessage } from './sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
 import {
@@ -715,9 +717,43 @@ function createSendAccessServices({
 }
 
 /**
+ * One port per channel (AU35): Instagram's message service (R19) with its fast tickets after commit
+ * (R44), and the broadcast recipients behind the ports (§ 7.C, R23). The engine is built after, so
+ * its calls are late-bound.
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only, no side effects.
+ */
+function createChannelSendingServices(late: {
+  automation: () => Pick<
+    ReturnType<typeof createAutomationServices>,
+    'automationRunService' | 'contactService'
+  >;
+}): {
+  instagramMessageService: InstagramMessageService;
+  channelSendingPorts: ChannelSendingPorts;
+  broadcastRecipientService: BroadcastRecipientService;
+} {
+  const instagramMessageService = new InstagramMessageService({
+    recordRunMessageResult: (input) =>
+      late.automation().automationRunService.recordMessageResult(input),
+    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
+    recordContactOpeningMessage: (input) =>
+      late.automation().contactService.recordContactOpeningMessage(input),
+    enqueueFastMessage: enqueueInstagramSendFastMessage,
+  });
+  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
+  const broadcastRecipientService = new BroadcastRecipientService({
+    sendingPorts: channelSendingPorts,
+  });
+  return { instagramMessageService, channelSendingPorts, broadcastRecipientService };
+}
+
+/**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
- * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the task handlers already registered (the account jobs', R40) are kept.
+ * the gates, the message's result save, the send access, the attachments and the breaks, with the
+ * slow, reply (R43) and fast (R44) lanes' rules; the task handlers already registered (the account
+ * jobs', R40) are kept.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -740,10 +776,14 @@ function createInstagramSendWork(
         container.channelConnectionService.markConnectionBroken(input),
       markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
     },
-    // The slow and reply lanes' own rules (R43); the fast lane's at R44, the broadcast's at R45 —
-    // until then their tickets are logged and finished.
+    // The slow and reply lanes' own rules (R43) and the fast lane's (R44); the broadcast's at R45 —
+    // until then its tickets are logged and finished.
     laneRules: {
       slow: new InstagramSlowLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
+      fast: new InstagramFastLaneRules({
         messageService,
         composeService: new InstagramSendComposeService(),
       }),
@@ -830,18 +870,8 @@ export function createAppContainer({
    */
   messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
 }): AppContainer {
-  // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
-  const instagramMessageService = new InstagramMessageService({
-    recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
-    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
-    recordContactOpeningMessage: (input) =>
-      automation.contactService.recordContactOpeningMessage(input),
-  });
-  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
-  // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
-  const broadcastRecipientService = new BroadcastRecipientService({
-    sendingPorts: channelSendingPorts,
-  });
+  const { instagramMessageService, channelSendingPorts, broadcastRecipientService } =
+    createChannelSendingServices({ automation: () => automation });
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
     new ChannelConnectionTokenRepository(),
@@ -882,8 +912,7 @@ export function createAppContainer({
     sending.instagramSendLaneService,
     new ChannelAccountPlanStopService(planAccessService, sending.messageMonthCountService),
   );
-  // The connection reaches accounts through the channel account (R5), lanes through 6 (R18) and a
-  // trial pick through billing's trial port (R24).
+  // The connection: accounts via the channel account (R5), lanes via 6 (R18), trial pick (R24).
   const channelConnectionService = createChannelConnectionService({
     channelConnectionRepository,
     channelConnectionTokenService,

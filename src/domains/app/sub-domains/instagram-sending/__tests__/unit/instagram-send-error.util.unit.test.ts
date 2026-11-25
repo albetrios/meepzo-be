@@ -178,6 +178,34 @@ describe('instagram send error groups (SNC4)', () => {
     });
   });
 
+  it('tries a follow check twice — a time-out too — the second try after 2–5 s, then "following" (AC-17.14, plan §30.9)', () => {
+    const timeout = toMetaGraphApiError(
+      new ExternalServiceError({ integration: 'meta-graph', category: 'timeout' }),
+    );
+    // A follow check sends her nothing: a time-out is a failed try, never `unknown` (rule 6).
+    expect(groupOf(timeout, null)).toBe('check_not_possible');
+    expect(groupOf(metaError({ code: 368 }), null)).toBe('blocked');
+    const first = decideInstagramSendOutcome({
+      reading: reading('check_not_possible'),
+      lane: 'fast',
+      messageType: 'follow_check',
+      channel: null,
+      tries: 0,
+    });
+    expect(first).toMatchObject({ status: 'waiting', isTryUsed: true, isGivenBack: true });
+    expect(first.notBeforeDelayMilliseconds).toBeGreaterThanOrEqual(2_000);
+    expect(first.notBeforeDelayMilliseconds).toBeLessThanOrEqual(5_000);
+    expect(
+      decideInstagramSendOutcome({
+        reading: reading('check_not_possible'),
+        lane: 'fast',
+        messageType: 'follow_check',
+        channel: null,
+        tries: 1,
+      }),
+    ).toMatchObject({ status: 'sent', reason: 'assumed_following' });
+  });
+
   it('tries an opening private reply later 3 times, then fails it; other DMs are unknown', () => {
     const tryLater = (tries: number, messageType = 'opening_message') =>
       decideInstagramSendOutcome({

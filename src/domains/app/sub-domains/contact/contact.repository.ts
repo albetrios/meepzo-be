@@ -600,6 +600,23 @@ export class ContactRepository {
   }
 
   /**
+   * Takes her contact row `FOR NO KEY UPDATE SKIP LOCKED` until the unit ends (the fast claim, plan
+   * §30.2 step 2): two fast claims of one person never run side by side, while the event units'
+   * `FOR KEY SHARE` is never blocked. Answers `false` when another unit holds it (or she is gone).
+   */
+  async lockForFastSend({ organizationId, contactId }: ContactKey): Promise<boolean> {
+    const locked = await this.db()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(eq(contacts.organization_id, organizationId), eq(contacts.id, contactId), LIVE_CONTACT),
+      )
+      .limit(1)
+      .for('no key update', { skipLocked: true });
+    return locked.length > 0;
+  }
+
+  /**
    * Creates the contact of one processed event, or touches the live one (`recordContactInteraction`,
    * CT18, S5): the contact row is inserted, or updated only when the event carries a new username;
    * then its activity row is inserted (a new contact: first-seen = last-message = the event's time)

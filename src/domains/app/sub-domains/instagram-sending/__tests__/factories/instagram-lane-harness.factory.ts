@@ -39,6 +39,18 @@ export interface LaneHarness {
   messageService: InstagramMessageService;
   /** Works one turn of the account's lane with its current turn number. */
   turn(lane: 'slow' | 'reply'): Promise<void>;
+  /** The fast tickets the core added (a used try's next ticket). */
+  fastTickets: Array<{
+    instagramMessagePublicId: string;
+    tries: number;
+    delayMilliseconds?: number | undefined;
+  }>;
+  /** Works one fast message's ticket (its current tries); a returned ticket throws {@link LaneHarnessTicketReturned}. */
+  fast(message: {
+    public_id: string;
+    automation_run_started_at: Date;
+    tries: number;
+  }): Promise<void>;
 }
 
 /**
@@ -59,6 +71,7 @@ export function buildLaneHarness({
 }): LaneHarness {
   const recorded: ChannelMessageResultInput[] = [];
   const enqueued: LaneHarness['enqueued'] = [];
+  const fastTickets: LaneHarness['fastTickets'] = [];
   const pace = { value: { pace: 'normal', waitUntil: null } as MetaUsageDecision };
   const laneService = new InstagramSendLaneService(
     new InstagramSendLaneRepository(),
@@ -107,7 +120,9 @@ export function buildLaneHarness({
       enqueueLaneTurn: async (input) => {
         enqueued.push(input);
       },
-      enqueueFastMessage: async () => {},
+      enqueueFastMessage: async (input) => {
+        fastTickets.push(input);
+      },
     },
     sleep: async () => {},
   });
@@ -118,12 +133,27 @@ export function buildLaneHarness({
       throw new LaneHarnessTicketReturned(delayMilliseconds);
     },
   };
+  const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: organization.public_id });
   return {
     core,
     recorded,
     enqueued,
     pace,
     messageService,
+    fastTickets,
+    fast: async (message) => {
+      await core.sendFastMessage({
+        ticket: {
+          organizationPublicId: organization.public_id,
+          channelAccountPublicId: account.public_id,
+          instagramMessagePublicId: message.public_id,
+          automationRunStartedAt: message.automation_run_started_at.toISOString(),
+          tries: message.tries,
+        },
+        scope,
+        context,
+      });
+    },
     turn: async (lane) => {
       const rows = await new InstagramSendLaneRepository().listByAccount({
         organizationId: organization.id,
@@ -137,7 +167,7 @@ export function buildLaneHarness({
           lane,
           turnNumber: row.turn_number,
         },
-        scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: organization.public_id }),
+        scope,
         context,
       });
     },

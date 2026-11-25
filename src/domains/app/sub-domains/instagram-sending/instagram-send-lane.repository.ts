@@ -359,6 +359,42 @@ export class InstagramSendLaneRepository {
   }
 
   /**
+   * Moves the fast lane's `sending_count` by `delta` (plan §30.2 steps 10, 12): + 1 in a fast claim's
+   * commit, − 1 in its result save — never below 0 nor above the CHECK's 20. Answers whether a row moved.
+   */
+  async addToSendingCount({
+    delta,
+    ...key
+  }: ChannelAccountKey & { delta: 1 | -1 }): Promise<boolean> {
+    const moved = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        sending_count: sql`least(greatest(${instagram_send_lanes.sending_count} + ${delta}, 0), 20)`,
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, 'fast')))
+      .returning({ id: instagram_send_lanes.id });
+    return moved.length > 0;
+  }
+
+  /**
+   * The organization's fast messages `sending` across its accounts (S21): the sum of its fast lanes'
+   * `sending_count`, read without a lock — the cap is a fairness bound, not a count to the message.
+   */
+  async sumOrganizationSendingCount(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .select({ total: sql<number>`coalesce(sum(${instagram_send_lanes.sending_count}), 0)::int` })
+      .from(instagram_send_lanes)
+      .where(
+        and(
+          eq(instagram_send_lanes.organization_id, organizationId),
+          eq(instagram_send_lanes.lane, 'fast'),
+        ),
+      );
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /**
    * Claims a test turn of a stopped lane whose stop time is over (plan §33.4): only while the
    * ticket's turn is the lane's and the stop is not one the owner must end. Sets the lease. Returns
    * the claimed row, or `null`.

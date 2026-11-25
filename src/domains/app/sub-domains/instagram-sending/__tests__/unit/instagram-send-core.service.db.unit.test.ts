@@ -344,13 +344,24 @@ describe('InstagramSendCoreService (database)', () => {
   });
 
   it('holds the hour limit from Postgres alone, also for two claims racing in one minute (AC-17.8)', async () => {
-    // Two list messages of one run in the fast lane: one fast hour place left.
+    // Two people's list messages in the fast lane (one of hers at a time is R44's): one fast hour
+    // place left.
+    const other = await insertContact({
+      organizationId: organization.id,
+      instagramAccountId: account.id,
+      last_direct_message_received_at: new Date(),
+    });
+    const otherRun = await insertAutomationRun({
+      organizationId: organization.id,
+      automationId: run.automation_id,
+      contactId: other.id,
+    });
     const [first, second] = await Promise.all(
-      [1, 2].map((messageNumber) =>
+      [run, otherRun].map((messageRun) =>
         insertInstagramMessage({
-          run,
+          run: messageRun,
           channelAccountId: account.channel_account_id,
-          message_number: messageNumber,
+          message_number: 1,
           status: 'waiting',
           reason: null,
         }),

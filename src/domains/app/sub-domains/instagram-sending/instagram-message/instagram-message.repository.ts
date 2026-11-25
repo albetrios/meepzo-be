@@ -523,6 +523,72 @@ export class InstagramMessageRepository {
     return Number(rows[0]?.total ?? 0);
   }
 
+  /**
+   * Her fast messages `sending` now (plan §30.2 step 5: one of hers at a time) — or, with
+   * `messageKind`, the account's fast messages of that kind `sending` (step 8: 5 audio at once).
+   */
+  async countFastSending({
+    organizationId,
+    contactId,
+    channelAccountId,
+    messageKind,
+  }:
+    | { organizationId: number; contactId: number; channelAccountId?: never; messageKind?: never }
+    | {
+        organizationId: number;
+        channelAccountId: number;
+        messageKind: string;
+        contactId?: never;
+      }): Promise<number> {
+    const rows = await this.db()
+      .select({ total: sql<number>`count(*)::int` })
+      .from(instagram_messages)
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.status, 'sending'),
+          eq(instagram_messages.lane, 'fast'),
+          contactId === undefined ? undefined : eq(instagram_messages.contact_id, contactId),
+          channelAccountId === undefined
+            ? undefined
+            : eq(instagram_messages.channel_account_id, channelAccountId),
+          messageKind === undefined ? undefined : eq(instagram_messages.message_kind, messageKind),
+        ),
+      );
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /**
+   * A message `unknown` proved `sent` by her tap on its button (the payload's `igm_…` part, plan §14,
+   * WH8): `sent` now, its reason cleared. Answers whether it moved (a message in any other state is
+   * left alone).
+   */
+  async markUnknownSent({
+    organizationId,
+    publicId,
+  }: {
+    organizationId: number;
+    publicId: string;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({
+        status: 'sent',
+        reason: null,
+        sent_at: sql`coalesce(${instagram_messages.sent_at}, now())`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.public_id, publicId),
+          eq(instagram_messages.status, 'unknown'),
+        ),
+      )
+      .returning();
+    return row ?? null;
+  }
+
   /** The `WHERE` of one message by key. */
   private whereKey(key: InstagramMessageKey): SQL | undefined {
     return and(
@@ -1007,7 +1073,7 @@ export class InstagramMessageRepository {
     reason,
   }: {
     key: InstagramMessageKey;
-    status: 'skipped' | 'expired';
+    status: 'skipped' | 'expired' | 'cancelled';
     reason: InstagramMessageReason;
   }): Promise<InstagramMessageRow | null> {
     const [row] = await this.db()

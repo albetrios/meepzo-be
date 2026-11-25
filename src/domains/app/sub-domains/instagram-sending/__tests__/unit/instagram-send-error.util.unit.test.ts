@@ -152,6 +152,42 @@ describe('instagram send error groups (SNC4)', () => {
     expect(reply.stop).toMatchObject({ lanes: ['reply'] });
   });
 
+  it("holds the broadcast lane with a slow or fast too fast, and doubles Meta's time on a broadcast (plan §30.14 rule 3, R45)", () => {
+    const tooFast = ({
+      lane,
+      retryAfterMilliseconds,
+    }: {
+      lane: 'slow' | 'fast' | 'reply' | 'broadcast';
+      retryAfterMilliseconds: number;
+    }) =>
+      decideInstagramSendOutcome({
+        reading: { ...reading('too_fast'), retryAfterMilliseconds },
+        lane,
+        messageType: lane === 'broadcast' ? 'broadcast' : 'message',
+        channel: 'direct',
+        tries: 0,
+      }).stop;
+    expect(tooFast({ lane: 'slow', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['slow', 'broadcast'],
+    });
+    expect(tooFast({ lane: 'fast', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['fast', 'broadcast'],
+    });
+    expect(tooFast({ lane: 'reply', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['reply'],
+    });
+    const broadcast = tooFast({ lane: 'broadcast', retryAfterMilliseconds: 0 });
+    expect(broadcast).toMatchObject({ lanes: ['broadcast'] });
+    // Meta's time beyond the ladder: as it is on the slow lane, twice on the broadcast lane.
+    const slowStop = tooFast({ lane: 'slow', retryAfterMilliseconds: 40 * 60_000 });
+    const broadcastStop = tooFast({ lane: 'broadcast', retryAfterMilliseconds: 40 * 60_000 });
+    if (slowStop?.kind !== 'lanes' || broadcastStop?.kind !== 'lanes') {
+      throw new Error('expected lane stops');
+    }
+    expect(slowStop.durationMilliseconds?.(0)).toBe(40 * 60_000);
+    expect(broadcastStop.durationMilliseconds?.(0)).toBe(80 * 60_000);
+  });
+
   it('never sends an unclear result again: no answer is unknown (D17), a sure "not sent" waits again', () => {
     expect(
       decideInstagramSendOutcome({

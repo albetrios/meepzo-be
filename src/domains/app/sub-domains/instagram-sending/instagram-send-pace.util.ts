@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import {
+  BROADCAST_HOUR_LIMIT_MAX,
   OPENING_HOUR_LIMIT_MAX,
   REPLY_LANE_SETTINGS,
   SLOW_LANE_SETTINGS,
@@ -26,6 +27,26 @@ export function openingBoxMilliseconds({
   isSlowed: boolean;
 }): number {
   const limit = Math.min(Math.max(hourLimit, 1), OPENING_HOUR_LIMIT_MAX);
+  const box = MILLISECONDS_PER_HOUR / limit;
+  return isSlowed ? box * SLOW_LANE_SETTINGS.halfSpeedFactor : box;
+}
+
+/**
+ * One broadcast box (plan §30.14 step 5, §11.7): 3600 ÷ the broadcast hour limit seconds, the
+ * limit held to `BROADCAST_HOUR_LIMIT_MAX`, twice as long at half speed or at Meta's 80 % (SN23).
+ *
+ * @remarks
+ * Pure.
+ */
+export function broadcastBoxMilliseconds({
+  hourLimit,
+  isSlowed,
+}: {
+  hourLimit: number;
+  /** Half speed after a passed test, or the connection at Meta's 80 %. */
+  isSlowed: boolean;
+}): number {
+  const limit = Math.min(Math.max(hourLimit, 1), BROADCAST_HOUR_LIMIT_MAX);
   const box = MILLISECONDS_PER_HOUR / limit;
   return isSlowed ? box * SLOW_LANE_SETTINGS.halfSpeedFactor : box;
 }

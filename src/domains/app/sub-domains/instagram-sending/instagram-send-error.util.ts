@@ -299,15 +299,23 @@ function stopOf({
     kind: 'lanes',
     reason,
     lanes,
-    durationMilliseconds: (stopCount) =>
-      Math.max(
-        stopDurationOf({ reason, stopCount, lane }) ?? 0,
-        reason === 'too_fast' ? (retryAfterMilliseconds ?? 0) : 0,
-      ),
+    durationMilliseconds: (stopCount) => {
+      const ladder = stopDurationOf({ reason, stopCount, lane }) ?? 0;
+      if (reason !== 'too_fast') return ladder;
+      // A broadcast's too fast lasts twice Meta's time too (plan §30.14 rule 3); the ladder is
+      // already doubled for it.
+      const metaTime = (retryAfterMilliseconds ?? 0) * (lane === 'broadcast' ? 2 : 1);
+      return Math.max(ladder, metaTime);
+    },
   });
   switch (group) {
     case 'too_fast':
-      return laneStop({ reason: 'too_fast', lanes: [lane] });
+      // The slow or fast lane's too fast holds the broadcast lane for the same time (plan §30.14
+      // rule 3); the reply lane's and the broadcast lane's own hold only that lane.
+      return laneStop({
+        reason: 'too_fast',
+        lanes: lane === 'slow' || lane === 'fast' ? [lane, 'broadcast'] : [lane],
+      });
     case 'blocked':
       // A reply or hide stops the reply lane only (6.A.10).
       return laneStop({ reason: 'blocked', lanes: lane === 'reply' ? ['reply'] : 'all' });

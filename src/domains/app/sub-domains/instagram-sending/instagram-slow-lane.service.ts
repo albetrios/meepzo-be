@@ -60,7 +60,8 @@ export async function readInstagramEffectiveLimits({
   now,
 }: {
   scope: OrganizationPrincipalDatabaseScope;
-  access: InstagramSendAccess;
+  /** The account the limits are of (a lane turn's send access, or just its key). */
+  access: Pick<InstagramSendAccess, 'channelAccount'>;
   now: Date;
 }): Promise<ReturnType<typeof resolveInstagramEffectiveLimits>> {
   return withAppDatabaseContext({

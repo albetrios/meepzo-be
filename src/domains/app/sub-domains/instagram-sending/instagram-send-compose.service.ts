@@ -16,6 +16,8 @@ import {
   sendInstagramMessage,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
+import { buildBroadcastButtonPayload } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient-button-payload.util.js';
+import { BroadcastRecipientRepository } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.repository.js';
 import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { composeInstagramMessage } from './instagram-message/instagram-message-compose.util.js';
 import type { InstagramMessageRow } from './instagram-message/instagram-message.repository.js';
@@ -209,7 +211,95 @@ export class InstagramSendComposeService {
       translate: this.options.translate ?? translateDefault,
     });
     if (composed.kind === 'skip') return skipOf(composed.reason);
-    const commentId = 'comment_id' in recipient ? recipient.comment_id : null;
+    return this.sendComposed({
+      composed,
+      recipient,
+      commentId: 'comment_id' in recipient ? recipient.comment_id : null,
+    });
+  }
+
+  /**
+   * One broadcast message's composition (plan §30.14 step 9, ROUTE row R45): a normal DM to her
+   * Instagram id inside her window (no message tag), its content the broadcast's message N read at
+   * the last moment (the automation's message-list shape, BC8), its buttons carrying
+   * `<brc_…>::<igm_…>` (§ 7.A.10).
+   *
+   * @remarks
+   * Algorithm: one read unit — the broadcast (deleted ones too), her, the account's username, the
+   * newest post for a `post` of `newest` — then {@link composeInstagramMessage}. Failure modes: a
+   * read error propagates; the call throws Meta's error as is. Side effects: reads; the call's Meta
+   * request. Notes: a broadcast or message gone → `skipped` · `cancelled_by_owner`; she erased →
+   * `contact_deleted`.
+   */
+  async composeBroadcastMessage({
+    scope,
+    message,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    message: InstagramMessageRow;
+  }): Promise<InstagramSendComposition> {
+    const broadcastId = message.broadcast_id;
+    if (broadcastId === null) return skipOf('cancelled_by_owner');
+    const read = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const key = { organizationId: message.organization_id };
+        const broadcast = await new BroadcastRecipientRepository().findBroadcast({
+          ...key,
+          broadcastId,
+        });
+        const contact = await new ContactRepository().findLiveById({
+          ...key,
+          contactId: message.contact_id,
+        });
+        const account = await new ChannelAccountRepository().findById({
+          ...key,
+          channelAccountId: message.channel_account_id,
+        });
+        const listMessage = broadcast?.messages[(message.message_number ?? 1) - 1];
+        const newestMediaId =
+          listMessage?.kind === 'post' && listMessage.media_id === 'newest'
+            ? await new InstagramMediaRepository().findNewestInstagramMediaId({
+                ...key,
+                channelAccountId: message.channel_account_id,
+              })
+            : null;
+        return { broadcast, contact, account, newestMediaId };
+      },
+    });
+    const { broadcast, contact } = read;
+    if (broadcast === null) return skipOf('cancelled_by_owner');
+    if (contact === null || contact.instagram_user_id === null) return skipOf('contact_deleted');
+    const composed = composeInstagramMessage({
+      message,
+      steps: { messages: broadcast.messages },
+      contactName: contact.full_name ?? contact.username,
+      accountUsername: read.account?.display_name ?? null,
+      buttonPayload: buildBroadcastButtonPayload({
+        broadcastPublicId: broadcast.public_id,
+        messagePublicId: message.public_id,
+      }),
+      newestMediaId: read.newestMediaId,
+      translate: this.options.translate ?? translateDefault,
+    });
+    if (composed.kind === 'skip') return skipOf(composed.reason);
+    return this.sendComposed({
+      composed,
+      recipient: { id: contact.instagram_user_id },
+      commentId: null,
+    });
+  }
+
+  /** The call of a composed message: the send, its plain-text fallback, a private reply's comment check. */
+  private sendComposed({
+    composed,
+    recipient,
+    commentId,
+  }: {
+    composed: Extract<ReturnType<typeof composeInstagramMessage>, { kind: 'send' }>;
+    recipient: InstagramMessageRecipient;
+    commentId: string | null;
+  }): InstagramSendComposition {
     return {
       kind: 'send',
       uploadPublicId: composed.uploadPublicId,

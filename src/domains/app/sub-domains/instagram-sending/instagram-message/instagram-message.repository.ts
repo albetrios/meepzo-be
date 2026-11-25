@@ -162,6 +162,17 @@ export interface InstagramReplyPacedCandidate extends InstagramMessagePickCandid
   boxStart: Date | null;
 }
 
+/** A broadcast lane candidate (plan §30.14 step 6): its key, her, its number and its broadcast's status. */
+export interface InstagramBroadcastPickCandidate {
+  publicId: string;
+  automationRunStartedAt: Date;
+  contactId: number;
+  /** 1–3: the broadcast's message she gets. */
+  messageNumber: number;
+  /** `app.broadcasts.status` now (`sending`, `waiting_for_chats`, `cancelled`, …). */
+  broadcastStatus: string;
+}
+
 /** A pick candidate from a raw row. */
 function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidate {
   return {
@@ -1014,6 +1025,45 @@ export class InstagramMessageRepository {
       publicReplyHourLimit:
         row.public_reply_hour_limit === null ? null : Number(row.public_reply_hour_limit),
       boxStart: row.box_start === null ? null : new Date(String(row.box_start)),
+    }));
+  }
+
+  /**
+   * The broadcast lane's pick candidates (plan §30.14 step 6, WC-8): the account's waiting broadcast
+   * messages whose `not_before` is over, her chat window closing soonest first (her oldest
+   * `last_direct_message_received_at`), across its broadcasts — at most `limit`, with each one's
+   * broadcast status for the check again.
+   */
+  async listBroadcastPickCandidates({
+    organizationId,
+    channelAccountId,
+    now,
+    limit,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    now: Date;
+    limit: number;
+  }): Promise<InstagramBroadcastPickCandidate[]> {
+    const result = await this.db().execute(sql`
+      SELECT m.public_id, m.automation_run_started_at, m.contact_id, m.message_number,
+             b.status AS broadcast_status
+      FROM ${instagram_messages} AS m
+      JOIN ${broadcasts} AS b ON b.organization_id = m.organization_id AND b.id = m.broadcast_id
+      LEFT JOIN ${contact_activities} AS ca
+        ON ca.organization_id = m.organization_id AND ca.contact_id = m.contact_id
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.lane = 'broadcast' AND m.status = 'waiting'
+        AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz)
+      ORDER BY ca.last_direct_message_received_at ASC NULLS FIRST, m.id
+      LIMIT ${limit}`);
+    return (result.rows as Record<string, unknown>[]).map((row) => ({
+      publicId: String(row.public_id),
+      automationRunStartedAt: new Date(String(row.automation_run_started_at)),
+      contactId: Number(row.contact_id),
+      messageNumber: Number(row.message_number ?? 1),
+      broadcastStatus: String(row.broadcast_status),
     }));
   }
 

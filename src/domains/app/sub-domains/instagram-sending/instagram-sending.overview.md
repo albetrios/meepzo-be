@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's; the broadcast lane's (R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's, R45 the broadcast lane's; the repair duties (R47) and the watches (R48) come with their rows. ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -109,10 +109,21 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   in 500 ms). The follow check reads `is_user_follow_business` (2 tries, the second after 2–5 s, then "following").
   Buttons carry `<aut_…>::<run_…>::<igm_…>`; `InstagramMessageService.markTappedMessageSent` proves an `unknown`
   message `sent` (the intake calls it, R38). "Seen" after a reply is not sent (P36 keeps `mark_seen` off, P412).
+- `instagram-broadcast-lane.service.ts` — `InstagramBroadcastLaneRules` (R45, WC-8): broadcast messages (PRO) one per
+  box of the broadcast hour limit (600, ≤ 2,000; 3600 ÷ limit, a random second, ≥ 1.5 s apart, ×2 at half speed or
+  Meta's 80 %), her window closing soonest first across the account's broadcasts, at most 5 picks a turn. Checks
+  again before each send: the broadcast no longer active → message `cancelled`, recipient `skipped`, both
+  `broadcast_cancelled`; gone / opted out / excluded / window closed → `skipped`; message 1 within 24 h of her last
+  broadcast → `recent_broadcast`; her hour full → `not_before` + 5 min. The claim takes her contact skip locked; gate 2
+  counts the `broadcast` group, the month counts it as a DM (P3: the month's `plan_limit` holds this lane). The result
+  save moves her `last_broadcast_at` (`sent` or `unknown`), the recipient and message N + 1. Too fast here stops only
+  this lane for twice the time (Meta's too); the slow or fast lane's too fast holds it too. Buttons carry
+  `<brc_…>::<igm_…>` (`broadcast-recipient-button-payload.util.ts`, read by intake R38).
 - `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
   (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions with their
   plain-text fallback and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
-  once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too.
+  once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too; `composeBroadcastMessage` the
+  broadcast lane's (R45: the broadcast's message N as a list message, a normal DM to her id, no tag).
 - `instagram-send-pace.util.ts` — the boxes, the mix, the reply box second and the line pick (pure).
 - `instagram-send-gate.service.ts` — gate 1 (an advisory Redis sorted set per account and count group, 100 ms, skipped
   30 s after 3 timeouts) and the claim's **one commit**: the lane row locked, gate 2 over the 61 minute rows, her hour,

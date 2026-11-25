@@ -53,6 +53,7 @@ import {
 import { InstagramSendAttemptRepository } from './instagram-send-attempt.repository.js';
 import type {
   InstagramMessageBroadcastResultPort,
+  InstagramMessageBroadcastSentPort,
   InstagramMessageClaimInput,
   InstagramMessageOpeningPort,
   InstagramMessageRetryQueue,
@@ -137,6 +138,8 @@ export class InstagramMessageService implements ChannelSendingPort {
       retryQueue?: InstagramMessageRetryQueue | undefined;
       /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
       recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
+      /** The contact's `last_broadcast_at` (3.A.10), called in the result's commit (R45). */
+      recordContactBroadcastSent?: InstagramMessageBroadcastSentPort | undefined;
       /** A fast message's ticket after the save's commit (R44); absent → the repair finds it. */
       enqueueFastMessage?: typeof enqueueInstagramSendFastMessage | undefined;
     },
@@ -814,6 +817,19 @@ export class InstagramMessageService implements ChannelSendingPort {
         sentAt: occurredAt,
       });
     }
+    if (
+      message.message_type === 'broadcast' &&
+      (status === 'sent' || status === 'unknown') &&
+      this.options.recordContactBroadcastSent !== undefined
+    ) {
+      // `unknown` too: Meta may have sent it, so the 24-hour broadcast gap counts it (as D8 does).
+      await this.options.recordContactBroadcastSent({
+        databaseHandle: databaseHandle as WorkerDatabaseHandle,
+        organizationId: message.organization_id,
+        contactId: message.contact_id,
+        sentAt: occurredAt,
+      });
+    }
     if (message.automation_run_id !== null) {
       await this.options.recordRunMessageResult({
         scope: input.scope,
@@ -850,8 +866,9 @@ export class InstagramMessageService implements ChannelSendingPort {
    * Ends one waiting message a lane turn's check passed over for good (plan §28.1 step 7, §29.5
    * rule 4, §30.2 step 6): `expired`, or `skipped` (she opted out, the owner excluded her, she was
    * erased, her window closed) — with today's line and the engine told in the same commit, as the
-   * result save does; or `cancelled` (a nudge she answered — nothing else told). Answers whether
-   * it ended (a message no longer waiting is left alone).
+   * result save does; or `cancelled` (a nudge she answered — nothing else told; a cancelled
+   * broadcast's message — its recipient `skipped` with the reason, R45). Answers whether it ended
+   * (a message no longer waiting is left alone).
    *
    * @remarks
    * Algorithm: one unit — the guarded update, then the settled message's day line, opening
@@ -878,8 +895,24 @@ export class InstagramMessageService implements ChannelSendingPort {
           reason,
         });
         if (message === null) return false;
-        // A nudge she answered first (§30.7 rule 4): her tap already moved the run.
-        if (status === 'cancelled') return true;
+        if (status === 'cancelled') {
+          // A cancelled broadcast's message (plan §30.14 step 7): its recipient `skipped` with the
+          // same reason. A nudge she answered first (§30.7 rule 4): her tap already moved the run.
+          if (message.broadcast_id !== null && message.message_number !== null) {
+            await this.options.recordBroadcastMessageResult({
+              databaseHandle,
+              organizationId: message.organization_id,
+              broadcastId: message.broadcast_id,
+              contactId: message.contact_id,
+              messagePublicId: message.public_id,
+              messageNumber: message.message_number,
+              result: 'skipped',
+              reason,
+              occurredAt: new Date(),
+            });
+          }
+          return true;
+        }
         await this.recordSettledMessage({
           input: { scope, reason },
           status,

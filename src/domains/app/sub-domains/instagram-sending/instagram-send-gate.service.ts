@@ -110,9 +110,9 @@ export type InstagramSendClaim =
  * @remarks
  * - **Algorithm:** gate 1 — a sorted set per account and count group of the last hour's claims
  *   (100 ms timeout; after 3 timeouts in a row skipped for 30 s; never inside a transaction). The
- *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: a fast message first takes
- *   her contact (`NO KEY UPDATE SKIP LOCKED`) and finds none of hers `sending` (else `person_busy`,
- *   plan §30.2 steps 2, 5); the lane row locked (two
+ *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: a fast or broadcast
+ *   message first takes her contact (`NO KEY UPDATE SKIP LOCKED`, plan §30.14 step 6) and a fast one
+ *   finds none of hers `sending` (else `person_busy`, plan §30.2 steps 2, 5); the lane row locked (two
  *   claims of one account and group never check and add at once), the message still `waiting` in
  *   this lane and channel, the fast places — the account's 20 `sending`, 5 audio, the organization's
  *   25 (S21; else `fast_busy`) — gate 2 (the 61 minute rows of the group against the hour limit), her
@@ -277,12 +277,16 @@ export class InstagramSendGateService {
       channelAccountId: found.channel_account_id,
     };
     const lanes = new InstagramSendLaneRepository(databaseHandle);
-    if (input.lane === 'fast') {
+    if (input.lane === 'fast' || input.lane === 'broadcast') {
+      // Her contact, skip locked (plan §30.2 step 7, §30.14 step 6): another claim of hers now →
+      // the next pick.
       const isHers = await new ContactRepository(databaseHandle).lockForFastSend({
         organizationId: found.organization_id,
         contactId: found.contact_id,
       });
       if (!isHers) return { kind: 'refused', reason: 'person_busy' };
+    }
+    if (input.lane === 'fast') {
       const hersSending = await messages.countFastSending({
         organizationId: found.organization_id,
         contactId: found.contact_id,

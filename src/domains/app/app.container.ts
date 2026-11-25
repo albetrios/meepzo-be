@@ -85,6 +85,7 @@ import { InstagramSendComposeService } from './sub-domains/instagram-sending/ins
 import { InstagramReplyLaneRules } from './sub-domains/instagram-sending/instagram-reply-lane.service.js';
 import { InstagramSlowLaneRules } from './sub-domains/instagram-sending/instagram-slow-lane.service.js';
 import { InstagramFastLaneRules } from './sub-domains/instagram-sending/instagram-fast-lane.service.js';
+import { InstagramBroadcastLaneRules } from './sub-domains/instagram-sending/instagram-broadcast-lane.service.js';
 import { enqueueInstagramSendFastMessage } from './sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
@@ -718,7 +719,8 @@ function createSendAccessServices({
 
 /**
  * One port per channel (AU35): Instagram's message service (R19) with its fast tickets after commit
- * (R44), and the broadcast recipients behind the ports (§ 7.C, R23). The engine is built after, so
+ * (R44) and her `last_broadcast_at` in the result's commit (R45), and the broadcast recipients behind
+ * the ports (§ 7.C, R23). The engine is built after, so
  * its calls are late-bound.
  *
  * @remarks
@@ -740,6 +742,8 @@ function createChannelSendingServices(late: {
     recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
     recordContactOpeningMessage: (input) =>
       late.automation().contactService.recordContactOpeningMessage(input),
+    recordContactBroadcastSent: (input) =>
+      late.automation().contactService.recordContactBroadcastSent(input),
     enqueueFastMessage: enqueueInstagramSendFastMessage,
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
@@ -752,8 +756,8 @@ function createChannelSendingServices(late: {
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks, with the
- * slow, reply (R43) and fast (R44) lanes' rules; the task handlers already registered (the account
- * jobs', R40) are kept.
+ * slow, reply (R43), fast (R44) and broadcast (R45) lanes' rules; the task handlers already
+ * registered (the account jobs', R40) are kept.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -776,9 +780,12 @@ function createInstagramSendWork(
         container.channelConnectionService.markConnectionBroken(input),
       markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
     },
-    // The slow and reply lanes' own rules (R43) and the fast lane's (R44); the broadcast's at R45 —
-    // until then its tickets are logged and finished.
+    // The slow and reply lanes' own rules (R43), the fast lane's (R44) and the broadcast lane's (R45).
     laneRules: {
+      broadcast: new InstagramBroadcastLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
       slow: new InstagramSlowLaneRules({
         messageService,
         composeService: new InstagramSendComposeService(),

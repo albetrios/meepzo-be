@@ -21,13 +21,13 @@ export interface InstagramComposeInput {
     InstagramMessageRow,
     'message_type' | 'message_number' | 'message_kind' | 'version_number' | 'wording_number'
   >;
-  /** The automation's `steps` now (a live edit is sent as edited). */
+  /** The automation's `steps` now (a live edit is sent as edited); a broadcast's `{ messages }`. */
   steps: AutomationSteps;
   /** Her name, else her username, else `null` (`{name}` is then left out). */
   contactName: string | null;
   /** The account's username (the follow ask's profile button). */
   accountUsername: string | null;
-  /** The "sends your next step" postback (`<aut_…>::<run_…>`). */
+  /** The "sends your next step" postback (`<aut_…>::<run_…>`; a broadcast's `<brc_…>::<igm_…>`). */
   buttonPayload: string;
   /** The account's newest post id, for a `post` message of `newest`; `null` when unknown. */
   newestMediaId: string | null;
@@ -119,8 +119,8 @@ function indexOf(number: number | null): number {
  *
  * @remarks
  * Pure. A step or message no longer in the automation → `skip` · `cancelled_by_owner` (a live edit
- * cancels its waiting rows in its commit, AU12 — this is the race after the claim). A broadcast is
- * its own lane's (R45).
+ * cancels its waiting rows in its commit, AU12 — this is the race after the claim). A broadcast
+ * message (R45) is composed as a list message from the broadcast's `messages`.
  */
 export function composeInstagramMessage(input: InstagramComposeInput): InstagramComposedMessage {
   const { message, steps } = input;
@@ -184,7 +184,10 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
         text: input.translate(AUTOMATION_MESSAGE_KEYS.invalidEmail),
         contentType: 'user_email',
       });
-    case 'message': {
+    case 'message':
+    case 'broadcast': {
+      // A broadcast's messages are the automation's message-list shape (BC8): the caller passes
+      // them as `steps.messages` (ROUTE row R45).
       const listMessage = steps.messages?.[indexOf(message.message_number)];
       if (listMessage === undefined) return { kind: 'skip', reason: 'cancelled_by_owner' };
       return composeListMessage({ input, listMessage, fill });

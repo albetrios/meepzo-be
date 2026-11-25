@@ -38,7 +38,7 @@ export interface LaneHarness {
   pace: { value: MetaUsageDecision };
   messageService: InstagramMessageService;
   /** Works one turn of the account's lane with its current turn number. */
-  turn(lane: 'slow' | 'reply'): Promise<void>;
+  turn(lane: 'slow' | 'reply' | 'broadcast'): Promise<void>;
   /** The fast tickets the core added (a used try's next ticket). */
   fastTickets: Array<{
     instagramMessagePublicId: string;
@@ -62,12 +62,15 @@ export function buildLaneHarness({
   organization,
   account,
   laneRules,
+  messageServiceOptions = {},
 }: {
   organization: { id: number; public_id: string };
   account: LaneHarnessAccount;
   laneRules: (
     messageService: InstagramMessageService,
   ) => Partial<Record<InstagramSendLane, InstagramSendLaneRules>>;
+  /** The message service's other ports (a broadcast test passes the real recipients, R45). */
+  messageServiceOptions?: Partial<ConstructorParameters<typeof InstagramMessageService>[0]>;
 }): LaneHarness {
   const recorded: ChannelMessageResultInput[] = [];
   const enqueued: LaneHarness['enqueued'] = [];
@@ -82,6 +85,7 @@ export function buildLaneHarness({
       recorded.push(input);
     },
     recordBroadcastMessageResult: async () => undefined,
+    ...messageServiceOptions,
   });
   const access: InstagramSendAccess = {
     channelAccount: {

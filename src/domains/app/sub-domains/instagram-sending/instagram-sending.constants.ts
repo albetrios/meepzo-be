@@ -453,6 +453,21 @@ export const REPLY_LANE_SETTINGS = {
 } as const;
 
 /**
+ * The broadcast lane's numbers (plan §30.14, §11.7, WC-8, D68): the 24-hour gap between two
+ * broadcasts to one person and how long a message waits when her hour limit is full. The box is
+ * the slow lane's (3600 ÷ the broadcast hour limit, ≥ 1.5 s apart, twice as long at half speed).
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const BROADCAST_LANE_SETTINGS = {
+  /** At most one broadcast per person in this many hours (`BROADCAST_MIN_GAP_HOURS`). */
+  personGapHours: 24,
+  /** Her hour limit full (plan §30.14 step 7): the message's `not_before` moves this much later. */
+  personLimitRetryMinutes: 5,
+} as const;
+
+/**
  * The fast lane's numbers (plan §30, WC-7, S21): the waits of one fast message's ticket, the
  * per-account and per-organization in-flight caps, the answer delays and the Live reply's age.
  *

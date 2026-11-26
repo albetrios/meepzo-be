@@ -14,11 +14,15 @@ export type AppPlanAccessGuardService = Pick<SubscriptionService, 'assertOrganiz
  * - **Algorithm:** reads the active organization from the request's verified scope (the signed `org`
  *   claim) and asks the subscription service; `active` and `grace` pass, `read_only` throws.
  * - **Failure modes:** `ForbiddenError` (`errors:organizationReadOnly`, reason
- *   `organization_read_only`); `401` / `403` from the scope accessor when the request carries no
- *   organization; a plan-access read failure propagates — no write goes through unchecked.
- * - **Side effects:** none — with `LAPSED_PLAN_READ_ONLY_ENABLED` off nothing is read.
- * - **Notes:** attached to the automation writes only — create, edit, delete (routes 12, 14, 15).
- *   The app domain's other writes stay open (D27): a read-only team can still connect or disconnect
+ *   `organization_read_only`, with `grace_ends_at` and `upgrade_required` — P269); `401` / `403`
+ *   from the scope accessor when the request carries no organization; a plan-access read failure
+ *   propagates — no write goes through unchecked.
+ * - **Side effects:** none — with `LAPSED_PLAN_READ_ONLY_ENABLED` off the state is always `active`,
+ *   so nothing is refused.
+ * - **Notes:** attached to two writes only — go-live (`POST …/automations/{automation_id}/go-live`,
+ *   route 32) and the broadcast send (`POST …/broadcasts/{broadcast_id}/send`, route 75), P10
+ *   (which narrowed launch D27's create / edit / delete). Drafts, edits, pause, duplicate, delete
+ *   and the app domain's other writes stay open: a read-only team can still connect or disconnect
  *   Instagram, change its settings and erase a contact's personal data. Listed FIRST in a route's
  *   `preHandler`, so it runs before the permission gate and before the idempotency claim the
  *   middleware appends — a refused write holds no idempotency key (`unpaid-organization-read-only-flow`

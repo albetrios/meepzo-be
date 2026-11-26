@@ -4,6 +4,7 @@ import { readMetaGraphErrorResponse } from '@/domains/app/sub-domains/channel-co
 import {
   isMetaAdPermissionMissing,
   isMetaTokenRefused,
+  planAccountLimitError,
   toChannelConnectionAdReadError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 
@@ -63,5 +64,14 @@ describe('channel connection ad picker errors', () => {
     ).toMatchObject({ statusCode: 503 });
     const ours = new Error('ours');
     expect(toChannelConnectionAdReadError({ error: ours, adAccountId: null })).toBe(ours);
+  });
+});
+
+/** The account limit's refusal carries the plan refusal contract's fields (MC7, CA9, P269). */
+describe('planAccountLimitError', () => {
+  it('is 409 plan_account_limit with limit, used and upgrade_required', () => {
+    const error = planAccountLimitError({ limit: 3, used: 3 });
+    expect(error).toMatchObject({ statusCode: 409, reason: 'plan_account_limit' });
+    expect(error.fields).toEqual({ limit: 3, used: 3, upgrade_required: true });
   });
 });

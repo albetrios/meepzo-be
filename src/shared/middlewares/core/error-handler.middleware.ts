@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
 import {
   AppError,
+  APP_ERROR_FIELD_KINDS,
   APP_ERROR_FIELD_NAMES,
   type AppErrorFields,
   ConflictError,
@@ -70,7 +71,7 @@ function buildErrorPayload({
     // Optional stable machine-readable sub-code (REQ-6) — additive; the FE can branch on it.
     ...(reason ? { reason } : {}),
     detail,
-    // AT3: `tries_left` / `retry_after_seconds` — only the names `APP_ERROR_FIELD_NAMES` allows.
+    // AT3 / P269: only the names and kinds `APP_ERROR_FIELD_KINDS` allows.
     ...pickAppErrorFields(fields),
     ...(docsBaseUrl ? { documentation_url: `${docsBaseUrl}/${code}` } : {}),
   };
@@ -78,15 +79,36 @@ function buildErrorPayload({
   return payload;
 }
 
-/** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_NAMES}) that hold an integer. */
+/** Whether `value` is of the JSON kind {@link APP_ERROR_FIELD_KINDS} names. */
+function isAppErrorFieldKind({
+  kind,
+  value,
+}: {
+  kind: (typeof APP_ERROR_FIELD_KINDS)[keyof typeof APP_ERROR_FIELD_KINDS];
+  value: unknown;
+}): boolean {
+  switch (kind) {
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'string':
+      return typeof value === 'string' && value.length > 0;
+    case 'timestamp_or_null':
+      return value === null || (typeof value === 'string' && !Number.isNaN(Date.parse(value)));
+    case 'boolean':
+      return typeof value === 'boolean';
+  }
+}
+
+/** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_KINDS}) whose value is of their kind. */
 function pickAppErrorFields(fields: AppErrorFields | undefined): AppErrorFields {
-  const picked: AppErrorFields = {};
+  const picked: Record<string, unknown> = {};
   if (!fields) return picked;
   for (const name of APP_ERROR_FIELD_NAMES) {
+    if (!Object.hasOwn(fields, name)) continue;
     const value = fields[name];
-    if (typeof value === 'number' && Number.isInteger(value)) picked[name] = value;
+    if (isAppErrorFieldKind({ kind: APP_ERROR_FIELD_KINDS[name], value })) picked[name] = value;
   }
-  return picked;
+  return picked as AppErrorFields;
 }
 
 function translateDetail({

@@ -116,7 +116,8 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
 
   it('refuses a write from a read-only organization with 403 organization_read_only', async () => {
     env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
-    const { service } = serviceReading(dunningOrganization(40));
+    const subject = dunningOrganization(40);
+    const { service } = serviceReading(subject);
 
     const refusal = await service
       .assertOrganizationWritable({ organizationPublicId: 'org_old' })
@@ -127,6 +128,15 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       statusCode: 403,
       messageKey: 'errors:organizationReadOnly',
       reason: 'organization_read_only',
+    });
+    // The plan refusal contract (P269): when write access ended — the dunning grace end.
+    const graceEndsAt = new Date(
+      (subject.subscription?.current_period_end.getTime() ?? 0) +
+        env.BILLING_DUNNING_GRACE_DAYS * DAY,
+    );
+    expect((refusal as ForbiddenError).fields).toEqual({
+      grace_ends_at: graceEndsAt.toISOString(),
+      upgrade_required: true,
     });
   });
 

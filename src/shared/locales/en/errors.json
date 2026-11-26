@@ -197,7 +197,7 @@
   "organizationContextRequired": "Organization context required",
   "insufficientOrganizationPermissions": "Insufficient organization permissions",
   "organizationRequiresMfa": "This organization requires multi-factor authentication. Verify with your second factor, then try again.",
-  "organizationReadOnly": "This organization is read-only: it has no paid plan and its grace period has ended. Choose a plan to make changes again.",
+  "organizationReadOnly": "This organization is read-only: its paid plan has ended. Choose a plan to go live or send broadcasts again.",
   "invalidField": "Invalid {{label}}",
   "missingAuthorizationHeader": "Missing Authorization header",
   "invalidAuthorizationHeaderFormat": "Invalid Authorization header format",

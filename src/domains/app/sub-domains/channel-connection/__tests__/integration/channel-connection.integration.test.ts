@@ -429,6 +429,12 @@ describe('Channel connection routes', () => {
       });
       expect(response.statusCode).toBe(409);
       expect(reasonOf(response)).toBe('plan_account_limit');
+      // The plan refusal contract (P269): Free's one account, none connected yet.
+      expect((response.json() as { error: object }).error).toMatchObject({
+        limit: 1,
+        used: 0,
+        upgrade_required: true,
+      });
       expect(await readInstagramAccountRows(team.organization.id)).toHaveLength(0);
     });
 

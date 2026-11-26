@@ -235,7 +235,7 @@ export class InstagramAccountSettingsService {
         channelAccountId,
         feature,
       });
-      if (!check.isAllowed) throw channelFeatureRefusalError(check.reason);
+      if (!check.isAllowed) throw channelFeatureRefusalError({ reason: check.reason, feature });
     }
     const key: ChannelAccountKey = { organizationId, channelAccountId };
     const result = await withAppDatabaseContext({

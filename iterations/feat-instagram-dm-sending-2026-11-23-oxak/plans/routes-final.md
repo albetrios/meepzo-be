@@ -3967,6 +3967,22 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 | 8.C Cards | `subscription/` (the payment-method service and serializer) | — (Stripe only) | 104–106 | final (rev 4, confirmed 2026-11-24) |
 | 8.D Stripe webhook | `stripe-webhook/` | `billing.stripe_webhook_events` (unchanged) | 107 | final (rev 4, confirmed 2026-11-24) |
 
+### 8.13 Close × plan gating (P269–P271, owner 2026-11-26)
+
+Added at Close from the plan-gating audit; built as written here (AS-BUILT › "Close × plan gating").
+
+**Refusal contract (P269, P272).** Every plan refusal carries snake_case body fields beside its `reason` (`AppError.withFields`,
+`APP_ERROR_FIELD_KINDS`; the error handler drops a value of the wrong kind; never on a 5xx):
+
+| Reason | Status | Extra fields |
+| --- | --- | --- |
+| `plan_lacks_feature` | 403 | `feature` (the plan feature key), `upgrade_required: true` |
+| `channel_lacks_feature` · `permission_not_granted` · `feature_not_offered` | 422 · 409 · 422 | `feature` |
+| `plan_account_limit` | 409 | `limit` (`channel_accounts_max`), `used`, `upgrade_required: true` |
+| `seat_limit_reached` | 409 | `limit`, `used`, `upgrade_required: true` |
+| `organization_read_only` | 403 | `grace_ends_at` (when write access ended), `upgrade_required: true` |
+| `message_month_limit_reached` | 409 | none — the month's numbers are on the entitlements read |
+
 ---
 
 ### 8.A Plans — `billing/sub-domains/plan/` — final (rev 4, confirmed 2026-11-24)

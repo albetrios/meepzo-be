@@ -679,10 +679,12 @@ export class BroadcastService {
       channelAccountId: account.id,
       feature: 'broadcasts',
     });
-    if (!check.isAllowed) throw channelFeatureRefusalError(check.reason);
+    if (!check.isAllowed) {
+      throw channelFeatureRefusalError({ reason: check.reason, feature: 'broadcasts' });
+    }
     const kinds = CHANNEL_CAPABILITIES[account.channel].messageKinds;
     if (messages.some((message) => !kinds.includes(message.kind))) {
-      throw channelFeatureRefusalError('channel_lacks_feature');
+      throw channelFeatureRefusalError({ reason: 'channel_lacks_feature', feature: 'broadcasts' });
     }
   }
 

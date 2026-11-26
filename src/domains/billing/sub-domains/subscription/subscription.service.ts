@@ -663,14 +663,17 @@ export class SubscriptionService {
    * @remarks
    * - **Algorithm:** {@link getPlanAccess}; throws only for `read_only` — `active` and `grace` pass.
    * - **Failure modes:** `ForbiddenError` (`errors:organizationReadOnly`, reason
-   *   `organization_read_only`); a query failure propagates.
+   *   `organization_read_only`) carrying the plan refusal contract's fields (P269): `grace_ends_at`
+   *   (when write access ended — the grace end or the cancelled plan's period end) and
+   *   `upgrade_required: true`; a query failure propagates.
    * - **Side effects:** none.
-   * - **Notes:** the app domain runs it as a `preHandler` on the automation writes only — create,
-   *   edit and delete (`POST /api/v1/app/automations`, `PATCH` and `DELETE
-   *   /api/v1/app/automations/{automation_id}`; `src/domains/app/app-plan-access.ts`, launch D27).
-   *   The app domain's other writes stay open, and so do billing, auth, user, tenancy and upload, so a
-   *   read-only organization can still pay, sign in, manage its team, export its data, connect or
-   *   disconnect Instagram and erase a contact's personal data; reads and running automations go on.
+   * - **Notes:** the app domain runs it as a `preHandler` on two writes only — go-live (`POST
+   *   /api/v1/app/automations/{automation_id}/go-live`, route 32) and the broadcast send (`POST
+   *   /api/v1/app/broadcasts/{broadcast_id}/send`, route 75); `src/domains/app/app-plan-access.ts`,
+   *   P10 (which narrowed launch D27's create / edit / delete). Drafts, edits, pause, duplicate and
+   *   delete stay open, and so do billing, auth, user, tenancy and upload, so a read-only
+   *   organization can still pay, sign in, manage its team, export its data, connect or disconnect
+   *   Instagram and erase a contact's personal data; reads and running automations go on.
    */
   async assertOrganizationWritable({
     organizationPublicId,
@@ -679,7 +682,12 @@ export class SubscriptionService {
   }): Promise<void> {
     const access = await this.getPlanAccess({ organizationPublicId });
     if (access.state === PLAN_ACCESS_STATE.READ_ONLY) {
-      throw new ForbiddenError('errors:organizationReadOnly').withReason('organization_read_only');
+      throw new ForbiddenError('errors:organizationReadOnly')
+        .withReason('organization_read_only')
+        .withFields({
+          grace_ends_at: access.graceEndsAt?.toISOString() ?? null,
+          upgrade_required: true,
+        });
     }
   }
 

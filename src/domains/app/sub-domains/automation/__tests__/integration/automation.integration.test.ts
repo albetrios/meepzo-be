@@ -465,6 +465,10 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
       const refused = await goLive(dataOf<{ id: string }>(draft).id);
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');
+      // The plan refusal contract (P269): when write access ended (yesterday's period end).
+      const refusal = errorOf(refused) as { grace_ends_at?: string; upgrade_required?: boolean };
+      expect(refusal.upgrade_required).toBe(true);
+      expect(Date.parse(refusal.grace_ends_at ?? '')).toBeLessThan(Date.now());
       const paused = await action({
         automationPublicId: live.public_id,
         name: 'pause',
@@ -512,6 +516,8 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
       });
       expect(turnOn.statusCode).toBe(403);
       expect(errorOf(turnOn).reason).toBe('plan_lacks_feature');
+      // The plan refusal contract (P269): the first PRO part the plan lacks, by its plan key.
+      expect(errorOf(turnOn)).toMatchObject({ feature: 'phone_ask', upgrade_required: true });
       const keepsIt = await edit({ automationPublicId: live.public_id, body: { name: 'Renamed' } });
       expect(keepsIt.statusCode).toBe(200);
       expect(dataOf(keepsIt)).toMatchObject({ name: 'Renamed', pro_parts_off: ['email_ask'] });

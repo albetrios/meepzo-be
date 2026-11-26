@@ -39,6 +39,7 @@ import type {
 } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { CHANNEL_FEATURES } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
+import type { PlanFeatureKey } from '@/domains/billing/sub-domains/plan/plan.constants.js';
 import type { AutomationChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import { matchAutomationKeyword } from './automation-run/automation-run-matching.util.js';
 import {
@@ -145,9 +146,14 @@ function refCodeExistsError(name: string): ConflictError {
   );
 }
 
-/** `403 plan_lacks_feature` — a save turns on a PRO part the plan lacks (AU4 (2), AU12). */
-function planLacksFeatureError(): ForbiddenError {
-  return new ForbiddenError('errors:planLacksFeature').withReason('plan_lacks_feature');
+/**
+ * `403 plan_lacks_feature` — a save turns on a PRO part the plan lacks (AU4 (2), AU12), naming the
+ * first such plan feature key as `error.feature` with `error.upgrade_required: true` (P269).
+ */
+function planLacksFeatureError(feature: PlanFeatureKey): ForbiddenError {
+  return new ForbiddenError('errors:planLacksFeature')
+    .withReason('plan_lacks_feature')
+    .withFields({ feature, upgrade_required: true });
 }
 
 /** The order a list without `order` uses: newest first, `name` A→Z. */
@@ -1437,10 +1443,10 @@ export class AutomationService {
     const turnedOn = listAutomationProFeatures(merged).filter((feature) => !before.has(feature));
     if (turnedOn.length === 0) return;
     const switches = await this.readPlanSwitches(scope);
-    const isLacking = turnedOn.some(
-      (feature) => switches?.[CHANNEL_FEATURES[feature].planSwitch] !== true,
-    );
-    if (isLacking) throw planLacksFeatureError();
+    const lacking = turnedOn
+      .map((feature) => CHANNEL_FEATURES[feature].planSwitch)
+      .find((planSwitch) => switches?.[planSwitch] !== true);
+    if (lacking !== undefined) throw planLacksFeatureError(lacking);
   }
 
   /** A save's `ref_code`: a `ref_link` without one gets a free one; a given one must be free (D43). */

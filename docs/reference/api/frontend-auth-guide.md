@@ -191,9 +191,10 @@ same settings carry `is_reduce_motion_enabled` (default `false`) — keep animat
   live plan — Free never ends; always for a personal organization, and for every organization while the
   server's read-only mode is off), `grace` (a paid plan whose payment failed — everything works until
   `grace_ends_at`, so show the countdown and the way to pay) or `read_only` (a lapsed or cancelled paid
-  plan since `grace_ends_at`). In `read_only` every product write behind the write guard answers
-  **403 with `error.reason` `organization_read_only`** — disable those write actions up front; reads,
-  billing (so the organization can choose a plan), auth, user, tenancy and upload stay open.
+  plan since `grace_ends_at`). In `read_only` the guarded writes — go-live and the broadcast send —
+  answer **403 with `error.reason` `organization_read_only`** (plus `error.grace_ends_at` and
+  `error.upgrade_required: true`) — disable those actions up front; reads, drafts, edits, billing (so
+  the organization can choose a plan), auth, user, tenancy and upload stay open.
   `grace_ends_at` is ISO 8601, `null` when `active`; `trial_ends_at` is when a running trial ends,
   `null` otherwise. Paying lifts it on the next request — re-fetch this context after checkout.
   `plan` (`{ id, name }`) and `features` are the plan whose limits and switches apply now (read the

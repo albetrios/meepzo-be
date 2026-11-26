@@ -649,6 +649,8 @@ describe('Channel account routes', () => {
       const refused = await act({ channelAccountPublicId: outside, action: 'activate' });
       expect(refused.statusCode).toBe(409);
       expect(errorOf(refused).reason).toBe('plan_account_limit');
+      // The plan refusal contract (P269): Free's one account, one in use, a plan change lifts it.
+      expect(errorOf(refused)).toMatchObject({ limit: 1, used: 1, upgrade_required: true });
 
       const swapped = await act({
         channelAccountPublicId: outside,

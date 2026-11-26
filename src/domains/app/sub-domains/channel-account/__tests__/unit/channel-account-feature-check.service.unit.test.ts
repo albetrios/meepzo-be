@@ -190,11 +190,28 @@ describe('ChannelAccountService.canChannelAccountUseFeature (CA11, P50, P61)', (
 });
 
 describe('channelFeatureRefusalError (P61)', () => {
+  const refuse = (reason: Parameters<typeof channelFeatureRefusalError>[0]['reason']) =>
+    channelFeatureRefusalError({ reason, feature: 'broadcasts' });
+
   it('maps each reason to its status: 422 · 409 · 403 · 422', () => {
-    expect(channelFeatureRefusalError('channel_lacks_feature').statusCode).toBe(422);
-    expect(channelFeatureRefusalError('permission_not_granted').statusCode).toBe(409);
-    expect(channelFeatureRefusalError('plan_lacks_feature').statusCode).toBe(403);
-    expect(channelFeatureRefusalError('feature_not_offered').statusCode).toBe(422);
-    expect(channelFeatureRefusalError('plan_lacks_feature').reason).toBe('plan_lacks_feature');
+    expect(refuse('channel_lacks_feature').statusCode).toBe(422);
+    expect(refuse('permission_not_granted').statusCode).toBe(409);
+    expect(refuse('plan_lacks_feature').statusCode).toBe(403);
+    expect(refuse('feature_not_offered').statusCode).toBe(422);
+    expect(refuse('plan_lacks_feature').reason).toBe('plan_lacks_feature');
+  });
+
+  it('P269: names the plan feature key; only plan_lacks_feature asks for an upgrade', () => {
+    expect(refuse('plan_lacks_feature').fields).toEqual({
+      feature: 'broadcasts',
+      upgrade_required: true,
+    });
+    for (const reason of [
+      'channel_lacks_feature',
+      'permission_not_granted',
+      'feature_not_offered',
+    ] as const) {
+      expect(refuse(reason).fields).toEqual({ feature: 'broadcasts' });
+    }
   });
 });

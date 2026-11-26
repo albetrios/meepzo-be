@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AppError, APP_ERROR_FIELD_NAMES, ERROR_CODE_TO_SNAKE } from '@/shared/errors/app.error.js';
+import {
+  AppError,
+  APP_ERROR_FIELD_KINDS,
+  APP_ERROR_FIELD_NAMES,
+  ERROR_CODE_TO_SNAKE,
+} from '@/shared/errors/app.error.js';
 
 describe('AppError', () => {
   it('maps error codes to snake_case API codes', () => {
@@ -29,9 +34,31 @@ describe('AppError', () => {
     expect(error.message).toBe('errors:internal');
   });
 
-  it('AT3: the extra error-body fields are exactly tries_left and retry_after_seconds', () => {
+  it('AT3 + P269: the extra error-body fields and their kinds are pinned', () => {
     // A new field is an API contract change (docs/reference/api/response-codes.md › Error body shape).
-    expect([...APP_ERROR_FIELD_NAMES]).toEqual(['tries_left', 'retry_after_seconds']);
+    expect(APP_ERROR_FIELD_KINDS).toEqual({
+      tries_left: 'integer',
+      retry_after_seconds: 'integer',
+      feature: 'string',
+      limit: 'integer',
+      used: 'integer',
+      grace_ends_at: 'timestamp_or_null',
+      upgrade_required: 'boolean',
+    });
+    expect([...APP_ERROR_FIELD_NAMES]).toEqual(Object.keys(APP_ERROR_FIELD_KINDS));
+  });
+
+  it('P269: withFields carries the plan refusal fields', () => {
+    const error = new AppError('CONFLICT', 409, 'errors:planAccountLimit')
+      .withFields({ limit: 3, used: 3 })
+      .withFields({ upgrade_required: true, feature: 'broadcasts', grace_ends_at: null });
+    expect(error.fields).toEqual({
+      limit: 3,
+      used: 3,
+      upgrade_required: true,
+      feature: 'broadcasts',
+      grace_ends_at: null,
+    });
   });
 
   it('withFields merges the fields fluently', () => {

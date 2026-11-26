@@ -947,7 +947,9 @@ export class ChannelConnectionService {
         );
         const toConnect = candidates.filter((identifier) => !liveHere.has(identifier));
         const liveCount = await this.accountPort.countLiveAccounts({ scope, organizationId });
-        if (liveCount + toConnect.length > accountsMax) throw planAccountLimitError();
+        if (liveCount + toConnect.length > accountsMax) {
+          throw planAccountLimitError({ limit: accountsMax, used: liveCount });
+        }
         if (isTrialing && toConnect.length > 0) {
           await this.trialPort?.assertAccountsMayTrial({ providerAccountIds: toConnect });
         }

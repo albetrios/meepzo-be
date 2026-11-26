@@ -16,7 +16,10 @@ import {
   outboundFetchJsonWithHeaders,
 } from '@/infrastructure/outbound/index.js';
 import { getEnv } from '@/shared/config/env.config.js';
-import { META_NUMERIC_ID_PATTERN } from '@/shared/constants/instagram.constants.js';
+import {
+  INSTAGRAM_ID_REGEX,
+  INSTAGRAM_OPAQUE_ID_MAX_LENGTH,
+} from '@/shared/constants/instagram.constants.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
@@ -1240,7 +1243,8 @@ export async function uploadInstagramMessageAttachment({
     recordUsage,
   });
   const attachmentId = readAnswerId(answer.attachment_id);
-  if (attachmentId === null) {
+  // An id longer than its column could never be saved: read it as no usable id, not a failed save.
+  if (attachmentId === null || attachmentId.length > INSTAGRAM_OPAQUE_ID_MAX_LENGTH) {
     throw buildMetaGraphMalformedAnswerError({
       operation: 'the attachment upload',
       missing: 'attachment_id',
@@ -1351,9 +1355,7 @@ export async function readMetaBusinessIdentity({
   return {
     clientBusinessId,
     providerUserId:
-      providerUserId !== null && META_NUMERIC_ID_PATTERN.test(providerUserId)
-        ? providerUserId
-        : null,
+      providerUserId !== null && INSTAGRAM_ID_REGEX.test(providerUserId) ? providerUserId : null,
   };
 }
 

@@ -184,9 +184,6 @@ export const AUTOMATION_STARTER_QUESTIONS_MAX_COUNT = 4;
 /** The longest starter question (`STARTER_QUESTION_MAX_CHARS`). */
 export const AUTOMATION_STARTER_QUESTION_MAX_LENGTH = 80;
 
-/** An Instagram media, story or ad id as Meta sends it: digits only (`chk_automations_instagram_ids`). */
-export const AUTOMATION_INSTAGRAM_ID_PATTERN = '^[0-9]{1,64}$';
-
 /** The largest `steps` object, in bytes of its JSON text (`AUTOMATION_STEPS_MAX_BYTES`, 64 KB). */
 export const AUTOMATION_STEPS_MAX_BYTES = 65_536;
 

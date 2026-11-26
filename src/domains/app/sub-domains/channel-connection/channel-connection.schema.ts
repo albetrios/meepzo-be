@@ -10,9 +10,14 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.channel_connections` — one provider login of an organization for one business
@@ -37,13 +42,15 @@ export const channel_connections = appSchema
       /** `meta` only this iteration (MC1). */
       provider: varchar('provider', { length: 20 }).notNull().default('meta'),
       /** Meta's `client_business_id` — the business portfolio; digits only. */
-      client_business_id: varchar('client_business_id', { length: 64 }).notNull(),
+      client_business_id: varchar('client_business_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }).notNull(),
       /**
        * The Meta system user the token belongs to — the `/me` `id` of the latest connect or
        * reconnect (fix-meta-unified-login F3); digits; `null` for rows connected before it, or when
        * Meta named none. Internal: never serialized.
        */
-      provider_user_id: varchar('provider_user_id', { length: 64 }),
+      provider_user_id: varchar('provider_user_id', { length: INSTAGRAM_ID_MAX_LENGTH }),
       /** The login configuration used (`META_CONFIG_ID` at the time); not secret. */
       config_id: varchar('config_id', { length: 64 }).notNull(),
       /** `unified` only (one Meta login for Instagram, Facebook and ads, D27). */
@@ -100,7 +107,7 @@ export const channel_connections = appSchema
       check('chk_channel_connections_login_type', sql`${table.login_type} IN ('unified')`),
       check(
         'chk_channel_connections_client_business_id',
-        sql`${table.client_business_id} ~ '^[0-9]{1,64}$'`,
+        sql`${table.client_business_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check(
         'chk_channel_connections_disconnected',
@@ -108,7 +115,7 @@ export const channel_connections = appSchema
       ),
       check(
         'chk_channel_connections_provider_user_id',
-        sql`${table.provider_user_id} IS NULL OR ${table.provider_user_id} ~ '^[0-9]{1,64}$'`,
+        sql`${table.provider_user_id} IS NULL OR ${table.provider_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check('chk_channel_connections_scopes', sql`cardinality(${table.scopes}) <= 20`),
       check('chk_channel_connections_updated', sql`${table.updated_at} >= ${table.created_at}`),

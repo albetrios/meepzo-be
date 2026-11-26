@@ -7,6 +7,7 @@ import {
   META_AD_CURSOR_MAX_LENGTH,
   META_AD_PAGE_SIZE,
 } from './channel-connection.constants.js';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 
 /** Longest login code a callback accepts (routes-final § 1.8). */
 const CHANNEL_CONNECT_CODE_MAX_LENGTH = 2000;
@@ -14,8 +15,6 @@ const CHANNEL_CONNECT_CODE_MAX_LENGTH = 2000;
 export const CHANNEL_CONNECT_CODE_REDIRECT_SUFFIX = '#_';
 /** A login state: 32 random bytes as base64url — 43 characters (MC4). */
 const CHANNEL_CONNECT_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-/** A provider's account id — digits (Instagram user ids). */
-const PROVIDER_ACCOUNT_ID_PATTERN = /^\d{1,64}$/;
 
 /** Path of routes 1, 2 (and Meta's callbacks 16–17, ROUTE row R9): `{provider}` — `meta` only. */
 export const channelConnectionProviderParamsDto = z
@@ -48,7 +47,7 @@ export const channelAccountPickDto = z
   .object({
     channel: z.enum(CHANNEL_CONNECTION_CHANNELS),
     provider_account_ids: z
-      .array(z.string().regex(PROVIDER_ACCOUNT_ID_PATTERN))
+      .array(z.string().regex(INSTAGRAM_ID_REGEX))
       .min(1)
       .max(CHANNEL_ACCOUNT_PICK_MAX)
       .refine((identifiers) => new Set(identifiers).size === identifiers.length, {

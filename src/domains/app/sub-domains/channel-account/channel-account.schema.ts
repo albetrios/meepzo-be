@@ -11,10 +11,15 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.channel_accounts` — one connected inbox of an organization, whatever its channel
@@ -46,7 +51,9 @@ export const channel_accounts = appSchema
       /** The connection the account came through; a reconnect from another portfolio moves it (MC6). */
       channel_connection_id: bigint('channel_connection_id', { mode: 'number' }).notNull(),
       /** The account's id at the provider — Instagram's user id (CAQ1); digits. */
-      provider_account_id: varchar('provider_account_id', { length: 64 }).notNull(),
+      provider_account_id: varchar('provider_account_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }).notNull(),
       /** What the app shows (Instagram: `@username`). */
       display_name: varchar('display_name', { length: 100 }).notNull(),
       connection_status: varchar('connection_status', { length: 20 })
@@ -133,7 +140,7 @@ export const channel_accounts = appSchema
       ),
       check(
         'chk_channel_accounts_provider_account_id',
-        sql`${table.provider_account_id} ~ '^[0-9]{1,64}$'`,
+        sql`${table.provider_account_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check('chk_channel_accounts_display_name', sql`length(${table.display_name}) > 0`),
       check(

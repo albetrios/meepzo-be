@@ -27,6 +27,10 @@ import {
   CONTACT_NOTE_MAX_CHARACTERS,
   CONTACT_TAGS_MAX_COUNT,
 } from './contact.constants.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.contacts` — one person who wrote to or commented on one of the organization's channel
@@ -63,7 +67,7 @@ export const contacts = appSchema
       /** A copy of the account's channel (CT3, D27). */
       channel: varchar('channel', { length: 10 }).notNull().default('instagram'),
       /** The provider's person id (the webhook's `sender.id` / `from.id`); digits only; cleared on erase. */
-      instagram_user_id: varchar('instagram_user_id', { length: 64 }),
+      instagram_user_id: varchar('instagram_user_id', { length: INSTAGRAM_ID_MAX_LENGTH }),
       username: varchar('username', { length: 64 }),
       full_name: varchar('full_name', { length: 255 }),
       /** An Instagram CDN link that expires — refreshed at each profile read. */
@@ -154,7 +158,10 @@ export const contacts = appSchema
         'chk_contacts_channel',
         sql`${table.channel} IN (${sqlLiteralList(CHANNEL_ACCOUNT_CHANNELS)})`,
       ),
-      check('chk_contacts_instagram_user_id', sql`${table.instagram_user_id} ~ '^[0-9]{1,64}$'`),
+      check(
+        'chk_contacts_instagram_user_id',
+        sql`${table.instagram_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
+      ),
       check(
         'chk_contacts_email',
         sql`char_length(${table.email}) <= ${sqlLiteral(CONTACT_EMAIL_MAX_LENGTH)} AND ${table.email} ~ ${sqlLiteral(CONTACT_EMAIL_PATTERN)}`,

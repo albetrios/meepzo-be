@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 import { listSearchSortSchema } from '@/shared/utils/http/list-query.util.js';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import {
@@ -14,7 +15,6 @@ import {
 import {
   AUTOMATION_ALSO_START_FROM_VALUES,
   AUTOMATION_DEFAULT_REPLY_MODES,
-  AUTOMATION_INSTAGRAM_ID_PATTERN,
   AUTOMATION_KEYWORD_MAX_LENGTH,
   AUTOMATION_KEYWORD_TEST_SOURCES,
   AUTOMATION_KEYWORD_TEST_TEXT_MAX_LENGTH,
@@ -37,7 +37,7 @@ import {
 import { automationStepsSchema } from './automation-steps.dto.js';
 
 /** An Instagram media, story or ad id: digits only, 1–64. */
-const instagramIdSchema = z.string().regex(new RegExp(AUTOMATION_INSTAGRAM_ID_PATTERN));
+const instagramIdSchema = z.string().regex(INSTAGRAM_ID_REGEX);
 
 /** A `between` date: ISO 8601 with an offset. */
 const targetInstantSchema = z.iso.datetime({ offset: true });

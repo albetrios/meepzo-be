@@ -42,5 +42,12 @@ export const INSTAGRAM_MEDIA_PAGE_SIZE = { default: 25, maximum: 50 } as const;
 /** The longest Instagram `after` cursor the pickers pass back (§ 1.C.8). */
 export const INSTAGRAM_MEDIA_CURSOR_MAX_LENGTH = 1000;
 
+/**
+ * The longest post shortcode `app.instagram_media.shortcode` holds. Meta documents no length (a
+ * permalink's short code is about 11 characters), so a longer one is stored as `null`, never
+ * failing the post's save.
+ */
+export const INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH = 64;
+
 /** How long a story stays live after it is published — its `expires_at` (IA16). */
 export const INSTAGRAM_STORY_LIFETIME_MS = MILLISECONDS_PER_DAY;

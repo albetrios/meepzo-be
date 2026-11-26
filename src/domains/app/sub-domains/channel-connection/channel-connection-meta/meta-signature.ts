@@ -1,5 +1,6 @@
 import { getEnv } from '@/shared/config/env.config.js';
 import { isHmacSha256SignatureValid } from '@/shared/utils/security/webhook-signature.util.js';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 
 /** `X-Hub-Signature-256`: `sha256=` and the 64 hex characters of an HMAC-SHA256 (WH8). */
 const META_WEBHOOK_SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/i;
@@ -7,8 +8,6 @@ const META_WEBHOOK_SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/i;
 const BASE64URL_PART_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
 /** The one algorithm Meta signs a signed request with (IA18). */
 const META_SIGNED_REQUEST_ALGORITHM = 'HMAC-SHA256';
-/** A signed request's `user_id`: digits only (IA18). */
-const META_USER_ID_PATTERN = /^\d{1,64}$/;
 
 /**
  * Checks Meta's `X-Hub-Signature-256` webhook header against the **raw** request body (WH8).
@@ -60,7 +59,7 @@ function decodeMetaSignedRequestPayload(encodedPayload: string): Record<string, 
 
 /** A `user_id` as digits — a digit string, or a JSON number that is still exact — else `null`. */
 function readMetaUserId(value: unknown): string | null {
-  if (typeof value === 'string') return META_USER_ID_PATTERN.test(value) ? value : null;
+  if (typeof value === 'string') return INSTAGRAM_ID_REGEX.test(value) ? value : null;
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
   return null;
 }

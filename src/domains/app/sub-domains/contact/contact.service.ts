@@ -1,5 +1,4 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
-import { META_NUMERIC_ID_PATTERN } from '@/shared/constants/instagram.constants.js';
 import {
   type ChannelActivityCursor,
   type ChannelFailedMessagesRetry,
@@ -95,6 +94,7 @@ import {
   normalizeContactEmail,
   normalizeContactPhone,
 } from './contact.validator.js';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 
 /**
  * The normalized kinds that are a message in her chat — the first one sets `first_message_at`
@@ -1164,7 +1164,7 @@ export class ContactService {
   async recordContactInteraction(
     input: RecordContactInteractionInput,
   ): Promise<ContactInteractionResult> {
-    if (!META_NUMERIC_ID_PATTERN.test(input.instagramUserId)) {
+    if (!INSTAGRAM_ID_REGEX.test(input.instagramUserId)) {
       throw new Error('recordContactInteraction: the Instagram user id must be digits only');
     }
     const { contact, isInserted } = await createWorkerContactRepository(

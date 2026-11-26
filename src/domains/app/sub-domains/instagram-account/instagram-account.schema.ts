@@ -12,9 +12,14 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.instagram_accounts` — the Instagram extension of one channel account (feat-instagram-dm-sending
@@ -45,7 +50,9 @@ export const instagram_accounts = appSchema
        * The id from the connection's assigned accounts — the webhooks' `entry.id`, the Graph API
        * paths' id; equal to the channel account's `provider_account_id` (CAQ1). Digits only.
        */
-      instagram_user_id: varchar('instagram_user_id', { length: 64 }).notNull(),
+      instagram_user_id: varchar('instagram_user_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }).notNull(),
       /** Emptied only by the erasure (`profile_erased_at`). */
       username: varchar('username', { length: 64 }),
       biography: text('biography'),
@@ -97,7 +104,7 @@ export const instagram_accounts = appSchema
       ),
       check(
         'chk_instagram_accounts_instagram_user_id',
-        sql`${table.instagram_user_id} ~ '^[0-9]{1,64}$'`,
+        sql`${table.instagram_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check(
         'chk_instagram_accounts_account_type',

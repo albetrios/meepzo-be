@@ -15,7 +15,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
-import { INSTAGRAM_MESSAGE_ID_MAX_LENGTH } from '@/shared/constants/instagram.constants.js';
+import { INSTAGRAM_OPAQUE_ID_MAX_LENGTH } from '@/shared/constants/instagram.constants.js';
 import { sqlLiteralList } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
@@ -73,7 +73,7 @@ const instagramMessageColumns = {
   asks: smallint('asks').notNull().default(0),
   /** Meta's `mid` once sent — the own-echo lookup (WHQ1) and a tap's proof. */
   instagram_message_id: varchar('instagram_message_id', {
-    length: INSTAGRAM_MESSAGE_ID_MAX_LENGTH,
+    length: INSTAGRAM_OPAQUE_ID_MAX_LENGTH,
   }),
   sending_at: timestamp('sending_at', { withTimezone: true }),
   sent_at: timestamp('sent_at', { withTimezone: true }),

@@ -871,17 +871,27 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         await readAndDeleteThroughTheRoutes({ team, history });
         await runEveryTimer(daysFromNow(200));
         // A database failure in the worker: a username no column holds, the comment's text bound.
+        // The webhook reader drops a username longer than its column, so the long one goes in
+        // below that guard, at the comment log's insert — Postgres still refuses the real statement.
+        const insertCommentLogs = AutomationCommentLogRepository.prototype.insertMany;
+        const longUsername = vi
+          .spyOn(AutomationCommentLogRepository.prototype, 'insertMany')
+          .mockImplementation(async function insertTooLong(
+            this: AutomationCommentLogRepository,
+            logs,
+          ) {
+            return insertCommentLogs.call(
+              this,
+              logs.map((log) => ({ ...log, commenterUsername: JORDAN.username.padEnd(80, 'x') })),
+            );
+          });
         await deliverInstagramEvents({
           app,
           team,
-          changes: [
-            commentChange({
-              person: { ...JORDAN, username: JORDAN.username.padEnd(80, 'x') },
-              text: 'price my-private-failing-comment',
-            }),
-          ],
+          changes: [commentChange({ person: JORDAN, text: 'price my-private-failing-comment' })],
         });
         await expect(processInstagramEvents({ app, team })).rejects.toThrow();
+        longUsername.mockRestore();
         await requestMetaDataDeletion(team);
 
         const written = captured.lines.join('\n');

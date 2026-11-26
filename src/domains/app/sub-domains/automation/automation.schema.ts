@@ -28,7 +28,6 @@ import {
   AUTOMATION_ALSO_START_FROM_VALUES,
   AUTOMATION_CHANNELS,
   AUTOMATION_DEFAULT_REPLY_MODES,
-  AUTOMATION_INSTAGRAM_ID_PATTERN,
   AUTOMATION_KEYWORDS_MAX_COUNT,
   AUTOMATION_MESSAGES_MAX_COUNT,
   AUTOMATION_NAME_MAX_LENGTH,
@@ -46,6 +45,10 @@ import {
   AUTOMATION_TRIGGER_TYPES,
 } from './automation.constants.js';
 import type { AutomationSteps } from './automation-steps.dto.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /** The columns of `app.automations` (routes-final § 4.A.3), as the table is built from them. */
 const automationColumns = {
@@ -64,9 +67,13 @@ const automationColumns = {
   also_start_from: text('also_start_from').array().notNull().default([]),
   target_scope: varchar('target_scope', { length: 10 }).notNull().default('any'),
   /** The `specific` post or shared post, or the post a `next` automation linked to; digits only. */
-  target_instagram_media_id: varchar('target_instagram_media_id', { length: 64 }),
+  target_instagram_media_id: varchar('target_instagram_media_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   /** The `specific` story; digits only. */
-  target_instagram_story_id: varchar('target_instagram_story_id', { length: 64 }),
+  target_instagram_story_id: varchar('target_instagram_story_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   /** `between`: the owner's start; `next`: the go-live time (AU20). */
   target_starts_at: timestamp('target_starts_at', { withTimezone: true }),
   /** `between`: the owner's end; `next`: always empty. */
@@ -77,7 +84,7 @@ const automationColumns = {
   keywords: text('keywords').array().notNull().default([]),
   ref_code: varchar('ref_code', { length: 64 }),
   starter_questions: text('starter_questions').array().notNull().default([]),
-  ad_id: varchar('ad_id', { length: 64 }),
+  ad_id: varchar('ad_id', { length: INSTAGRAM_ID_MAX_LENGTH }),
   trigger_tag: varchar('trigger_tag', { length: 50 }),
   default_reply_mode: varchar('default_reply_mode', { length: 12 }),
   is_public_reply_enabled: boolean('is_public_reply_enabled').notNull().default(false),
@@ -257,7 +264,7 @@ function automationEverySaveChecks(table: AutomationTableColumns) {
     ),
     check(
       'chk_automations_instagram_ids',
-      sql`${table.target_instagram_media_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)} AND ${table.target_instagram_story_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)} AND ${table.ad_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)}`,
+      sql`${table.target_instagram_media_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)} AND ${table.target_instagram_story_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)} AND ${table.ad_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
     ),
     check(
       'chk_automations_trigger_tag',

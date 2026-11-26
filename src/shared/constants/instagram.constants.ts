@@ -171,12 +171,34 @@ export const INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY = 8;
  */
 export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-store';
 
-/** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
-export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;
+/**
+ * The longest opaque Meta id the database stores: a message id (`mid`) and a message file's
+ * `attachment_id` (feat-instagram-dm-sending 6.B.3).
+ *
+ * @remarks
+ * Meta documents both only as "string", with no format and no maximum. Real message ids run to 167
+ * characters, past the 128 first assumed, which failed every result save of a sent message
+ * (`20261126140000_app_instagram_messages_message_id_length.sql`); `attachment_id` had the same
+ * 128 (`20261126150000_app_instagram_attachments_attachment_id_length.sql`). 1024 leaves room for
+ * Meta to grow them and keeps an index entry far below Postgres's ~2.7 KB limit. Never add a format
+ * CHECK to these columns: an encoding change at Meta would then fail the save again.
+ */
+export const INSTAGRAM_OPAQUE_ID_MAX_LENGTH = 1024;
 
 /**
- * A Meta id as our tables keep it — digits only, at most 64 (`chk_contacts_instagram_user_id`, the
- * webhook events' ids, `chk_channel_connections_provider_user_id`; WH9). The one copy: the webhook
- * classifier, the contact service and the Meta client read it (fix-meta-unified-login review).
+ * The longest numeric Meta id the database stores — Instagram user, account and Instagram-scoped
+ * ids, media, comment, story and ad ids, a business id (feat-instagram-dm-sending 6.B.3).
+ *
+ * @remarks
+ * Meta types these ids only as (numeric) strings; every documented example is 17 digits. They stay
+ * strings, never `bigint`: a real id such as `17841405726653026` is past JavaScript's safe integer
+ * range, so any `Number` on the way would silently change it. 64 leaves ample room; one constant
+ * names the width every such column and reader uses.
  */
-export const META_NUMERIC_ID_PATTERN = /^\d{1,64}$/;
+export const INSTAGRAM_ID_MAX_LENGTH = 64;
+
+/** A numeric Meta id, digits only (the SQL CHECK and regex source every id column and reader share). */
+export const INSTAGRAM_ID_PATTERN = `^[0-9]{1,${INSTAGRAM_ID_MAX_LENGTH}}$`;
+
+/** {@link INSTAGRAM_ID_PATTERN} compiled, for the readers and request validators. */
+export const INSTAGRAM_ID_REGEX = new RegExp(INSTAGRAM_ID_PATTERN);

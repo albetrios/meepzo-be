@@ -27,6 +27,7 @@ import {
   instagramReconnectRequiredError,
   instagramUnavailableError,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
+import { INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH } from './instagram-media.constants.js';
 import type {
   InstagramMediaCommentWatchValues,
   InstagramMediaRepository,
@@ -74,10 +75,15 @@ function toInstagramMediaValues({
   }
   const graphData = mediaItem as unknown as Record<string, unknown>;
   const isCommentEnabled = graphData.is_comment_enabled;
+  const shortcode = readAnswerText(graphData.shortcode);
   return {
     ...channelAccount,
     instagramMediaId,
-    shortcode: readAnswerText(graphData.shortcode),
+    // Meta documents no shortcode length: one longer than the column is dropped, not a failed save.
+    shortcode:
+      shortcode !== null && shortcode.length <= INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH
+        ? shortcode
+        : null,
     mediaType: readInstagramMediaType(mediaItem.media_type),
     mediaProductType: readInstagramMediaProductType(mediaItem.media_product_type),
     caption: readAnswerText(mediaItem.caption),

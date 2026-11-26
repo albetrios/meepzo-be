@@ -1,6 +1,6 @@
 import { z } from 'zod';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
-import { AUTOMATION_INSTAGRAM_ID_PATTERN } from './automation.constants.js';
 
 /**
  * The `steps` object of an automation (feat-instagram-dm-sending routes-final § 4.A AU8, plan
@@ -126,10 +126,7 @@ export const automationMessageSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('post'),
       ...messageCommonShape,
-      media_id: z.union([
-        z.literal('newest'),
-        z.string().regex(new RegExp(AUTOMATION_INSTAGRAM_ID_PATTERN)),
-      ]),
+      media_id: z.union([z.literal('newest'), z.string().regex(INSTAGRAM_ID_REGEX)]),
     })
     .strict(),
 ]);

@@ -156,6 +156,21 @@ describe('readInstagramWebhookEventDispatch', () => {
         }),
       }),
     ).toMatchObject({ inboundKind: 'story_mention', storyId: '17910000000000002' });
+    // Meta's real story mention carries only the story's URL; an id not all digits is dropped too.
+    for (const payload of [
+      { url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/' },
+      { id: 'aWdf_x' },
+    ]) {
+      expect(
+        readInstagramWebhookEventDispatch({
+          eventKind: 'story_mention',
+          contactInstagramUserId: SENDER,
+          payload: messaging({
+            message: { mid: 'm_3', attachments: [{ type: 'story_mention', payload }] },
+          }),
+        }),
+      ).toMatchObject({ inboundKind: 'story_mention', storyId: null });
+    }
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'shared_post',
@@ -265,6 +280,36 @@ describe('readInstagramWebhookEventDispatch', () => {
         }),
       }),
     ).toMatchObject({ refCode: null, adId: '23850000000000002' });
+  });
+
+  it('a Meta value that could not fit its column is read as missing, never handed on to a save', () => {
+    // Meta allows a `ref` up to 2,083 characters; ours are at most 64, so a longer one matches none.
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'referral',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ referral: { ref: 'A'.repeat(65), source: 'SHORTLINK' } }),
+      }),
+    ).toMatchObject({ refCode: null, adId: null });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'referral',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ referral: { ad_id: 'ad-not-digits', source: 'ADS' } }),
+      }),
+    ).toMatchObject({ refCode: null, adId: null });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'comment',
+        contactInstagramUserId: SENDER,
+        payload: commentPayload({
+          id: '18000000000000001',
+          text: 'Price please?',
+          from: { id: SENDER, username: 'u'.repeat(65) },
+          media: { id: '17900000000000001', media_product_type: 'FEED' },
+        }),
+      }),
+    ).toMatchObject({ inboundKind: 'comment', username: null });
   });
 
   it('a click-to-DM ad referral keeps the message it rode on — its text and quick reply (Meta docs example)', () => {

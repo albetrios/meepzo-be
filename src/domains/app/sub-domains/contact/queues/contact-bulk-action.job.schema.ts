@@ -4,6 +4,7 @@ import {
   CONTACT_BULK_ACTIONS,
 } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import type { ContactBulkActionPieceInput } from '@/domains/app/sub-domains/contact/contact.types.js';
+import { type PublicIdEntity, publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 
 /**
  * Job name of one piece of a bulk contact change (WC-36, CT7 — ROUTE row R46) on the
@@ -14,9 +15,9 @@ import type { ContactBulkActionPieceInput } from '@/domains/app/sub-domains/cont
  */
 export const CONTACT_BULK_ACTION_JOB_NAME = 'contact-bulk-action';
 
-/** A public id of the given prefix: `<prefix>_` and 21 lower-case letters or digits (P22). */
-function publicIdSchema(prefix: string) {
-  return z.string().regex(new RegExp(`^${prefix}_[a-z0-9]{21}$`));
+/** A public id of the given entity: its prefix, `_` and 21 lower-case letters or digits (P22). */
+function publicIdSchema(entity: PublicIdEntity) {
+  return z.string().regex(publicIdPatternFor(entity));
 }
 
 /**
@@ -31,11 +32,11 @@ const contactBulkActionFilterJobSchema = z.object({
   isFollowingAccount: z.boolean().optional(),
   firstSeenFrom: z.coerce.date().optional(),
   firstSeenTo: z.coerce.date().optional(),
-  automationPublicId: publicIdSchema('aut').optional(),
+  automationPublicId: publicIdSchema('automation').optional(),
   isOptedOut: z.boolean().optional(),
   isAutomationsPaused: z.boolean().optional(),
   cameInVia: z.array(z.string().max(30)).max(20),
-  firstAutomationPublicId: publicIdSchema('aut').optional(),
+  firstAutomationPublicId: publicIdSchema('automation').optional(),
 });
 
 /**
@@ -47,17 +48,17 @@ export const contactBulkActionTaskInputSchema = z
   .object({
     bulkActionToken: z.string().regex(/^[a-z0-9]{8,32}$/),
     pieceNumber: z.number().int().min(1),
-    channelAccountPublicId: publicIdSchema('cha'),
+    channelAccountPublicId: publicIdSchema('channelAccount'),
     action: z.enum(CONTACT_BULK_ACTIONS),
     tag: z.string().min(1).max(50).nullable(),
     contactPublicIds: z
-      .array(publicIdSchema('con'))
+      .array(publicIdSchema('contact'))
       .min(1)
       .max(CONTACT_BULK_ACTION_IDS_MAX_COUNT)
       .nullable(),
     filter: contactBulkActionFilterJobSchema.nullable(),
     actorUserPublicId: z.string().max(28),
-    afterContactPublicId: publicIdSchema('con').nullable(),
+    afterContactPublicId: publicIdSchema('contact').nullable(),
   })
   .strict();
 

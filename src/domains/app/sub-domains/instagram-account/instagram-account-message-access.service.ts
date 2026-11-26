@@ -212,6 +212,13 @@ export class InstagramAccountMessageAccessService {
       lastCheckedAt !== null &&
       Date.now() - lastCheckedAt.getTime() < MESSAGE_ACCESS_RECHECK_MIN_SECONDS * 1000
     ) {
+      // The stop follows the stored answer again — a stop start that failed after the write is
+      // put right by the next check, without a Meta call.
+      await this.applyStop({
+        scope,
+        access,
+        status: access.account.message_access as InstagramMessageAccessState,
+      });
       return storedAnswer({ channelAccountPublicId, access });
     }
     assertInstagramConfigured();

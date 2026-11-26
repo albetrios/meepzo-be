@@ -25,6 +25,7 @@ Add-only: a changed mind is a new row. Kind: `RED` (answered by the user), `AMBE
 | C-D18 | R5 — `instagram.message_access` on route 6 (routes-final 3.6 assumed route 6's summary had an `instagram` block; it has none) | add a small `instagram: { message_access }` block · route 7 only | **add the small block** (built, additive) — **needs the user's OK** | 2026-11-26 | user /goal 2026-11-26 | AMBER |
 | C-D19 | R4 — the message-access blocker's name (IG5 says `message_access_off`) | `message_access_off` · the lane stop's own name `access_off` | **`access_off`** (built) — every blocker is named by its stop reason | 2026-11-26 | user /goal 2026-11-26 | AMBER |
 | C-D20 | Close review — the race between a pick and the unpicked clean-up; route 154 bursts | fix · accept | **fixed** (`df3c4df`): the clean-up takes the pick's organization lock, the pick re-reads under it; route 154 one check per account (Redis lock); `plan_room` rebuilt from three keys | 2026-11-26 | user /goal 2026-11-26 | AMBER |
+| C-D21 | Verifier — a re-login that shares nothing counts as a reconnect (C-D2) and restarts the 7-day clean-up clock, so an unused token can be kept by logging in again | keep (C-D2 as approved) · count a reconnect only with a live account · keep `connected_at` on that path | **open — the user decides** (built as C-D2 today) | 2026-11-26 | — | RED |
 
 ## Owner items (need the Meta dev app — not code)
 

@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import {
+  META_ASSIGNED_ACCOUNTS_MAX_PAGES,
   META_GRAPH_BASE_URL,
   META_GRAPH_VERSION,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
@@ -736,6 +737,9 @@ describe('Channel connection routes', () => {
       expect(data.marked_not_shared_account_ids).toHaveLength(1);
       const [row] = await readInstagramAccountRows(team.organization.id);
       expect(row?.connection_status).toBe('error');
+      expect(
+        await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
+      ).toHaveLength(1);
     });
 
     it('marks only the accounts a complete list no longer shares (CN5, AC-1.6)', async () => {
@@ -786,6 +790,33 @@ describe('Channel connection routes', () => {
         is_complete: true,
         plan_room: { accounts_max: 3, accounts_used: 2, accounts_free: 1 },
       });
+    });
+
+    it('never names an account not shared any more from a list the page cap cut (CN7, P353)', async () => {
+      await useCreatorPlan();
+      const [here, maybeLater] = [nextAccount(), nextAccount()];
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [here, maybeLater],
+      });
+      const nextPage = { next: 'https://graph.facebook.com/next', cursors: { after: 'cursor' } };
+      const scope = nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(200, { data: [here], paging: nextPage })
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .times(META_ASSIGNED_ACCOUNTS_MAX_PAGES - 1)
+        .reply(200, { data: [], paging: nextPage });
+
+      const response = await sharedAssets(channelConnectionPublicId);
+
+      expect(response.statusCode, response.body).toBe(200);
+      expect(scope.isDone()).toBe(true);
+      const assets = dataOf<Array<{ provider_account_id: string; state: string }>>(response);
+      expect(assets.map((asset) => asset.state)).toEqual(['connected_here']);
+      expect((response.json() as { meta: { is_complete: boolean } }).meta.is_complete).toBe(false);
     });
 
     it('breaks the connection when Meta refuses its token on the shared-assets read (CN7, AC-2.2)', async () => {
@@ -858,6 +889,21 @@ describe('Channel connection routes', () => {
         plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
       });
       expect(dataOf<{ can_manage: boolean }>(await read(team.viewerToken)).can_manage).toBe(false);
+      const savedPageConfig = process.env.META_PAGE_CONFIG_ID;
+      try {
+        process.env.META_PAGE_CONFIG_ID = '1234567890123';
+        resetEnvCacheForTests();
+        const withPage = dataOf<{ is_page_login_offered: boolean }>(await read(team.ownerToken));
+        expect(withPage.is_page_login_offered).toBe(true);
+        delete process.env.META_PAGE_CONFIG_ID;
+        resetEnvCacheForTests();
+        const withoutPage = dataOf<{ is_page_login_offered: boolean }>(await read(team.ownerToken));
+        expect(withoutPage.is_page_login_offered).toBe(false);
+      } finally {
+        if (savedPageConfig === undefined) delete process.env.META_PAGE_CONFIG_ID;
+        else process.env.META_PAGE_CONFIG_ID = savedPageConfig;
+        resetEnvCacheForTests();
+      }
       const saved = process.env.META_REDIRECT_URI;
       delete process.env.META_REDIRECT_URI;
       resetEnvCacheForTests();

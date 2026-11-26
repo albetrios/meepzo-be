@@ -204,6 +204,22 @@ describe('Instagram message-access check (route 154)', () => {
     expect(stops).toHaveLength(1);
   });
 
+  it('puts the stop right from the stored answer when a stop start failed after the write', async () => {
+    const account = await connectOne();
+    // `off` stored a moment ago, but the stop never started (the write committed, the stop failed).
+    await operatorQuery`
+      UPDATE app.instagram_accounts
+      SET message_access = 'off', message_access_checked_at = now()
+      WHERE channel_account_id = ${account.internalId}`;
+
+    const response = await check(account.id);
+
+    expect(dataOf(response)).toMatchObject({ status: 'off', is_from_meta: false });
+    expect(
+      (await readLaneRows(account.internalId)).every((lane) => lane.stop_reason === 'access_off'),
+    ).toBe(true);
+  });
+
   it('stores unknown and leaves the lanes as they are', async () => {
     const account = await connectOne();
     probe(account.instagramUserId).reply(400, graphError(100));

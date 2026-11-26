@@ -36,7 +36,7 @@ Verification (R5–R6): `pnpm vitest run` instagram-account + send-core db unit 
 | RLS | no tenant-isolation finding; major (correctness, same race) | fixed in `df3c4df` — the clean-up takes the pick's organization lock, the pick re-reads the connection under it; test › refuses a pick whose connection the unpicked clean-up revoked while it read Meta |
 | Idempotency | minor: route 154 check-then-act; minor: cancel replay untested | fixed in `df3c4df` — one check per account (Redis lock), tests for the burst and for the cancel replay / keyless 422 |
 | Production hardening | minor: route 154 burst of Meta calls; minor: `plan_room` copied whole; nit: migration lock time | fixed in `df3c4df` (lock; `plan_room` rebuilt from its three keys + test); nit accepted; `recordUsage` on the probe left as the set-up job has it (follow-up) |
-| Verifier | see below | — |
+| Verifier | PASS (4 integration suites, 63 tests); minors: a re-login sharing nothing restarts the 7-day clean-up clock; route 154's write and stop are two units; three test gaps | the unit gap and the test gaps fixed (the stored answer re-applies its stop; token, capped-list and `is_page_login_offered` asserted); the clean-up clock left as C-D2 built — **user decision** (C-D21) |
 
 ## Summary
 

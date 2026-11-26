@@ -36,6 +36,7 @@ function toPlanAccessPlan(columns: {
   price_monthly: string | null;
   price_yearly: string | null;
   features: unknown;
+  included_seats: number | null;
 }): PlanAccessPlan | null {
   if (
     columns.public_id === null ||
@@ -53,6 +54,7 @@ function toPlanAccessPlan(columns: {
     price_monthly: columns.price_monthly,
     price_yearly: columns.price_yearly,
     features: planFeaturesSchema.parse(columns.features),
+    included_seats: columns.included_seats,
   };
 }
 
@@ -324,12 +326,14 @@ export class SubscriptionRepository {
         plan_price_monthly: plans.price_monthly,
         plan_price_yearly: plans.price_yearly,
         plan_features: plans.features,
+        plan_included_seats: plans.included_seats,
         free_plan_public_id: freePlan.public_id,
         free_plan_name: freePlan.name,
         free_plan_is_active: freePlan.is_active,
         free_plan_price_monthly: freePlan.price_monthly,
         free_plan_price_yearly: freePlan.price_yearly,
         free_plan_features: freePlan.features,
+        free_plan_included_seats: freePlan.included_seats,
         // P270: the organization's not-deleted overrides, in the same read (BL2) — expired ones too;
         // `resolvePlanAccess` keeps those in force at its clock.
         overrides: sql<unknown>`(
@@ -385,6 +389,7 @@ export class SubscriptionRepository {
                 price_monthly: row.plan_price_monthly,
                 price_yearly: row.plan_price_yearly,
                 features: row.plan_features,
+                included_seats: row.plan_included_seats,
               }),
             },
       freePlan: toPlanAccessPlan({
@@ -394,6 +399,7 @@ export class SubscriptionRepository {
         price_monthly: row.free_plan_price_monthly,
         price_yearly: row.free_plan_price_yearly,
         features: row.free_plan_features,
+        included_seats: row.free_plan_included_seats,
       }),
       overrides: parseEntitlementOverrides(
         Array.isArray(row.overrides)

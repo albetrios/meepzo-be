@@ -1,6 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { successResponse } from '@/shared/utils/http/response.util.js';
-import { getRequestIdentifier, requireAuth } from '@/shared/utils/http/request.util.js';
+import {
+  getRequestIdentifier,
+  requireAuth,
+  requireOrganizationScope,
+} from '@/shared/utils/http/request.util.js';
 import { validatePublicIdParam } from '@/shared/utils/identity/public-id-param.util.js';
 import {
   buildAuditActorFields,
@@ -53,11 +57,18 @@ async function recordEntitlementOverrideAuditEvent({
 }
 
 /**
- * Global-admin handlers for organization entitlement overrides (plan-gating close, P270): list, set
- * and remove; each set and remove is audited after the service returns (K9).
+ * Handlers of the billing entitlement routes: the organization's entitlements read (P271), and the
+ * global admin's per-organization overrides (P270) — list, set and remove; each set and remove is
+ * audited after the service returns (K9).
  */
 export function createEntitlementController(service: EntitlementService) {
   return {
+    getEntitlements: async (request: FastifyRequest, _reply: FastifyReply) => {
+      const entitlements = await service.getEntitlements({
+        scope: requireOrganizationScope(request),
+      });
+      return successResponse({ data: entitlements, request_id: getRequestIdentifier(request) });
+    },
     listOverrides: async (request: FastifyRequest, _reply: FastifyReply) => {
       const auth = requireAuth(request);
       const query = validateListEntitlementOverridesQuery(request.query);

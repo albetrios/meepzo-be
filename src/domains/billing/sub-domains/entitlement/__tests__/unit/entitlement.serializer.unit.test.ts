@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { serializeEntitlementOverride } from '@/domains/billing/sub-domains/entitlement/entitlement.serializer.js';
+import {
+  serializeEntitlementOverride,
+  serializeEntitlements,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.serializer.js';
+import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import type { OrganizationEntitlementOverrideRow } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 
 const NOW = new Date('2026-11-26T12:00:00.000Z');
@@ -59,5 +63,71 @@ describe('serializeEntitlementOverride', () => {
         now: NOW,
       }).is_active,
     ).toBe(false);
+  });
+});
+
+/** `GET /billing/entitlements` (P271): the one plan read, the usage and the members, shaped. */
+describe('serializeEntitlements', () => {
+  const planAccess = {
+    state: 'grace' as const,
+    graceEndsAt: new Date('2026-12-10T00:00:00.000Z'),
+    trialEndsAt: null,
+    plan: { publicId: 'pln_creator', name: 'Creator' },
+    features: { ...CREATOR_PLAN_FEATURES, channel_accounts_max: 7 },
+    seatLimit: null,
+    overrides: [
+      {
+        key: 'channel_accounts_max' as const,
+        value: 7,
+        expiresAt: new Date('2026-12-31T00:00:00.000Z'),
+      },
+    ],
+    isPlanChoiceRequired: false,
+  };
+
+  it('answers the limits from the merged features, the usage, the dates and the overrides', () => {
+    expect(
+      serializeEntitlements({
+        plan_access: planAccess,
+        usage: {
+          directMessagesUsed: 120,
+          directMessagesResetsOn: '2026-12-01',
+          channelAccountsUsed: 2,
+        },
+        seats_used: 4,
+      }),
+    ).toEqual({
+      state: 'grace',
+      plan: { id: 'pln_creator', name: 'Creator' },
+      features: planAccess.features,
+      limits: {
+        direct_messages: {
+          used: 120,
+          limit: CREATOR_PLAN_FEATURES.message_month_limit,
+          resets_on: '2026-12-01',
+        },
+        channel_accounts: { used: 2, limit: 7 },
+        seats: { used: 4, limit: null },
+      },
+      trial_ends_at: null,
+      grace_ends_at: '2026-12-10T00:00:00.000Z',
+      is_plan_choice_required: false,
+      overrides: [{ key: 'channel_accounts_max', expires_at: '2026-12-31T00:00:00.000Z' }],
+    });
+  });
+
+  it('has no limits without a plan in the catalog', () => {
+    const output = serializeEntitlements({
+      plan_access: { ...planAccess, plan: null, features: null, overrides: [] },
+      usage: {
+        directMessagesUsed: 0,
+        directMessagesResetsOn: '2026-12-01',
+        channelAccountsUsed: 0,
+      },
+      seats_used: 1,
+    });
+    expect(output.plan).toBeNull();
+    expect(output.limits.direct_messages.limit).toBeNull();
+    expect(output.limits.channel_accounts.limit).toBeNull();
   });
 });

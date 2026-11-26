@@ -46,6 +46,12 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
     application.appDomain.channelAccountService,
   );
 
+  // Plan-gating close (P271): the entitlements read's usage (DMs this month, accounts in the plan) is
+  // the app's — the same late-wired port shape as the accounts port above.
+  application.billingDomain.entitlementService.wirePlanUsage(
+    application.appDomain.instagramSendingService,
+  );
+
   // feat-instagram-dm-sending UN1: the organization chooser's counts are the app's — a port, wired
   // here because the app is built after tenancy (no container cycle).
   application.tenancyDomain.organizationService.wireOrganizationCounts(

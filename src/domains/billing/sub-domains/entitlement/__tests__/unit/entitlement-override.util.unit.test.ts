@@ -123,6 +123,7 @@ describe('entitlement overrides (P270)', () => {
       price_monthly: '0.00',
       price_yearly: '0.00',
       features: FREE_PLAN_FEATURES,
+      included_seats: null,
     };
     const access = resolvePlanAccess({
       subject: {

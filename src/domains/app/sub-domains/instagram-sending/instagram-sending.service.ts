@@ -180,6 +180,42 @@ export class InstagramSendingService {
     });
   }
 
+  /**
+   * Billing's plan-usage port (`EntitlementPlanUsagePort`, plan-gating close P271): this month's DMs
+   * and the channel accounts in the plan, for `GET /api/v1/billing/entitlements`.
+   *
+   * @remarks
+   * Algorithm: the organization's row and its active-account count in one unit, then the month count
+   * (Redis first, as route 64). Unlike route 64 a personal organization is read too — it has no
+   * accounts or DMs, so it answers zeros. Failure modes: `404` for an unknown organization; a read
+   * failure propagates. Side effects: a Redis populate on a meter miss.
+   */
+  async readPlanUsage({ scope }: { scope: OrganizationPrincipalDatabaseScope }): Promise<{
+    directMessagesUsed: number;
+    directMessagesResetsOn: string;
+    channelAccountsUsed: number;
+  }> {
+    const { organizationId, channelAccountsUsed } = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        const used = await this.channelAccountService.countActiveAccounts({
+          scope,
+          organizationId: organization.id,
+        });
+        return { organizationId: organization.id, channelAccountsUsed: used };
+      },
+    });
+    const month = await this.monthCountService.readMonth({ scope, organizationId });
+    return {
+      directMessagesUsed: month.used,
+      directMessagesResetsOn: month.resetsOn,
+      channelAccountsUsed,
+    };
+  }
+
   /** The scope's organization id when it is a team (`404 team_organization_required` otherwise). */
   private async requireReadableOrganization(
     scope: OrganizationPrincipalDatabaseScope,

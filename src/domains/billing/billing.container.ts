@@ -79,6 +79,7 @@ export function createBillingContainer({
     organizationService,
     overrideRepository: new EntitlementOverrideRepository(),
     planAccessService: subscriptionService,
+    membershipSeatUsage,
   });
 
   return {

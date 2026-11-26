@@ -1,17 +1,26 @@
 import {
+  type OrganizationPrincipalDatabaseScope,
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { ConflictError, NotFoundError } from '@/shared/errors/index.js';
 import { isPostgresUniqueViolation } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
-import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import type {
+  MembershipSeatUsagePort,
+  SubscriptionService,
+} from '@/domains/billing/sub-domains/subscription/subscription.service.js';
 import type { EntitlementOverrideRepository } from './entitlement-override.repository.js';
 import type { OrganizationEntitlementOverrideRow } from './entitlement-override.schema.js';
 import { entitlementOverridePlanChange } from './entitlement-override.util.js';
 import type { SetEntitlementOverrideInput } from './entitlement.dto.js';
-import { serializeEntitlementOverride } from './entitlement.serializer.js';
-import type { EntitlementOverrideOutput } from './entitlement.types.js';
+import { serializeEntitlementOverride, serializeEntitlements } from './entitlement.serializer.js';
+import type {
+  EntitlementOverrideOutput,
+  EntitlementPlanUsage,
+  EntitlementsOutput,
+} from './entitlement.types.js';
 
 /**
  * The tenancy reads the entitlement service needs — structural, so a test can stub them.
@@ -48,6 +57,28 @@ export interface EntitlementOverrideChange {
   previous: EntitlementOverrideOutput | null;
 }
 
+/**
+ * The app's report of an organization's plan usage (P271) — billing never reads app tables (8.10):
+ * the app's sending service implements it and the composition root wires it
+ * ({@link EntitlementService.wirePlanUsage}).
+ *
+ * @remarks
+ * Read in the caller's organization scope (the signed `org` claim); a personal organization answers
+ * zeros.
+ */
+export interface EntitlementPlanUsagePort {
+  readPlanUsage(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<EntitlementPlanUsage>;
+}
+
+/** The usage read while no port is wired (a minimal harness): nothing used. */
+const NO_PLAN_USAGE: EntitlementPlanUsage = {
+  directMessagesUsed: 0,
+  directMessagesResetsOn: '1970-02-01',
+  channelAccountsUsed: 0,
+};
+
 /** `404 entitlement_override_not_found` — no live override with this id (absent or removed). */
 function entitlementOverrideNotFoundError(): NotFoundError {
   return new NotFoundError('Entitlement override').withReason('entitlement_override_not_found');
@@ -77,15 +108,63 @@ export class EntitlementService {
   private readonly organizationService: EntitlementOrganizationService;
   private readonly overrideRepository: EntitlementOverrideRepository;
   private readonly planAccessService: EntitlementPlanAccessService;
+  private readonly membershipSeatUsage: MembershipSeatUsagePort | undefined;
+  private planUsage: EntitlementPlanUsagePort | undefined;
 
   constructor(dependencies: {
     organizationService: EntitlementOrganizationService;
     overrideRepository: EntitlementOverrideRepository;
     planAccessService: EntitlementPlanAccessService;
+    /** Tenancy's member count (active + invited) — the seats used. */
+    membershipSeatUsage?: MembershipSeatUsagePort | undefined;
   }) {
     this.organizationService = dependencies.organizationService;
     this.overrideRepository = dependencies.overrideRepository;
     this.planAccessService = dependencies.planAccessService;
+    this.membershipSeatUsage = dependencies.membershipSeatUsage;
+  }
+
+  /** Wires the app's usage port (built after billing, so late — no container cycle, 8.10). */
+  wirePlanUsage(port: EntitlementPlanUsagePort): void {
+    this.planUsage = port;
+  }
+
+  /**
+   * `GET /api/v1/billing/entitlements` (P271): the organization's plan state, plan, features after
+   * overrides, each limit with its usage, the dates and the overrides in force.
+   *
+   * @remarks
+   * - **Algorithm:** billing's one plan read ({@link SubscriptionService.getPlanAccess}, BL2 — the
+   *   overrides merged inside it), the app's usage port (this month's DMs, the accounts in the plan)
+   *   and tenancy's member count, issued concurrently — none depends on another.
+   * - **Failure modes:** a read failure propagates. An unwired port reads as nothing used (logged).
+   * - **Side effects:** none (the app may populate its month-count cache).
+   */
+  async getEntitlements({
+    scope,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<EntitlementsOutput> {
+    const organizationPublicId = scope.organizationPublicId;
+    const [planAccess, usage, seatsUsed] = await Promise.all([
+      this.planAccessService.getPlanAccess({ organizationPublicId }),
+      this.readPlanUsage(scope),
+      this.membershipSeatUsage?.countActiveMembers({ organizationPublicId }) ?? Promise.resolve(0),
+    ]);
+    return serializeEntitlements({ plan_access: planAccess, usage, seats_used: seatsUsed });
+  }
+
+  private async readPlanUsage(
+    scope: OrganizationPrincipalDatabaseScope,
+  ): Promise<EntitlementPlanUsage> {
+    if (!this.planUsage) {
+      logger.warn(
+        { organizationPublicId: scope.organizationPublicId },
+        'entitlement.plan_usage.port_unwired',
+      );
+      return NO_PLAN_USAGE;
+    }
+    return this.planUsage.readPlanUsage({ scope });
   }
 
   /**

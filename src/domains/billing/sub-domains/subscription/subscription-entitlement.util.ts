@@ -80,10 +80,16 @@ export function requiresFreeSeatCeiling({
   );
 }
 
-function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' | 'features'> {
+function planEntitlement(
+  plan: PlanAccessPlan | null,
+): Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'> {
   return plan
-    ? { plan: { publicId: plan.public_id, name: plan.name }, features: plan.features }
-    : { plan: null, features: null };
+    ? {
+        plan: { publicId: plan.public_id, name: plan.name },
+        features: plan.features,
+        seatLimit: plan.included_seats,
+      }
+    : { plan: null, features: null, seatLimit: null };
 }
 
 /**
@@ -157,7 +163,7 @@ function resolvePlanEntitlement({
     entitlement,
     trialEndsAt = null,
   }: {
-    entitlement: Pick<PlanAccess, 'plan' | 'features'>;
+    entitlement: Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'>;
     trialEndsAt?: Date | null;
   }): Omit<PlanAccess, 'isPlanChoiceRequired' | 'overrides'> => ({
     state: PLAN_ACCESS_STATE.ACTIVE,

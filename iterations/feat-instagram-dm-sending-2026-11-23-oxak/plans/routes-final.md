@@ -3998,6 +3998,12 @@ A set or remove that moves the features emits `subscription.plan_state_changed` 
 Errors: `400` (value type or bounds, unknown key, past `expires_at`), `403` (not a global admin), `404` (organization,
 override), `409 entitlement_override_conflict` (two sets of a new key racing).
 
+**One entitlements read (P271, P274).** `GET /billing/entitlements` (`subscription:read`, team and personal, no
+idempotency): `{ state, plan, features, limits: { direct_messages: { used, limit, resets_on }, channel_accounts: { used,
+limit }, seats: { used, limit } }, trial_ends_at, grace_ends_at, is_plan_choice_required, overrides: [{ key, expires_at }]
+}` — the one plan read (BL2, overrides merged), the app's usage through a port (8.10) and the member count; `limit`
+`null` = unlimited. Errors: 8.5.
+
 ---
 
 ### 8.A Plans — `billing/sub-domains/plan/` — final (rev 4, confirmed 2026-11-24)

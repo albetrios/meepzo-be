@@ -135,6 +135,11 @@ export interface PlanAccess {
    */
   features: PlanFeatures | null;
   /**
+   * The seats of the plan whose features apply (its `included_seats`); `null` = unlimited — every
+   * plan since D55 (BL9) — or no plan in the catalog. Read by `GET /billing/entitlements` (P271).
+   */
+  seatLimit: number | null;
+  /**
    * The organization's overrides in force now (P270) — already laid over `features`; empty when
    * none. Listed so `GET /billing/entitlements` can name them.
    */
@@ -196,6 +201,8 @@ export interface PlanAccessPlan {
   price_monthly: string;
   price_yearly: string;
   features: PlanFeatures;
+  /** The plan's seats; `null` = unlimited (D55). */
+  included_seats: number | null;
 }
 
 /**

@@ -1082,7 +1082,8 @@ src/
     │   │   ├── entitlement/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
-    │   │   │   │   │   └── entitlement-override.integration.test.ts
+    │   │   │   │   │   ├── entitlement-override.integration.test.ts
+    │   │   │   │   │   └── entitlements.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
     │   │   │   │   │   └── entitlement.serializer.unit.test.ts

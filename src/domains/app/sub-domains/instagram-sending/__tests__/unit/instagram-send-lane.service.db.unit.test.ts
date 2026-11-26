@@ -181,6 +181,7 @@ describe('InstagramSendLaneService (database)', () => {
       getPlanAccess: async () => ({
         state: 'active',
         graceEndsAt: null,
+        seatLimit: null,
         overrides: [],
         isPlanChoiceRequired: false,
         trialEndsAt: null,

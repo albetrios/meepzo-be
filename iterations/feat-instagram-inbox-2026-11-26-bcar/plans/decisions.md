@@ -18,6 +18,7 @@ Add-only. Kind: `RED` (answered by the user), `AMBER` (safe default, still open)
 | I-D12 | The Human agent window | a column · derived | derived from `contact_activities.last_direct_message_received_at` with a window kind (24 h now, 7 days after the Human agent tag's App Review) — no column | 2026-11-26 | Claude | AMBER |
 | I-D13 | Keep or replace `app.instagram_messages` next to conversation messages | team replies only · replace it | **keep both, rename** `app.instagram_messages` → **`app.instagram_automation_messages`** (your call): it stays the paced sender's ledger (lanes, claims, retries, plan counts, no text, ~30 days); conversation messages hold the history. Note: it also holds broadcast sends — the name is kept as chosen unless changed | 2026-11-26 | user | RED |
 | I-D14 | Who sent a conversation message, and what it is | `sender_type` + `team_member` · `person` · `source` + `team`; a `kind` field or derived | **`sender_type`**: `contact` · `automation` · `broadcast` · `team_member` · `instagram_app` (direction follows: `contact` is in, the rest out), with its link — the contact, the automation + run + ledger row, the broadcast + ledger row, the member; **`kind`**: `text` · `image` · `video` · `audio` · `file` · `story_reply` · `story_mention` · `shared_post` · `button_tap` · `reaction` · `referral` | 2026-11-26 | user | RED |
+| I-D15 | Step 5 — route review sub-domain 1, the automation message rename (AM1–AM4) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
 
 ## Owner items (need the Meta dev app)
 

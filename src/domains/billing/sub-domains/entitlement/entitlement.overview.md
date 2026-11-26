@@ -23,7 +23,8 @@ Per-organization exceptions to the plan (plan-gating close, P270): a global admi
 
 ## Key invariants
 
-- **One plan read per resolve (BL2):** `resolve` calls `getPlanAccess` once; a unit test pins it. The snapshot keeps the `PlanAccess` it was built from.
+- **One plan read per resolve (BL2):** `resolve` calls `getPlanAccess` once; a unit test pins it. The snapshot keeps the `PlanAccess` it was built from — `GET /auth/me/context` and the organization switches serialize it as `plan_access`, unchanged. A caller already inside its own organization unit (the Stripe webhook's plan-state cases) passes its worker-scoped `repositoryOverride` through `resolve`, so the read runs in that transaction (EN7).
+- **The only plan reader outside subscription (K3, EN7):** `no-plan-access-outside-entitlement.global.test.ts` fails on a `getPlanAccess` call outside `subscription/` and `entitlement/`, and on a plan name used as a condition in feature code.
 - **One read (BL2):** the overrides are read in the plan entitlement's one query (`SubscriptionRepository.findPlanAccessSubject`, a `jsonb_agg` sub-select) — never a second read path. Expired ones are read too and dropped at the entitlement's clock (`applyEntitlementOverrides`).
 - **Strictly typed (BL12):** `key` ∈ `ENTITLEMENT_OVERRIDE_KEYS` (the registry's overridable keys: the plan feature keys + the two limits; `chk_organization_entitlement_overrides_key` pins the same list); a feature's `value` is a boolean, a limit's an integer within the plan schema's own bounds. The merged features are parsed again by `planFeaturesSchema`; a stored row the merge cannot type throws.
 - **Override, not state:** an override changes features only — never `state`, its dates or `is_plan_choice_required` — and lays over whichever plan applies (Free included, e.g. after a paid plan lapsed).

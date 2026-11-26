@@ -1,12 +1,12 @@
 # Worker changes — change-plan-gates-2026-11-26-mfku
 
-Mode **initial** (Baseline `none`, Intake mode `brief`) · Intake hash `26273bac1cb0` · updated 2026-11-26 (Step 4: PG8, PG10).
+Mode **initial** (Baseline `none`, Intake mode `brief`) · Intake hash `26273bac1cb0` · updated 2026-11-26 (Step 4: P12, P13).
 
 **No new background work and no change in when anything runs.** Each piece of paid background work
 declares the plan gate it meets, next to where it's registered; a test fails on an undeclared one
 (BRIEF:L31, BRIEF:L116). Each piece meets its gate as today: the send claim through the account's
 stored plan stop, or a live switch check for past comments and segment counts. No send gains a plan
-read (PG8). On Free, a segment's background count now runs, because Free's segments switch is on (PG10).
+read (P12). On Free, a segment's background count now runs, because Free's segments switch is on (P13).
 
 | Change | Count |
 | --- | --- |
@@ -21,7 +21,7 @@ read (PG8). On Free, a segment's background count now runs, because Free's segme
 | WC-3 | CHANGED: declares the send claim | take in Instagram events (messages, Live, comments, tags, missed-comment check) and start runs | each event or check | run, message | as today: the plan is met at the send claim, not at intake | nobody | `background.job-plan-gate-declaration` | BRIEF:L31 |
 | WC-4 | CHANGED: declares the send claim | build a broadcast's audience; repair a missed scheduled start | a broadcast is sent or its start is due | broadcast, message | as today | nobody | `background.job-plan-gate-declaration` | BRIEF:L31 |
 | WC-5 | CHANGED: declares the past-comments switch; the check asks the module | read an automation's past comments | a member starts it | run | as today: refused when the switch is off | nobody | `background.job-plan-gate-declaration`, `access.entitlement-module-single-entry` | BRIEF:L31 |
-| WC-6 | CHANGED: declares the segments switch; the check asks the module | count a segment's audience in the background | a segment is saved | segment | as today: skipped when the switch is off; on Free it now runs (PG10) | nobody | `background.job-plan-gate-declaration` | BRIEF:L31 |
+| WC-6 | CHANGED: declares the segments switch; the check asks the module | count a segment's audience in the background | a segment is saved | segment | as today: skipped when the switch is off; on Free it now runs (P13) | nobody | `background.job-plan-gate-declaration` | BRIEF:L31 |
 
 Pieces that only **enforce** a plan (the plan-change follow-up, the month wake-up, repairing plan stops,
 the plan-state check) and pieces that do no paid work (clean-ups, reads, notices) aren't listed. They

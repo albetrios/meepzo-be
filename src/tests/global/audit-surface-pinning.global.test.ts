@@ -37,6 +37,9 @@ const REVIEWED_AUDIT_IMPORTERS = new Set<string>([
   // Owner-role grant includes audit-log:read, so the audit-log route is reachable by the
   // organization that owns the logs rather than by nobody at all.
   'src/domains/tenancy/sub-domains/organization/organization-provisioning.ts',
+  // A plan-state change Stripe or the plan-state check made (`billing.plan_state.changed`, owner
+  // 2026-11-26 plan-gating item 12): the audit service's type as the late-wired port.
+  'src/domains/billing/sub-domains/subscription/subscription-plan-state-audit.util.ts',
 ]);
 
 function collectAuditImporters(directory: string, accumulator: string[] = []): string[] {

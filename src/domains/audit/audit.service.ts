@@ -133,6 +133,31 @@ export class AuditService {
   }
 
   /**
+   * Whether the organization's audit log already holds a row of `action` with this
+   * `metadata.change_key` since `since` — so a job that finds the same change again on every round
+   * writes its system audit row once.
+   *
+   * @remarks
+   * - **Algorithm:** one indexed read of `audit.logs` under the organization's verified context.
+   * - **Failure modes:** a query failure propagates (the caller writes the row then, a duplicate
+   *   rather than a lost entry).
+   * - **Side effects:** none.
+   * - **Notes:** a row still waiting in `audit.outbox` is not seen; the caller's rounds are minutes
+   *   apart and the drain seconds, so a repeat is skipped in practice.
+   */
+  async hasOrganizationChange(options: {
+    organizationPublicId: string;
+    action: string;
+    changeKey: string;
+    since: Date;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: options.organizationPublicId }),
+      callback: () => this.repository.existsOrganizationChange(options),
+    });
+  }
+
+  /**
    * Lists audit log rows matching the supplied query (cursor paginated).
    *
    * @remarks

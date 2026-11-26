@@ -346,6 +346,61 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
     });
   });
 
+  it('a plan state Stripe moved writes one billing.plan_state.changed audit row naming Stripe and its event; the event again writes none (plan-gating item 12)', async () => {
+    const { creator } = await catalog();
+    const periodEnd = new Date(Date.now() - 60_000);
+    const { organization, providerSubscriptionId } = await organizationWithRow({
+      planId: creator.id,
+      status: 'ACTIVE',
+      periodEnd,
+      extra: { cancel_at_period_end: true },
+    });
+    const event = stripeEvent({
+      type: 'customer.subscription.deleted',
+      providerSubscriptionId,
+      organizationPublicId: organization.public_id,
+      status: 'canceled',
+      priceId: 'price_creator_monthly',
+      periodEnd,
+    });
+    const auditRows = () =>
+      operatorQuery<
+        Array<{
+          actor_user_public_id: string | null;
+          resource_type: string;
+          metadata: Record<string, unknown>;
+        }>
+      >`
+        SELECT actor_user_public_id, resource_type, metadata FROM audit.outbox
+        WHERE organization_public_id = ${organization.public_id}
+          AND action = 'billing.plan_state.changed'`;
+
+    await service.handleEvent({ event });
+
+    expect(await auditRows()).toEqual([
+      {
+        actor_user_public_id: null,
+        resource_type: 'subscription',
+        metadata: {
+          actor_kind: 'anonymous',
+          source: 'stripe',
+          stripe_event_id: event.id,
+          change: 'plan_ended',
+          previous: { state: 'active', plan_public_id: creator.public_id },
+          current: expect.objectContaining({ state: 'read_only' }),
+        },
+      },
+    ]);
+    // Stripe delivers the same event again (a retry): the ledger skips it — no second row.
+    await service.handleEvent({ event });
+    // A copy under a new id finds the row already ended: the entitlement did not move — no row.
+    await service.handleEvent({
+      event: { ...event, id: `evt_r26_${randomUUID()}` } as Stripe.Event,
+    });
+    expect(await auditRows()).toHaveLength(1);
+    expect(planStateEvents).toHaveLength(1);
+  });
+
   it('a dunning plan paid again says resumed (BL22 case 5); entering the grace announces no plan change but tells the billing managers the payment failed (WC-57)', async () => {
     const { creator } = await catalog();
     const periodEnd = new Date(Date.now() + 10 * DAY);

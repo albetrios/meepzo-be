@@ -3,6 +3,11 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { type DomainEvent, eventBus } from '@/core/events/event-bus.js';
 import { runGlobalRetentionWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  MAINTENANCE_SCOPE,
+  withMaintenanceDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+import { runAuditOutboxDrainJob } from '@/domains/audit/workers/audit-outbox-drain.processor.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import { env } from '@/shared/config/env.config.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
@@ -176,6 +181,48 @@ describe('Subscription plan-state check (R52, WC-59)', () => {
     expect(await notices()).toHaveLength(0);
   });
 
+  /** The organization's `billing.plan_state.changed` rows, staged or drained. */
+  async function planStateAuditRows() {
+    return operatorQuery<
+      Array<{ actor_user_id: string | null; metadata: Record<string, unknown> }>
+    >`
+      SELECT NULL AS actor_user_id, metadata FROM audit.outbox
+      WHERE organization_public_id = ${team.organization.public_id}
+        AND action = 'billing.plan_state.changed' AND status = 'PENDING'
+      UNION ALL
+      SELECT actor_user_id::text, metadata FROM audit.logs
+      WHERE organization_id = ${team.organization.id} AND action = 'billing.plan_state.changed'`;
+  }
+
+  it('a grace that ended writes one billing.plan_state.changed audit row by the system, however often the check finds it (plan-gating item 12)', async () => {
+    const periodEnd = new Date(Date.now() - (env.BILLING_DUNNING_GRACE_DAYS + 1) * DAY);
+    const row = await subscriptionOf({ planId: creator.id, status: 'PAST_DUE', periodEnd });
+
+    await check(row.public_id);
+    // The audit drain runs between the check's 15-minute rounds.
+    await withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.AUDIT_OUTBOX_DRAIN,
+      callback: (databaseHandle) => runAuditOutboxDrainJob(databaseHandle),
+    });
+    await check(row.public_id);
+    await check(row.public_id);
+
+    expect(events).toHaveLength(3);
+    expect(await planStateAuditRows()).toEqual([
+      {
+        actor_user_id: null,
+        metadata: {
+          actor_kind: 'anonymous',
+          source: 'system',
+          change: 'plan_ended',
+          previous: { state: 'grace', plan_public_id: creator.public_id },
+          current: expect.objectContaining({ state: 'read_only' }),
+          change_key: String(periodEnd.getTime()),
+        },
+      },
+    ]);
+  });
+
   it('a grace still running is neither swept nor found', async () => {
     const row = await subscriptionOf({
       planId: creator.id,
@@ -240,6 +287,14 @@ describe('Subscription plan-state check (R52, WC-59)', () => {
     expect(sent).toHaveLength(2);
     expect(sent.every((notice) => notice.type === 'billing.plan_choice_required')).toBe(true);
     expect(sent[0]?.data.dedupe_key).toBe(`plan-choice:${row.public_id}`);
+    // One audit row by the system for the one move (plan-gating item 12).
+    expect((await planStateAuditRows()).map((audit) => audit.metadata)).toEqual([
+      expect.objectContaining({
+        source: 'system',
+        change: 'moved_down',
+        change_key: row.public_id,
+      }),
+    ]);
     expect(events).toEqual([
       expect.objectContaining({
         change: 'moved_down',

@@ -115,6 +115,42 @@ export class AuditRepository {
     return rows[0]?.id ?? null;
   }
 
+  /**
+   * Whether the active organization's audit log already holds a row of `action` whose
+   * `metadata.change_key` is `changeKey`, written since `since` — the once-check of a system audit
+   * row a repeating job writes (the plan-state check's `billing.plan_state.changed`).
+   *
+   * @remarks
+   * Runs under the organization's context (the `audit_logs_tenant_isolation_select` policy) and names
+   * the organization too; served by `idx_audit_logs_action_created_id`. Reads `audit.logs` only — a
+   * row still in `audit.outbox` (not drained yet) is not seen.
+   */
+  async existsOrganizationChange({
+    organizationPublicId,
+    action,
+    changeKey,
+    since,
+  }: {
+    organizationPublicId: string;
+    action: string;
+    changeKey: string;
+    since: Date;
+  }): Promise<boolean> {
+    const rows = await getRequestDatabase()
+      .select({ id: logs.id })
+      .from(logs)
+      .where(
+        and(
+          eq(logs.action, action),
+          gte(logs.created_at, since),
+          sql`${logs.organization_id} = (SELECT ${organizations.id} FROM ${organizations} WHERE ${organizations.public_id} = ${organizationPublicId})`,
+          sql`${logs.metadata} ->> 'change_key' = ${changeKey}`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findWithFilters(filters: AuditLogFilters) {
     const { after, limit } = filters;
     const includeTotal = filters.include_total === true;

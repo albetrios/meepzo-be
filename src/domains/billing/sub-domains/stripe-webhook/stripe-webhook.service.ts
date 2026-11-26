@@ -63,6 +63,8 @@ interface PlanStateBefore {
   previous: StripeSubscriptionPriorState;
   access: PlanAccess;
   organizationPublicId: string;
+  /** The Stripe event being applied — the plan-state audit row names it (plan-gating item 12). */
+  stripeEventId: string;
 }
 
 /**
@@ -423,6 +425,7 @@ export class StripeWebhookService {
       case 'customer.subscription.updated':
         await this.handleSubscriptionUpdated({
           stripeSubscription: event.data.object,
+          stripeEventId: event.id,
           stripeEventCreatedAt,
           subscriptionRepository,
           eventType: event.type,
@@ -433,6 +436,7 @@ export class StripeWebhookService {
       case 'customer.subscription.deleted':
         await this.handleSubscriptionDeleted({
           stripeSubscription: event.data.object,
+          stripeEventId: event.id,
           stripeEventCreatedAt,
           subscriptionRepository,
         });
@@ -474,12 +478,14 @@ export class StripeWebhookService {
 
   private async handleSubscriptionUpdated({
     stripeSubscription,
+    stripeEventId,
     stripeEventCreatedAt,
     subscriptionRepository,
     eventType,
     reconciliation,
   }: {
     stripeSubscription: Stripe.Subscription;
+    stripeEventId: string;
     stripeEventCreatedAt: Date;
     subscriptionRepository: SubscriptionRepository;
     eventType: 'customer.subscription.created' | 'customer.subscription.updated';
@@ -532,6 +538,7 @@ export class StripeWebhookService {
     const isScheduledMove =
       previous !== null && isScheduledMoveApplied({ before: previous, resolvedPlanId });
     const planStateBefore = await this.readPlanStateBefore({
+      stripeEventId,
       previous,
       subscriptionRepository,
     });
@@ -816,16 +823,19 @@ export class StripeWebhookService {
 
   private async handleSubscriptionDeleted({
     stripeSubscription,
+    stripeEventId,
     stripeEventCreatedAt,
     subscriptionRepository,
   }: {
     stripeSubscription: Stripe.Subscription;
+    stripeEventId: string;
     stripeEventCreatedAt: Date;
     subscriptionRepository: SubscriptionRepository;
   }): Promise<void> {
     const providerSubscriptionId = stripeSubscription.id;
 
     const planStateBefore = await this.readPlanStateBefore({
+      stripeEventId,
       previous: await this.subscriptionService.findStripeSubscriptionPublicState({
         providerSubscriptionId,
         repositoryOverride: subscriptionRepository,
@@ -945,9 +955,11 @@ export class StripeWebhookService {
    * no case applies — when the row is absent or already terminal.
    */
   private async readPlanStateBefore({
+    stripeEventId,
     previous,
     subscriptionRepository,
   }: {
+    stripeEventId: string;
     previous: StripeSubscriptionPriorState | null;
     subscriptionRepository: SubscriptionRepository;
   }): Promise<PlanStateBefore | null> {
@@ -958,7 +970,7 @@ export class StripeWebhookService {
       organizationPublicId: organization.public_id,
       repositoryOverride: subscriptionRepository,
     });
-    return { previous, access, organizationPublicId: organization.public_id };
+    return { previous, access, organizationPublicId: organization.public_id, stripeEventId };
   }
 
   /**
@@ -1001,6 +1013,7 @@ export class StripeWebhookService {
       organizationPublicId: planStateBefore.organizationPublicId,
       change,
       previous: planStateBefore.access,
+      systemActor: { source: 'stripe', stripeEventId: planStateBefore.stripeEventId },
       keptChannelAccountPublicIds:
         change === PLAN_STATE_CHANGE.PLAN_ENDED ? null : previous.downgrade_keep,
     });
@@ -1092,6 +1105,7 @@ export class StripeWebhookService {
       organizationPublicId: planStateBefore.organizationPublicId,
       change,
       previous: planStateBefore.access,
+      systemActor: { source: 'stripe', stripeEventId: planStateBefore.stripeEventId },
       keptChannelAccountPublicIds: isScheduledMove ? previous.downgrade_keep : null,
     });
   }

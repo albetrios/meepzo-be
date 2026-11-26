@@ -45,6 +45,11 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
   application.billingDomain.subscriptionService.wireChannelAccounts(
     application.appDomain.channelAccountService,
   );
+  // Plan-gating item 12 (owner 2026-11-26): a plan-state change Stripe or the plan-state check made
+  // writes its audit row through the audit domain's service, built after billing.
+  application.billingDomain.subscriptionService.wirePlanStateAudit(
+    application.auditDomain.auditService,
+  );
 
   // feat-instagram-dm-sending UN1: the organization chooser's counts are the app's — a port, wired
   // here because the app is built after tenancy (no container cycle).

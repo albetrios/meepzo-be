@@ -25,6 +25,11 @@ import {
 } from './subscription.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { TrialAccountRepository } from './trial-account.repository.js';
+import {
+  type PlanStateAuditPort,
+  type PlanStateSystemActor,
+  recordSystemPlanStateChange,
+} from './subscription-plan-state-audit.util.js';
 import { SubscriptionTrialService } from './subscription-trial.service.js';
 import {
   type ChangePlanDirection,
@@ -328,6 +333,19 @@ export class SubscriptionService {
     this.channelAccounts = port;
   }
 
+  /** The plan-state audit port (owner 2026-11-26, plan-gating item 12) — late-wired like the accounts. */
+  private planStateAudit: PlanStateAuditPort | undefined;
+
+  /**
+   * Wires the audit domain's service for the audit row of a plan-state change Stripe or the
+   * plan-state check made (`billing.plan_state.changed`) — passed by the composition roots
+   * (`domainContainersPlugin`, `createDomainContainers`) after both containers exist. Unwired (minimal
+   * harnesses) no such row is written.
+   */
+  wirePlanStateAudit(port: PlanStateAuditPort): void {
+    this.planStateAudit = port;
+  }
+
   /** The organization's not-revoked channel accounts through the accounts port; `[]` when unwired. */
   private async listChannelAccounts(
     organizationPublicId: string,
@@ -377,35 +395,56 @@ export class SubscriptionService {
    * - **Side effects:** the app's handler enqueues its plan-change task (WC-38, sub-domain 6).
    * - **Notes:** call it **after** the write's commit (routes 102 and 103 call it once their unit has
    *   returned). The Stripe webhook's plan-state cases (through {@link emitPlanStateChangedAfterCommit}) and the plan-state check
-   *   (WC-59, R52) emit through it too.
+   *   (WC-59, R52) emit through it too. With `systemActor` (the Stripe webhook) a changed entitlement
+   *   also writes one `billing.plan_state.changed` audit row (`recordSystemPlanStateChange`); a
+   *   user's route is audited by its controller instead (BL10). A re-run of the same Stripe event
+   *   finds the entitlement unchanged and writes nothing.
    */
   async emitPlanStateChanged(options: {
     organizationPublicId: string;
     change: PlanStateChange;
     previous: PlanAccess;
     keptChannelAccountPublicIds?: string[] | null;
+    /** Who moved the plan when no user did — the Stripe webhook passes its event. */
+    systemActor?: PlanStateSystemActor;
   }): Promise<void> {
     const current = await this.getPlanAccess({
       organizationPublicId: options.organizationPublicId,
     });
     if (!hasPlanStateChanged({ previous: options.previous, current })) return;
+    const previous = {
+      state: options.previous.state,
+      plan_public_id: options.previous.plan?.publicId ?? null,
+    };
+    const currentSnapshot = {
+      state: current.state,
+      plan_public_id: current.plan?.publicId ?? null,
+    };
     await eventBus.emit(
       buildDomainEvent<PlanStateChangedPayload>({
         type: SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED,
         payload: {
           organizationPublicId: options.organizationPublicId,
           change: options.change,
-          previous: {
-            state: options.previous.state,
-            plan_public_id: options.previous.plan?.publicId ?? null,
-          },
-          current: { state: current.state, plan_public_id: current.plan?.publicId ?? null },
+          previous,
+          current: currentSnapshot,
           features: current.features,
           kept_channel_account_public_ids: options.keptChannelAccountPublicIds ?? null,
           change_key: null,
         },
       }),
     );
+    if (options.systemActor !== undefined && this.planStateAudit !== undefined) {
+      await recordSystemPlanStateChange({
+        auditPort: this.planStateAudit,
+        organizationPublicId: options.organizationPublicId,
+        systemActor: options.systemActor,
+        change: options.change,
+        previous,
+        current: currentSnapshot,
+        changeKey: null,
+      });
+    }
   }
 
   /**
@@ -420,7 +459,9 @@ export class SubscriptionService {
    *   Free's). `changeKey` makes it once: the app keys its plan-change task by it.
    * - **Failure modes:** a read failure propagates; handler failures are logged by the bus.
    * - **Side effects:** the app's handler enqueues its plan-change task (WC-38).
-   * - **Notes:** called by the check's job after its organization unit returned.
+   * - **Notes:** called by the check's job after its organization unit returned. Each finding also
+   *   writes one `billing.plan_state.changed` audit row with `source: 'system'`, once per change key
+   *   (`recordSystemPlanStateChange` — an ended grace is found again on every round).
    */
   async emitPlanStateCheckFinding(options: {
     organizationPublicId: string;
@@ -431,6 +472,10 @@ export class SubscriptionService {
     const current = await this.getPlanAccess({
       organizationPublicId: options.organizationPublicId,
     });
+    const currentSnapshot = {
+      state: current.state,
+      plan_public_id: current.plan?.publicId ?? null,
+    };
     await eventBus.emit(
       buildDomainEvent<PlanStateChangedPayload>({
         type: SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED,
@@ -438,13 +483,24 @@ export class SubscriptionService {
           organizationPublicId: options.organizationPublicId,
           change: options.change,
           previous: options.previous,
-          current: { state: current.state, plan_public_id: current.plan?.publicId ?? null },
+          current: currentSnapshot,
           features: current.features,
           kept_channel_account_public_ids: null,
           change_key: options.changeKey,
         },
       }),
     );
+    if (this.planStateAudit !== undefined) {
+      await recordSystemPlanStateChange({
+        auditPort: this.planStateAudit,
+        organizationPublicId: options.organizationPublicId,
+        systemActor: { source: 'system' },
+        change: options.change,
+        previous: options.previous,
+        current: currentSnapshot,
+        changeKey: options.changeKey,
+      });
+    }
   }
 
   /**

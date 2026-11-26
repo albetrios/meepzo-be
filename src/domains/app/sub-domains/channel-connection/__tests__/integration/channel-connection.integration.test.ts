@@ -920,7 +920,7 @@ describe('Channel connection routes', () => {
       const read = (token: string) =>
         injectAuthenticated(app, {
           method: 'GET',
-          url: '/api/v1/app/social/channel-connections/meta/connect-options',
+          url: `${CHANNEL_CONNECTIONS_PATH}/meta/connect-options`,
           token,
         });
       const owner = await read(team.ownerToken);

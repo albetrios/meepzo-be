@@ -59,6 +59,8 @@ function accountState(
     instagramUserId: INSTAGRAM_USER_ID,
     connectionStatus: 'connected',
     isAutomationEnabled: true,
+    messagesWebhookSeenAt: new Date(),
+    isMessagesWebhookMissing: false,
     ...overrides,
   };
 }
@@ -84,6 +86,7 @@ function setup({
   const accountService = {
     resolveOrganizationPublicIdForInstagramUser: vi.fn(async () => organizationPublicId),
     findWebhookAccountState: vi.fn(async () => account),
+    recordMessagesWebhookSeen: vi.fn(async () => true),
   };
   const recordReceivedEvents = vi.fn(
     async ({ events }: { events: readonly NewInstagramWebhookEvent[] }) =>
@@ -437,6 +440,59 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
       expect(storedEvents(eventService).map((event) => event.skipReason)).toEqual([reason, 'edit']);
     },
   );
+
+  describe('the messaging-webhook mark (P358)', () => {
+    const message = { sender: { id: CONTACT_ID }, message: { mid: 'm_mark' } };
+
+    it('a messaging item for a flagged account clears the flag at once and logs it', async () => {
+      const { service, accountService } = setup({
+        account: accountState({ isMessagesWebhookMissing: true }),
+      });
+
+      await service.receiveDelivery({
+        body: delivery([{ id: INSTAGRAM_USER_ID, messaging: [message] }]),
+        requestId: REQUEST_ID,
+      });
+
+      expect(accountService.recordMessagesWebhookSeen).toHaveBeenCalledWith({
+        scope: expect.objectContaining({ organizationPublicId: ORGANIZATION_PUBLIC_ID }),
+        instagramAccount: { organizationId: 7, instagramAccountId: 11 },
+      });
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa' }),
+        'app.instagram_account.messages_webhook_restored',
+      );
+    });
+
+    it('writes the seen mark the first time and when it is over an hour old, not on every delivery', async () => {
+      const first = setup({ account: accountState({ messagesWebhookSeenAt: null }) });
+      await first.service.receiveDelivery({
+        body: delivery([{ id: INSTAGRAM_USER_ID, messaging: [message] }]),
+        requestId: REQUEST_ID,
+      });
+      expect(first.accountService.recordMessagesWebhookSeen).toHaveBeenCalledTimes(1);
+
+      const recent = setup({ account: accountState({ messagesWebhookSeenAt: new Date() }) });
+      await recent.service.receiveDelivery({
+        body: delivery([{ id: INSTAGRAM_USER_ID, messaging: [message] }]),
+        requestId: REQUEST_ID,
+      });
+      expect(recent.accountService.recordMessagesWebhookSeen).not.toHaveBeenCalled();
+    });
+
+    it('a comment is no messaging item — the mark stays', async () => {
+      const { service, accountService } = setup({
+        account: accountState({ messagesWebhookSeenAt: null, isMessagesWebhookMissing: true }),
+      });
+
+      await service.receiveDelivery({
+        body: delivery([{ id: INSTAGRAM_USER_ID, changes: [comment('c1')] }]),
+        requestId: REQUEST_ID,
+      });
+
+      expect(accountService.recordMessagesWebhookSeen).not.toHaveBeenCalled();
+    });
+  });
 
   it('a repeat delivery inserts nothing — counted as duplicates', async () => {
     const { service, eventService } = setup();

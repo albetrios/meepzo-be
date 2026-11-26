@@ -59,6 +59,17 @@ export const instagram_accounts = appSchema
       follows_count: integer('follows_count').notNull().default(0),
       media_count: integer('media_count').notNull().default(0),
       webhook_subscribed_at: timestamp('webhook_subscribed_at', { withTimezone: true }),
+      /**
+       * The last messaging webhook item (a message, an echo, a postback, a reaction, …) for the
+       * account — written by the webhook store at most once an hour (P358); empty until the first.
+       */
+      messages_webhook_seen_at: timestamp('messages_webhook_seen_at', { withTimezone: true }),
+      /**
+       * Set by the subscription check (WC-25) when messages happen at Meta but no messaging webhook
+       * arrived since the subscription — Meta's limit for an account shared without its linked
+       * Facebook Page (P358); emptied by the next messaging item and with the webhook stamp.
+       */
+      messages_webhook_missing_at: timestamp('messages_webhook_missing_at', { withTimezone: true }),
       /** The last send of its starter questions to Meta (D42); emptied when they change. */
       starter_questions_set_at: timestamp('starter_questions_set_at', { withTimezone: true }),
       profile_synced_at: timestamp('profile_synced_at', { withTimezone: true }),

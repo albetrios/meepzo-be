@@ -120,6 +120,8 @@ function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAcco
     is_private: false,
     connection_status: 'connected',
     webhook_subscribed_at: null,
+    messages_webhook_seen_at: null,
+    messages_webhook_missing_at: null,
     starter_questions_set_at: null,
     connected_at: NOW,
     is_automation_enabled: true,
@@ -427,6 +429,8 @@ describe('InstagramAccountService lookups', () => {
         instagramUserId: INSTAGRAM_USER_ID,
         connectionStatus: 'error',
         isAutomationEnabled: false,
+        messagesWebhookSeenAt: null,
+        isMessagesWebhookMissing: false,
       });
       expect(tokenService.findAccessToken).not.toHaveBeenCalled();
     });

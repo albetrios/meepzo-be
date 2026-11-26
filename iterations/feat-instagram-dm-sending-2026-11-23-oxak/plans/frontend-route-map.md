@@ -177,7 +177,11 @@ The launch's `POST /app/social/instagram/connect` (Instagram Login) is removed. 
 **start (#1) → Meta → `/auth/meta/callback` → finish (#2, the picker) → pick (#3)**:
 
 - **Start** (#1): `POST /app/social/channel-connections/meta/start` → the Meta login address (no idempotency key).
-  A reconnect starts with `POST …/:channel_connection_id/reconnect` (#40).
+  A reconnect starts with `POST …/:channel_connection_id/reconnect` (#40). Both take an optional body
+  `{ "with_page": true }` ([P358](decisions.md)): the login then uses the second configuration
+  (`META_PAGE_CONFIG_ID`), which also asks for the account's linked Facebook Page and `pages_show_list` — the
+  reconnect an account with `is_messages_webhook_missing` needs (ask her to pick the account **and** its Page);
+  `400 instagram_page_login_not_configured` (`errors[].field` `with_page`) while that configuration is not set.
 - **Finish** (#2): refusals `400 channel_connect_state_invalid` (start again), `422 provider_code_invalid`,
   `422 provider_permissions_missing`, `409 channel_connection_business_mismatch` (a reconnect from another business),
   `409 instagram_connect_restart_required`. The answer lists each assigned Instagram account as here already, in
@@ -194,7 +198,10 @@ The launch's `POST /app/social/instagram/connect` (Instagram Login) is removed. 
 - **Accounts** (#6 list — the account menu, #7 one): channel, display name, status, its connection, paused /
   suspended, plan stop, new-account limit end, and the Instagram part inside (`username`, `account_type` and
   `is_private` — today always `null` and `false`, Meta's read has neither, R6; `is_webhook_subscribed`,
-  `starter_questions_set_at` — empty means "starter questions not set yet", R40). No token end any more.
+  `starter_questions_set_at` — empty means "starter questions not set yet", R40; `is_messages_webhook_missing` —
+  direct messages happen at Instagram but none reaches us, Meta's limit for an account shared without its Facebook
+  Page: show "Reconnect and share the linked Facebook Page" → #40 with `with_page: true`; it turns `false` with the
+  next message, [P358](decisions.md)). No token end any more.
 - **Actions**: disconnect one (#8 — keeps its automations, contacts and history; the token is erased only with the
   connection's last account), pause (#9), resume (#10), **activate** (#11, body `stop_channel_account_id` to swap one
   out at the limit; `409 channel_account_already_active`, `409 plan_account_limit`, `400 stop_channel_account_id`).

@@ -18,6 +18,7 @@ import {
   listMetaAssignedInstagramAccounts,
   readInstagramAccountProfile,
   readMetaAppSettings,
+  readMetaPageConfigId,
   readMetaClientBusinessId,
   readMetaGrantedPermissions,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
@@ -51,6 +52,7 @@ import {
   channelConnectionBusinessMismatchError,
   channelConnectionNotConnectedError,
   channelConnectionNotFoundError,
+  instagramPageLoginNotConfiguredError,
   planAccountLimitError,
   providerPermissionsMissingError,
   isMetaAdPermissionMissing,
@@ -246,16 +248,21 @@ export class ChannelConnectionService {
    * Route 1 (MC4): mints the one-use login state and answers Meta's Unified Login address.
    *
    * @remarks
-   * Algorithm: the team check; the Meta settings (503 when unset) before any state is stored; the
-   * state for this organization and user, then the address. Failure modes: `422` personal
-   * organization; `503 instagram_not_configured`. Side effects: one Redis key (10 minutes).
+   * Algorithm: the team check; the Meta settings (503 when unset) and the login configuration —
+   * `META_PAGE_CONFIG_ID` when `withPage` (P358), else `META_CONFIG_ID` — before any state is
+   * stored; the state for this organization and user, then the address. Failure modes: `422`
+   * personal organization; `503 instagram_not_configured`; `400 instagram_page_login_not_configured`
+   * (`withPage` while the second configuration is unset). Side effects: one Redis key (10 minutes).
    */
   async startLogin({
     scope,
     userPublicId,
     provider,
+    withPage = false,
   }: Omit<ChannelConnectionCaller, 'requestId'> & {
     provider: ChannelConnectionProvider;
+    /** Ask for the account's linked Facebook Page too (the second configuration, P358). */
+    withPage?: boolean | undefined;
   }): Promise<ChannelConnectStartOutput> {
     await this.requireWritableOrganization(scope);
     return this.mintLogin({
@@ -263,6 +270,7 @@ export class ChannelConnectionService {
       userPublicId,
       provider,
       channelConnectionPublicId: null,
+      withPage,
     });
   }
 
@@ -270,16 +278,21 @@ export class ChannelConnectionService {
    * Route 40 (MC17): a login bound to this connection — the same state with its public id.
    *
    * @remarks
-   * Algorithm: the team check; the connection (`connected` or `error`); the state and address.
-   * Failure modes: `404 channel_connection_not_found` (not this organization's, or revoked);
-   * `503 instagram_not_configured`. Side effects: one Redis key.
+   * Algorithm: the team check; the connection (`connected` or `error`); the state and address —
+   * with the second login configuration when `withPage` (P358: the reconnect that shares the linked
+   * Facebook Page). Failure modes: `404 channel_connection_not_found` (not this organization's, or
+   * revoked); `503 instagram_not_configured`; `400 instagram_page_login_not_configured`. Side
+   * effects: one Redis key.
    */
   async startReconnect({
     scope,
     userPublicId,
     channelConnectionPublicId,
+    withPage = false,
   }: Omit<ChannelConnectionCaller, 'requestId'> & {
     channelConnectionPublicId: string;
+    /** Ask for the account's linked Facebook Page too (the second configuration, P358). */
+    withPage?: boolean | undefined;
   }): Promise<ChannelConnectStartOutput> {
     const connection = await withAppDatabaseContext({
       scope,
@@ -299,6 +312,7 @@ export class ChannelConnectionService {
       userPublicId,
       provider: connection.provider as ChannelConnectionProvider,
       channelConnectionPublicId: connection.public_id,
+      withPage,
     });
   }
 
@@ -1133,19 +1147,30 @@ export class ChannelConnectionService {
     };
   }
 
-  /** Mints the state (with the login configuration, P356) and answers the login address (routes 1 and 40). */
+  /**
+   * Mints the state (with the login configuration, P356 — the Page one when `withPage`, P358) and
+   * answers the login address (routes 1 and 40).
+   */
   private async mintLogin({
     scope,
     userPublicId,
     provider,
     channelConnectionPublicId,
+    withPage,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     userPublicId: string;
     provider: ChannelConnectionProvider;
     channelConnectionPublicId: string | null;
+    withPage: boolean;
   }): Promise<ChannelConnectStartOutput> {
-    const { configId } = readMetaAppSettings();
+    const { configId: defaultConfigId } = readMetaAppSettings();
+    let configId = defaultConfigId;
+    if (withPage) {
+      const pageConfigId = readMetaPageConfigId();
+      if (pageConfigId === null) throw instagramPageLoginNotConfiguredError();
+      configId = pageConfigId;
+    }
     const state = await mintChannelConnectState({
       redis: this.redis,
       payload: {
@@ -1157,7 +1182,7 @@ export class ChannelConnectionService {
       },
     });
     return {
-      login_url: buildMetaLoginUrl({ state }),
+      login_url: buildMetaLoginUrl({ state, configId }),
       state_expires_at: new Date(
         Date.now() + CONNECT_STATE_MINUTES * MILLISECONDS_PER_MINUTE,
       ).toISOString(),

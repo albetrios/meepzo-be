@@ -14,6 +14,7 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
     profile_picture_url: 'https://cdn.example.com/picture.jpg',
     starter_questions_set_at: new Date('2026-11-22T10:00:00.000Z'),
     webhook_subscribed_at: new Date('2026-11-21T09:00:00.000Z'),
+    messages_webhook_missing_at: null,
     profile_synced_at: null,
   };
 
@@ -29,6 +30,7 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
       profile_picture_url: 'https://cdn.example.com/picture.jpg',
       starter_questions_set_at: '2026-11-22T10:00:00.000Z',
       is_webhook_subscribed: true,
+      is_messages_webhook_missing: false,
       profile_synced_at: null,
       settings,
     });
@@ -49,5 +51,14 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
       account_type: null,
       is_private: false,
     });
+  });
+
+  it('reads the missing-messages flag as is_messages_webhook_missing (P358)', () => {
+    const output = serializeInstagramAccountExtension({
+      instagram: { ...row, messages_webhook_missing_at: new Date('2026-11-25T09:00:00.000Z') },
+      settings,
+    });
+
+    expect(output.is_messages_webhook_missing).toBe(true);
   });
 });

@@ -352,6 +352,7 @@ connect, its hosts and its scopes are gone.)
 | `META_APP_ID`       | **App ID** (App settings → Basic; a GitHub Variable — it is public, the `client_id` of the login address). |
 | `META_APP_SECRET`   | **App secret** (App settings → Basic; a GitHub Secret, at least 32 characters — Meta's are 32) — the one secret for the code exchange, `appsecret_proof` and both signatures. Unset, every route that needs it answers 503. |
 | `META_CONFIG_ID`    | **Configuration ID** of the Facebook Login for Business configuration (a GitHub Variable — not secret): which permissions and assets the login asks for. |
+| `META_PAGE_CONFIG_ID` | **Optional** (default unset): a **second** configuration's ID (a GitHub Variable — not secret) that also requests the account's linked **Facebook Page** and `pages_show_list` (Advanced Access needed). Meta's temporary Unified Login limit: an account shared without its Page may get no `messages` webhooks; the subscription check flags it and the owner reconnects with `with_page: true` (routes 1 / 40), which uses this configuration. Unset, `with_page: true` answers `400 instagram_page_login_not_configured`; the default login is unaffected. |
 | `META_REDIRECT_URI` | The frontend's `/auth/meta/callback` page (a GitHub Variable), registered on the app exactly.  |
 | `META_WEBHOOK_VERIFY_TOKEN` | **You choose it** (a GitHub Secret, at least 32 characters — e.g. `openssl rand -hex 32`) and type it as the webhook's **Verify token** (step 5); Meta sends it back as `hub.verify_token`. Unset, Meta's subscription check answers `503 instagram_webhook_not_configured`. |
 
@@ -363,7 +364,11 @@ connect, its hosts and its scopes are gone.)
    `META_APP_SECRET`.
 3. **Facebook Login for Business** → **Configurations** → create a configuration (system-user
    token, the Instagram accounts and the permissions below) → copy its **Configuration ID** →
-   `META_CONFIG_ID`. **Settings** → **Valid OAuth redirect URIs**: add the frontend callback of every
+   `META_CONFIG_ID`. Optionally create a second configuration that also requests the linked Facebook Page
+   and `pages_show_list` (Meta's workaround for accounts shared without their Page, which may get no `messages`
+   webhooks) → `META_PAGE_CONFIG_ID`; keep the first for everyone else. Choose **never expires** for the
+   token in each configuration (owner decision, [P359](../../iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/decisions.md)) — there is no refresh job; the 7-day expiry warning stays as the safety net.
+   **Settings** → **Valid OAuth redirect URIs**: add the frontend callback of every
    environment — e.g. `https://app.example.com/auth/meta/callback` — and put that environment's one
    value in `META_REDIRECT_URI`. It must match character for character: the code exchange sends it
    again. For a local frontend, register `http://localhost:5173/auth/meta/callback` (the
@@ -398,9 +403,9 @@ connect, its hosts and its scopes are gone.)
 | development | the development frontend's `https://…/auth/meta/callback` | `.env.development`, pushed with `pnpm github:sync development` |
 | production | the production frontend's `https://…/auth/meta/callback` | `.env.production`, pushed with `pnpm github:sync production` |
 
-The hosted values — all five settings — reach their GitHub Environment only through
+The hosted values — all five settings, and `META_PAGE_CONFIG_ID` when set — reach their GitHub Environment only through
 `pnpm github:sync <environment>`: `META_APP_SECRET` and `META_WEBHOOK_VERIFY_TOKEN` as
-Secrets, `META_APP_ID`, `META_CONFIG_ID` and `META_REDIRECT_URI` as Variables (their half of `.env.example`
+Secrets, `META_APP_ID`, `META_CONFIG_ID`, `META_PAGE_CONFIG_ID` (when set) and `META_REDIRECT_URI` as Variables (their half of `.env.example`
 decides which).
 
 **The permissions connect needs** (`META_REQUIRED_PERMISSIONS` in

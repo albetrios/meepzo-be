@@ -437,6 +437,18 @@ const META_VARS = {
         'The Unified Login configuration id (config_id of the login address): which permissions and assets the login asks for. Not secret. Unset, the Instagram routes answer 503 instagram_not_configured.',
     },
   }),
+  // Optional (default unset): the second login configuration for an account shared without its
+  // Facebook Page (Meta's Unified Login messaging-webhook limit, P358). Routes 1 and 40 use it only
+  // when asked (`with_page: true`); asked while unset → 400 instagram_page_login_not_configured.
+  META_PAGE_CONFIG_ID: envVar({
+    schema: z.string().min(1).optional(),
+    meta: {
+      allowed:
+        'non-empty string (a second Facebook Login for Business configuration ID — the one that also requests the linked Facebook Page and pages_show_list), or unset',
+      description:
+        "The second Unified Login configuration id, for an Instagram account shared without its linked Facebook Page (Meta's temporary limit: such an account may receive no messages webhooks). It asks for the Page and pages_show_list, so the login goes through Facebook. Not secret. Routes 1 and 40 use it only when their body says with_page: true; unset, that answers 400 instagram_page_login_not_configured and the default login (META_CONFIG_ID) is unaffected.",
+    },
+  }),
   META_REDIRECT_URI: envVar({
     schema: z.url().optional(),
     meta: {

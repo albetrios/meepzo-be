@@ -15,7 +15,9 @@ import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { cleanStorableJson } from '@/shared/utils/text/storable-text.util.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramWebhookAccountState } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import { shouldRecordInstagramMessagesWebhookSeen } from '@/domains/app/sub-domains/instagram-account/instagram-messages-webhook-watch.util.js';
 import {
+  INSTAGRAM_MESSAGING_EVENT_KINDS,
   INSTAGRAM_WEBHOOK_EVENT_INTAKE_GROUPS,
   type InstagramWebhookEventIntakeGroup,
   type InstagramWebhookEventSkipReason,
@@ -451,6 +453,7 @@ export class InstagramWebhookService {
           const event = classifyInstagramWebhookItem({ ...entryItem, accountIds, entryTime });
           return event === null ? [] : [event];
         });
+        await this.recordMessagesWebhookSeen({ scope, account, events: classified, requestId });
         const ownSentMessageIds = await this.readOwnSentMessageIds({
           scope,
           channelAccount,
@@ -484,6 +487,41 @@ export class InstagramWebhookService {
         };
       },
     });
+  }
+
+  /**
+   * P358: the entry carried a messaging item (our own echoes included — they arrive by the same
+   * `messages` webhook), so the account's messaging webhooks work — the seen mark moves (at most
+   * hourly) and a missing-messages flag of the subscription check is emptied, in the entry's unit.
+   */
+  private async recordMessagesWebhookSeen({
+    scope,
+    account,
+    events,
+    requestId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    account: InstagramWebhookAccountState;
+    events: readonly ClassifiedInstagramWebhookEvent[];
+    requestId: string;
+  }): Promise<void> {
+    if (!events.some((event) => INSTAGRAM_MESSAGING_EVENT_KINDS.has(event.eventKind))) return;
+    const shouldRecord = shouldRecordInstagramMessagesWebhookSeen({
+      messagesWebhookSeenAt: account.messagesWebhookSeenAt,
+      isMessagesWebhookMissing: account.isMessagesWebhookMissing,
+      now: new Date(),
+    });
+    if (!shouldRecord) return;
+    await this.accountService.recordMessagesWebhookSeen({
+      scope,
+      instagramAccount: account.instagramAccount,
+    });
+    if (account.isMessagesWebhookMissing) {
+      logger.info(
+        { requestId, channelAccountPublicId: account.instagramAccountPublicId },
+        'app.instagram_account.messages_webhook_restored',
+      );
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   NotFoundError,
   UnprocessableEntityError,
   ValidationError,
+  fieldValidationError,
 } from '@/shared/errors/index.js';
 import {
   INSTAGRAM_ACCESS_TOKEN_ERROR_CODE,
@@ -33,6 +34,18 @@ export function instagramSignedRequestInvalidError(): ValidationError {
   return new ValidationError('errors:instagramSignedRequestInvalid').withReason(
     'instagram_signed_request_invalid',
   );
+}
+
+/**
+ * `400 instagram_page_login_not_configured` — routes 1 and 40 were sent `with_page: true` while the
+ * second login configuration (`META_PAGE_CONFIG_ID`, P358) is unset; `errors[].field` `with_page`.
+ * Detail and field message `errors:validation.instagramPageLoginNotConfigured`.
+ */
+export function instagramPageLoginNotConfiguredError(): ValidationError {
+  return fieldValidationError({
+    field: 'with_page',
+    messageKey: 'errors:validation.instagramPageLoginNotConfigured',
+  }).withReason('instagram_page_login_not_configured');
 }
 
 /** `404 channel_connection_not_found` — not this organization's, or a revoked one on 5 and 40. */

@@ -2289,3 +2289,8 @@ unique rule must carry the split key, so the launch's one partial unique index c
 run per automation and person" across months. First settled as a check under the contact lock in this and
 last month's parts; then **settled by [P100](decisions.md)** (routes-final rev 5, AU37): the key table
 `automation_run_open_key` holds the rule (see its section, Stage 3). No open question remains.
+
+**Built after Close — the Page-less fix (2026-11-26, [AS-BUILT](../AS-BUILT.md) R40 × Page-less fix, [P360](decisions.md)):**
+`app.instagram_accounts` + `messages_webhook_seen_at` (timestamptz, null — the last messaging webhook item, written at
+most hourly) and `messages_webhook_missing_at` (timestamptz, null — the subscription check's flag), new app migration
+`20261126024021_app_instagram_messages_webhook_watch.sql`; no constraint, index or RLS change.

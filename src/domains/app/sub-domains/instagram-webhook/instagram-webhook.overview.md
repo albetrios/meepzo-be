@@ -121,6 +121,11 @@ service.
   echoes dropped; then 5.B's store function — the 8-day replay guard, the keys
   (`app.instagram_webhook_event_keys`, `ON CONFLICT DO NOTHING`), then only the new keys' events. A
   repeat delivery saves nothing; nothing is kept in Redis (no buffer, P32).
+- **A messaging item marks the account** (P358): an entry with a messaging kind
+  (`INSTAGRAM_MESSAGING_EVENT_KINDS` — messages, our own echoes included, postbacks, reactions, …; never a
+  comment) writes the account's `messages_webhook_seen_at` in the same unit — at most hourly, and at once when the
+  subscription check had flagged missing messaging webhooks, which it clears
+  (`app.instagram_account.messages_webhook_restored`).
 - **A slow or absent Postgres is a failure Meta retries** (WH2, AC-16.5): a statement or lock wait
   cancelled by the unit's time is a `503` (`toInstagramWebhookStoreFailure`), a lost or refused
   connection the error handler's `503`, any other failure a `500` — never a `200`, so Meta delivers

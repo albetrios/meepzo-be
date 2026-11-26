@@ -9,6 +9,7 @@ const { accountRepository, tokenRepository, instagramClient, taskQueue } = vi.ho
     setInstagramIceBreakers: vi.fn(),
     deleteInstagramIceBreakers: vi.fn(),
     probeInstagramMessageAccess: vi.fn(),
+    readInstagramLatestConversationTime: vi.fn(),
     readMetaAppSettings: vi.fn(() => ({ appId: '222' })),
   },
   taskQueue: { enqueueInstagramTask: vi.fn() },
@@ -114,6 +115,8 @@ function connectedAccount(overrides: Record<string, unknown> = {}) {
     username: 'acme.shop',
     channel_connection_id: 5,
     webhook_subscribed_at: new Date('2026-10-01T00:00:00.000Z'),
+    messages_webhook_seen_at: null,
+    messages_webhook_missing_at: null,
     ...overrides,
   };
 }
@@ -133,6 +136,7 @@ const extensionService = {
   recordWebhookSubscribed: vi.fn(),
   recordWebhookSubscriptionLost: vi.fn(),
   recordStarterQuestionsSet: vi.fn(),
+  recordMessagesWebhookMissing: vi.fn(),
 };
 const listLiveStarterQuestions = vi.fn();
 const lookForMissedComments = vi.fn();
@@ -171,12 +175,17 @@ const sync = (tryNumber = 0) =>
     context,
     services,
   });
-const check = () =>
+/** A check outside the hour's first window — the messaging-webhook watch reads nothing then. */
+const LATER_IN_THE_HOUR = new Date('2026-11-26T10:35:00.000Z');
+/** A check in the hour's first 10-minute window — the watch's one read an hour (P358). */
+const FIRST_WINDOW_OF_THE_HOUR = new Date('2026-11-26T11:03:00.000Z');
+const check = (now: Date = LATER_IN_THE_HOUR) =>
   processInstagramWebhookSubscriptionCheckTask({
     organizationPublicId: ORGANIZATION_PUBLIC_ID,
     channelAccountPublicId: ACCOUNT_PUBLIC_ID,
     context,
     services,
+    now,
   });
 
 const ALL_FIELDS = [
@@ -324,7 +333,7 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
     await expect(setup(4)).resolves.toMatchObject({ outcome: 'retrying', notified: false });
     expect(logger.error).toHaveBeenCalledWith(
       expect.anything(),
-      'app.instagram_account.setup.notice_unwired',
+      'app.instagram_account.task.notice_unwired',
     );
   });
 
@@ -447,7 +456,12 @@ describe('the starter-question sync (WC-31, AC-6.11)', () => {
 
 describe('the webhook subscription check (WC-25, AC-16.22)', () => {
   it('finds every field on and does nothing more', async () => {
-    await expect(check()).resolves.toEqual({ outcome: 'subscribed', recovered: false });
+    await expect(check()).resolves.toEqual({
+      outcome: 'subscribed',
+      recovered: false,
+      messagesWebhook: 'not_this_hour',
+    });
+    expect(instagramClient.readInstagramLatestConversationTime).not.toHaveBeenCalled();
     expect(instagramClient.readInstagramWebhookSubscribedFields).toHaveBeenCalledWith(
       expect.objectContaining({ appId: '222' }),
     );
@@ -492,7 +506,11 @@ describe('the webhook subscription check (WC-25, AC-16.22)', () => {
     accountRepository.findByPublicIdInOrganization.mockResolvedValue(
       connectedAccount({ webhook_subscribed_at: null }),
     );
-    await expect(check()).resolves.toEqual({ outcome: 'subscribed', recovered: true });
+    await expect(check()).resolves.toEqual({
+      outcome: 'subscribed',
+      recovered: true,
+      messagesWebhook: 'not_subscribed',
+    });
     expect(extensionService.recordWebhookSubscribed).toHaveBeenCalledTimes(1);
   });
 
@@ -502,6 +520,99 @@ describe('the webhook subscription check (WC-25, AC-16.22)', () => {
     instagramClient.readInstagramWebhookSubscribedFields.mockRejectedValueOnce(tokenRefusedError());
     await expect(check()).resolves.toEqual({ outcome: 'broken' });
     expect(markAccountBroken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the messaging-webhook watch of the subscription check (P358)', () => {
+  const SUBSCRIBED_AT = new Date('2026-10-01T00:00:00.000Z');
+
+  it('flags an account whose conversations moved after the subscription with no messaging webhook, and tells the owners once', async () => {
+    instagramClient.readInstagramLatestConversationTime.mockResolvedValue(
+      new Date('2026-11-26T08:00:00.000Z'),
+    );
+    extensionService.recordMessagesWebhookMissing.mockResolvedValue(true);
+
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toEqual({
+      outcome: 'subscribed',
+      recovered: false,
+      messagesWebhook: 'flagged',
+    });
+    expect(extensionService.recordMessagesWebhookMissing).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId: ORGANIZATION_PUBLIC_ID }),
+      instagramAccount: { organizationId: 7, instagramAccountId: 41 },
+    });
+    expect(createOrganizationNotifications).toHaveBeenCalledTimes(1);
+    expect(createOrganizationNotifications).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUserIds: [3, 4],
+        dedupeKey: `messages-webhook-missing-${ACCOUNT_PUBLIC_ID}-${SUBSCRIBED_AT.getTime()}`,
+        notification: expect.objectContaining({
+          type: 'instagram.reconnect_required',
+          channels: ['in_app', 'email'],
+        }),
+      }),
+    );
+  });
+
+  it('sends no second notice when the flag was already set by a check in between', async () => {
+    instagramClient.readInstagramLatestConversationTime.mockResolvedValue(
+      new Date('2026-11-26T08:00:00.000Z'),
+    );
+    extensionService.recordMessagesWebhookMissing.mockResolvedValue(false);
+
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toMatchObject({
+      messagesWebhook: 'flagged',
+    });
+    expect(createOrganizationNotifications).not.toHaveBeenCalled();
+  });
+
+  it('a quiet inbox (no conversation, or none since the subscription) proves nothing', async () => {
+    instagramClient.readInstagramLatestConversationTime.mockResolvedValueOnce(null);
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toMatchObject({
+      messagesWebhook: 'quiet',
+    });
+    instagramClient.readInstagramLatestConversationTime.mockResolvedValueOnce(
+      new Date('2026-09-30T00:00:00.000Z'),
+    );
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toMatchObject({
+      messagesWebhook: 'quiet',
+    });
+    expect(extensionService.recordMessagesWebhookMissing).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'a messaging item seen since the subscription',
+      { messages_webhook_seen_at: new Date('2026-10-02T00:00:00.000Z') },
+      'seen',
+    ],
+    [
+      'already flagged',
+      { messages_webhook_missing_at: new Date('2026-11-01T00:00:00.000Z') },
+      'already_flagged',
+    ],
+    [
+      'subscribed less than a day ago',
+      { webhook_subscribed_at: new Date('2026-11-26T01:00:00.000Z') },
+      'too_soon',
+    ],
+  ])('reads nothing from Meta when %s', async (_case, overrides, outcome) => {
+    accountRepository.findByPublicIdInOrganization.mockResolvedValue(connectedAccount(overrides));
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toMatchObject({
+      messagesWebhook: outcome,
+    });
+    expect(instagramClient.readInstagramLatestConversationTime).not.toHaveBeenCalled();
+  });
+
+  it('a failed conversations read is unavailable; a refused token breaks the account', async () => {
+    instagramClient.readInstagramLatestConversationTime.mockRejectedValueOnce(refusedError());
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toMatchObject({
+      messagesWebhook: 'unavailable',
+    });
+    instagramClient.readInstagramLatestConversationTime.mockRejectedValueOnce(tokenRefusedError());
+    await expect(check(FIRST_WINDOW_OF_THE_HOUR)).resolves.toEqual({ outcome: 'broken' });
+    expect(markAccountBroken).toHaveBeenCalledTimes(1);
+    expect(extensionService.recordMessagesWebhookMissing).not.toHaveBeenCalled();
   });
 });
 

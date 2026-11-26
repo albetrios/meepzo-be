@@ -10,6 +10,7 @@ import {
   listMetaAdAccounts,
   listMetaAssignedInstagramAccounts,
   readInstagramAccountProfile,
+  readInstagramLatestConversationTime,
   readInstagramMediaItem,
   readInstagramUserProfile,
   readMetaClientBusinessId,
@@ -51,6 +52,9 @@ import assignedInstagramAccountsSuccessFixture from './fixtures/meta-graph/assig
   type: 'json',
 };
 import assignedInstagramAccountsFirstPageFixture from './fixtures/meta-graph/assigned-instagram-accounts.first-page.response.json' with {
+  type: 'json',
+};
+import conversationsSuccessFixture from './fixtures/meta-graph/conversations.success.response.json' with {
   type: 'json',
 };
 import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
@@ -144,6 +148,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
  * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
+ * | `conversations.success` | IG User `/conversations?platform=instagram&fields=updated_time` on `graph.facebook.com` with the system-user token — newest first, `updated_time` with `+0000`, cursor paging — docs/graph-api/reference/conversation, docs/instagram-platform/webhooks (Unified Login: look up direct messages missed while `messages` webhooks were missing, P358) |
  * | `subscribed-apps.success` | `POST` / `DELETE /{id}/subscribed_apps` → `{ success: true }` — docs/instagram-platform/webhooks |
  * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/messenger-platform/instagram (the Instagram Messaging API on Facebook Login), docs/instagram-platform/private-replies |
  * | `message-attachments.success` | the Attachment Upload API → `{ attachment_id }` for a reusable file (`platform: instagram`, `payload.url`, `is_reusable: true`) — docs/messenger-platform/reference/attachment-upload-api, docs/instagram-platform/instagram-api-with-facebook-login/messaging-api (send a media message by `attachment_id`) |
@@ -603,6 +608,57 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         profilePictureUrl: userProfileSuccessFixture.profile_pic,
         followerCount: userProfileSuccessFixture.follower_count,
         isUserFollowingBusiness: false,
+      });
+    });
+  });
+
+  describe('the conversations read (P358)', () => {
+    test('reads the newest conversation time with the token in the header, ids and times only', async () => {
+      z.object({
+        data: z.array(
+          z.object({
+            id: z.string().min(1),
+            updated_time: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/),
+          }),
+        ),
+      })
+        .loose()
+        .parse(conversationsSuccessFixture);
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/conversations`)
+        .query({
+          platform: 'instagram',
+          fields: 'updated_time',
+          limit: '5',
+          ...appSecretProofQuery(),
+        })
+        .reply(200, conversationsSuccessFixture);
+
+      await expect(
+        readInstagramLatestConversationTime({
+          encryptedAccessToken: encryptedAccountAccessToken,
+          instagramUserId: APP_USER_ID,
+        }),
+      ).resolves.toEqual(new Date('2026-11-25T18:42:07.000Z'));
+    });
+
+    test('no conversation reads as null; an answer without data is an outage', async () => {
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/conversations`)
+        .query(true)
+        .reply(200, { data: [] });
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/conversations`)
+        .query(true)
+        .reply(200, {});
+      const options = {
+        encryptedAccessToken: encryptedAccountAccessToken,
+        instagramUserId: APP_USER_ID,
+      };
+
+      await expect(readInstagramLatestConversationTime(options)).resolves.toBeNull();
+      await expect(readInstagramLatestConversationTime(options)).rejects.toMatchObject({
+        errorClass: 'outage',
       });
     });
   });

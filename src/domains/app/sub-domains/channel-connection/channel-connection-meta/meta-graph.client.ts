@@ -132,6 +132,19 @@ export function readMetaAppSettings(): MetaAppSettings {
 }
 
 /**
+ * The second login configuration (`META_PAGE_CONFIG_ID`, P358) — the one that also asks for the
+ * account's linked Facebook Page and `pages_show_list` — or `null` when it is unset.
+ *
+ * @remarks
+ * Routes 1 and 40 read it only when their body asks for it (`with_page: true`); the caller answers
+ * `400 instagram_page_login_not_configured` for `null`. The default configuration stays
+ * `META_CONFIG_ID` ({@link readMetaAppSettings}).
+ */
+export function readMetaPageConfigId(): string | null {
+  return getEnv().META_PAGE_CONFIG_ID ?? null;
+}
+
+/**
  * Hands the usage headers of one answer to the caller's recorder (MC19): parsed, and dropped when
  * the answer carries neither usage header. A failing recorder is logged and never fails the call —
  * the usage is a pace hint, the answer is what the caller needs.
@@ -940,6 +953,56 @@ export async function probeInstagramMessageAccess({
     }
     return 'unknown';
   }
+}
+
+/** How many conversations the latest-activity read asks for (Meta answers the newest first). */
+const INSTAGRAM_LATEST_CONVERSATION_READ_LIMIT = 5;
+
+/**
+ * When the account's newest Instagram conversation last changed
+ * (`GET /{instagram_user_id}/conversations?platform=instagram&fields=updated_time&limit=5`) — the
+ * subscription check's evidence that direct messages happen while no `messages` webhook arrives
+ * (Meta's Unified Login limit for an account shared without its Facebook Page, P358).
+ *
+ * @remarks
+ * - **Algorithm:** the read with the connection's token; the latest `updated_time` of the answer's
+ *   `data` (Meta lists the newest first; the five are compared anyway). No conversation → `null`.
+ * - **Failure modes:** `MetaGraphApiError` (a refused token is the caller's break); an answer
+ *   without a `data` list → `outage`.
+ * - **Side effects:** one Instagram call; nothing is stored — ids and times only, never a message.
+ * - **Notes:** a conversation whose `updated_time` does not read as a time is left out.
+ */
+export async function readInstagramLatestConversationTime({
+  encryptedAccessToken,
+  instagramUserId,
+  requestId,
+  recordUsage,
+}: InstagramWebhookSubscriptionOptions): Promise<Date | null> {
+  const answer = await callMetaGraphWithToken<{ data?: unknown }>({
+    encryptedAccessToken,
+    path: `${encodeURIComponent(instagramUserId)}/conversations`,
+    query: {
+      platform: 'instagram',
+      fields: 'updated_time',
+      limit: String(INSTAGRAM_LATEST_CONVERSATION_READ_LIMIT),
+    },
+    requestId,
+    recordUsage,
+  });
+  if (!Array.isArray(answer.data)) {
+    throw buildMetaGraphMalformedAnswerError({
+      operation: 'the conversations read',
+      missing: 'data',
+    });
+  }
+  let latest: Date | null = null;
+  for (const conversation of answer.data) {
+    const updatedTime = readAnswerText(readAnswerObject(conversation).updated_time);
+    const updatedAt = updatedTime === null ? null : new Date(updatedTime);
+    if (updatedAt === null || Number.isNaN(updatedAt.getTime())) continue;
+    if (latest === null || updatedAt > latest) latest = updatedAt;
+  }
+  return latest;
 }
 
 /** Who a message goes to: a person (`id`, their Instagram-scoped id) or a comment (a private reply). */

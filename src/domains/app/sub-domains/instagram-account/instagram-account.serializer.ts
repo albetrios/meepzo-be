@@ -8,7 +8,8 @@ import type { InstagramAccountExtensionOutput } from './instagram-account.types.
  *
  * @remarks
  * - **Algorithm:** names every key (no row spread); `is_webhook_subscribed` is
- *   `webhook_subscribed_at` set; timestamps as ISO 8601.
+ *   `webhook_subscribed_at` set, `is_messages_webhook_missing` is `messages_webhook_missing_at` set
+ *   (P358); timestamps as ISO 8601.
  * - **Failure modes:** none — a pure mapping. **Side effects:** none.
  * - **Notes:** no id of its own and never a token; the launch's `name`, `scopes` and
  *   `access_expires_at` are gone (IA8).
@@ -27,6 +28,7 @@ export function serializeInstagramAccountExtension({
     | 'profile_picture_url'
     | 'starter_questions_set_at'
     | 'webhook_subscribed_at'
+    | 'messages_webhook_missing_at'
     | 'profile_synced_at'
   >;
   settings: InstagramAccountSettingsOutput;
@@ -40,6 +42,7 @@ export function serializeInstagramAccountExtension({
     profile_picture_url: instagram.profile_picture_url,
     starter_questions_set_at: instagram.starter_questions_set_at?.toISOString() ?? null,
     is_webhook_subscribed: instagram.webhook_subscribed_at !== null,
+    is_messages_webhook_missing: instagram.messages_webhook_missing_at !== null,
     profile_synced_at: instagram.profile_synced_at?.toISOString() ?? null,
     settings,
   };

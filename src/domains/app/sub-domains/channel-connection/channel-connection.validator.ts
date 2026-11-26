@@ -9,7 +9,7 @@ import {
   type ListChannelConnectionAdsQueryInput,
   channelAccountPickDto,
   channelConnectCallbackDto,
-  emptyChannelConnectionBodyDto,
+  channelConnectStartBodyDto,
   listChannelConnectionAdAccountsQueryDto,
   listChannelConnectionAdsQueryDto,
   listChannelConnectionsQueryDto,
@@ -35,9 +35,13 @@ export function validateChannelConnectionIdParam(value: string): string {
   return validatePublicIdParam({ value, fieldName: 'channel_connection_id' });
 }
 
-/** Route 1 and 40's body: none, or an empty object (strict). */
-export function validateEmptyChannelConnectionBody(data: unknown): void {
-  parseWithSchema({ schema: emptyChannelConnectionBodyDto, data });
+/**
+ * Route 1 and 40's body: none, an empty object, or `with_page` (strict) — whether the login asks
+ * for the linked Facebook Page too (P358); `false` when absent.
+ */
+export function validateChannelConnectStartBody(data: unknown): { withPage: boolean } {
+  const parsed = parseWithSchema({ schema: channelConnectStartBodyDto, data });
+  return { withPage: parsed?.with_page === true };
 }
 
 /** Route 2's body: `code` (trailing `#_` stripped) and `state` (1.8). */

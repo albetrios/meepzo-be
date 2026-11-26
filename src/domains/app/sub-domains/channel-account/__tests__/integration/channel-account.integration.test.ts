@@ -302,12 +302,14 @@ describe('Channel account routes', () => {
         followers_count: expect.any(Number),
         starter_questions_set_at: null,
         is_webhook_subscribed: true,
+        is_messages_webhook_missing: false,
       });
       expect(Object.keys(data.instagram ?? {}).sort()).toEqual(
         [
           'account_type',
           'followers_count',
           'instagram_user_id',
+          'is_messages_webhook_missing',
           'is_private',
           'is_webhook_subscribed',
           'profile_picture_url',

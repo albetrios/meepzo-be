@@ -38,6 +38,12 @@ export interface InstagramAccountExtensionOutput {
   starter_questions_set_at: string | null;
   /** Whether `subscribed_apps` succeeded — `false` means no events arrive yet. */
   is_webhook_subscribed: boolean;
+  /**
+   * Whether direct messages happen at Instagram but none reaches the webhook (P358) — Meta's limit
+   * for an account shared without its linked Facebook Page: the screen asks for a reconnect with
+   * `with_page: true` (route 40). Back to `false` with the next message that arrives.
+   */
+  is_messages_webhook_missing: boolean;
   profile_synced_at: string | null;
   /** The account's settings (2.B.6). */
   settings: InstagramAccountSettingsOutput;
@@ -204,6 +210,10 @@ export interface InstagramWebhookAccountState {
   connectionStatus: InstagramAccountVisibleConnectionStatus;
   /** The account's automation switch (`is_automation_enabled`). */
   isAutomationEnabled: boolean;
+  /** The last messaging webhook item seen (`messages_webhook_seen_at`, P358); `null` before the first. */
+  messagesWebhookSeenAt: Date | null;
+  /** Whether the subscription check flagged missing messaging webhooks (`messages_webhook_missing_at`, P358). */
+  isMessagesWebhookMissing: boolean;
 }
 
 /**

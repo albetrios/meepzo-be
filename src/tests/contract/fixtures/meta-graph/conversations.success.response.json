@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "aWdfZAG06MTpJR01lc3NhZA2VUaHJlYWQ6MTc4NDE0MDAwMDAwMDAwMDE6MzQwMjgyMzY2ODQxNzEwMzAx",
+      "updated_time": "2026-11-25T18:42:07+0000"
+    },
+    {
+      "id": "aWdfZAG06MTpJR01lc3NhZA2VUaHJlYWQ6MTc4NDE0MDAwMDAwMDAwMDE6MzQwMjgyMzY2ODQxNzEwMzAy",
+      "updated_time": "2026-11-24T09:15:33+0000"
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "after": "QVFIUmxtcGhhbG9fZAkNfZA2ctNWVyOFNoSWRnd1pBYmdXbHBNT3c",
+      "before": "QVFIUmVWcVRmUFNZAX0Vfa2JhQkJzNUJmT0FxdGVNWFhCWUc5UWc"
+    },
+    "next": "https://graph.facebook.com/v27.0/17841400000000001/conversations?platform=instagram&fields=updated_time&limit=2&after=QVFIUmxtcGhhbG9fZAkNfZA2ctNWVyOFNoSWRnd1pBYmdXbHBNT3c"
+  }
+}

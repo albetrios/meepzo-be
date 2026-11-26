@@ -24,6 +24,25 @@ export const INSTAGRAM_WEBHOOK_EVENT_KINDS = [
 export type InstagramWebhookEventKind = (typeof INSTAGRAM_WEBHOOK_EVENT_KINDS)[number];
 
 /**
+ * The event kinds that only arrive with `instagram_manage_messages` (Meta's `messages`,
+ * `messaging_postbacks`, `messaging_referral` and `message_reactions` fields) — what Meta's
+ * Unified Login limit withholds from an account shared without its Facebook Page (P358). Comments,
+ * Live comments and `unknown` items do not count.
+ */
+export const INSTAGRAM_MESSAGING_EVENT_KINDS: ReadonlySet<InstagramWebhookEventKind> = new Set([
+  'message',
+  'story_reply',
+  'story_mention',
+  'shared_post',
+  'postback',
+  'ice_breaker',
+  'referral',
+  'reaction',
+  'echo',
+  'edit',
+]);
+
+/**
  * Every value of the generated `app.instagram_webhook_events.intake_group` (WH11): `comments` for a
  * `comment`, `live` for a `live_comment`, `messages` for every other kind — each intake job claims
  * only its own group.

@@ -126,5 +126,11 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   the one-use state and the callback stores that `config_id`, never a setting changed meanwhile; the exchange's
   `expires_in` becomes `channel_connection_tokens.expires_at` (empty when Meta names none — whether the token ends
   depends on the login configuration).
+- **The Page login configuration** (P358): routes 1 and 40 take an optional `{ "with_page": true }` body — the login
+  then carries `META_PAGE_CONFIG_ID` (a second configuration that also asks for the linked Facebook Page and
+  `pages_show_list`, Meta's workaround for an account shared without its Page, which may get no `messages`
+  webhooks), kept in the state and stored by the callback like any `config_id`. Unset →
+  `400 instagram_page_login_not_configured` (`errors[].field` `with_page`). The token's expiry is the
+  configuration's: choose "never expires" in the Meta dashboard (P359).
 - **A reconnect moves accounts** (MC6): every not-revoked account of the organization the business still assigns is
   attached to the connection and goes `connected`; a connection a move left without accounts is revoked with its token.

@@ -136,3 +136,10 @@ erDiagram
     number count
   }
 ```
+
+## Built
+
+| Table | Built as | Commit | AS-BUILT |
+| --- | --- | --- | --- |
+| `billing.plans` | Free, Starter, Growth, Pro: `broadcasts`, `segments` on (data migration `20261126140000_billing_free_plan_segments_broadcasts.sql`) | `7942eb0` | row 3 |
+| `billing.organization_entitlement_overrides` | allowed keys derived from the registry, same 13; no migration | `3d96cf3` | row 2 |

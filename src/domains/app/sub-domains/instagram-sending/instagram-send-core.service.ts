@@ -1482,6 +1482,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
             metaMessageId: input.instagramMessageId,
             resultGroup: input.resultGroup,
             error_name: (error as Error | null)?.name,
+            error_code: getPostgresErrorCode(error),
           },
           'app.instagram_send.result_save_failed',
         );

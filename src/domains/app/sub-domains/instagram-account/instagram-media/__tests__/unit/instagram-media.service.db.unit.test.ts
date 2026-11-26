@@ -116,6 +116,19 @@ describe('InstagramMediaService stored posts (database)', () => {
     expect(stored?.graph_data).toEqual(CAROUSEL_POST);
   });
 
+  it('keeps a shortcode that fits its column and drops a longer one instead of failing the save', async () => {
+    const withShortcode = (shortcode: string) =>
+      service.upsertFromInstagram({
+        scope,
+        channelAccount,
+        mediaItem: { ...CAROUSEL_POST, shortcode } as typeof CAROUSEL_POST,
+      });
+    await expect(withShortcode('AcmeCarousel')).resolves.toMatchObject({
+      shortcode: 'AcmeCarousel',
+    });
+    await expect(withShortcode('s'.repeat(65))).resolves.toMatchObject({ shortcode: null });
+  });
+
   it('refreshes the same post, with missing counts as 0 and Instagram’s comment switch when it says one', async () => {
     const first = await service.upsertFromInstagram({
       scope,

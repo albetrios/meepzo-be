@@ -13,9 +13,14 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.instagram_webhook_events` — one saved event of a Meta webhook delivery (a `changes[]` or
@@ -48,9 +53,13 @@ export const instagram_webhook_events = appSchema
       /** `app.channel_accounts.id` the events were saved for (composite key with the organization). */
       channel_account_id: bigint('channel_account_id', { mode: 'number' }).notNull(),
       /** The delivery entry's `id` as received — the account's webhook user id; digits only. */
-      instagram_user_id: varchar('instagram_user_id', { length: 64 }).notNull(),
+      instagram_user_id: varchar('instagram_user_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }).notNull(),
       /** The person on the other side — the sender, or for an echo the recipient; digits only. */
-      contact_instagram_user_id: varchar('contact_instagram_user_id', { length: 64 }),
+      contact_instagram_user_id: varchar('contact_instagram_user_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }),
       event_kind: varchar('event_kind', { length: 20 }).notNull(),
       /** `comments` · `live` · `messages`, generated from `event_kind` (WH11) — each intake job claims its own. */
       intake_group: varchar('intake_group', { length: 8 }).generatedAlwaysAs(
@@ -162,7 +171,7 @@ export const instagram_webhook_events = appSchema
       check('chk_instagram_webhook_events_attempt_count', sql`${table.attempt_count} >= 0`),
       check(
         'chk_instagram_webhook_events_instagram_ids',
-        sql`${table.instagram_user_id} ~ '^[0-9]{1,64}$' AND (${table.contact_instagram_user_id} IS NULL OR ${table.contact_instagram_user_id} ~ '^[0-9]{1,64}$')`,
+        sql`${table.instagram_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)} AND (${table.contact_instagram_user_id} IS NULL OR ${table.contact_instagram_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)})`,
       ),
       check(
         'chk_instagram_webhook_events_updated',

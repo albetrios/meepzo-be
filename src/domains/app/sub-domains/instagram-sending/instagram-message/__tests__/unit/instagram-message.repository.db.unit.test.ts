@@ -135,6 +135,24 @@ describe('InstagramMessageRepository (database)', () => {
     });
   });
 
+  it("saves Meta's real-length message id (167 characters) as sent", async () => {
+    // Meta's real `mid`s run past the 128 characters first assumed; that limit failed every save.
+    const realLengthMessageId = `aWdfZAG1faWQ6${'A'.repeat(154)}`;
+    expect(realLengthMessageId).toHaveLength(167);
+    const message = await waitingMessage({ status: 'sending', sending_at: new Date() });
+    const finished = await inUnit((repository) =>
+      repository.finishSending({
+        key: keyOf(message),
+        status: 'sent',
+        reason: null,
+        instagramMessageId: realLengthMessageId,
+        errorCode: null,
+        errorSubcode: null,
+      }),
+    );
+    expect(finished).toMatchObject({ status: 'sent', instagram_message_id: realLengthMessageId });
+  });
+
   it('puts a sending row back to waiting, counting the try only when asked', async () => {
     const message = await waitingMessage({ status: 'sending', sending_at: new Date(), tries: 1 });
     const key = keyOf(message);

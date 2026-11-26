@@ -26,9 +26,12 @@ import {
   AUTOMATION_COMMENT_LOG_STEP_STATUSES,
   AUTOMATION_COMMENT_LOG_STEPS,
   AUTOMATION_PUBLIC_REPLY_SKIP_REASONS,
-  AUTOMATION_RUN_INSTAGRAM_ID_PATTERN,
   AUTOMATION_RUN_WAITING_FOR,
 } from './automation-run.constants.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /** A comment-log step status column: `off` until the step is reached (schema-routes § 8.12). */
 function stepStatusColumn(name: string) {
@@ -51,8 +54,10 @@ const automationCommentLogColumns = {
   /** A copy of the run's start (AU36), set with `automation_run_id`. */
   automation_run_started_at: timestamp('automation_run_started_at', { withTimezone: true }),
   contact_id: bigint('contact_id', { mode: 'number' }).notNull(),
-  instagram_media_id: varchar('instagram_media_id', { length: 64 }).notNull(),
-  instagram_comment_id: varchar('instagram_comment_id', { length: 64 }).notNull(),
+  instagram_media_id: varchar('instagram_media_id', { length: INSTAGRAM_ID_MAX_LENGTH }).notNull(),
+  instagram_comment_id: varchar('instagram_comment_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }).notNull(),
   /** The comment's own time (AU28). */
   comment_occurred_at: timestamp('comment_occurred_at', { withTimezone: true }),
   /** Personal data — cleared by the contact erase (AU26). */
@@ -60,7 +65,9 @@ const automationCommentLogColumns = {
   /** Personal data — cleared by the contact erase (AU26). */
   commenter_username: varchar('commenter_username', { length: 64 }),
   /** Personal data — cleared by the contact erase (AU26). */
-  commenter_instagram_user_id: varchar('commenter_instagram_user_id', { length: 64 }),
+  commenter_instagram_user_id: varchar('commenter_instagram_user_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   public_reply_status: stepStatusColumn('public_reply_status'),
   /** The public reply text sent. */
   public_reply_text: text('public_reply_text'),
@@ -231,8 +238,8 @@ function automationCommentLogStateChecks(table: AutomationCommentLogTableColumns
     ),
     check(
       'chk_automation_comment_logs_instagram_ids',
-      sql`${table.instagram_media_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}
-        AND ${table.instagram_comment_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}`,
+      sql`${table.instagram_media_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}
+        AND ${table.instagram_comment_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
     ),
     check(
       'chk_automation_comment_logs_run_copy',

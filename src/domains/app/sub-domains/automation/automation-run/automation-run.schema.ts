@@ -23,7 +23,6 @@ import { AUTOMATION_TRIGGER_TYPES } from '@/domains/app/sub-domains/automation/a
 import {
   AUTOMATION_RUN_CANCEL_REASONS,
   AUTOMATION_RUN_EVENT_KEY_MAX_LENGTH,
-  AUTOMATION_RUN_INSTAGRAM_ID_PATTERN,
   AUTOMATION_RUN_LAST_MESSAGE_NUMBER_MAX,
   AUTOMATION_RUN_ONCE_KEY_MAX_LENGTH,
   AUTOMATION_RUN_STATUSES,
@@ -31,6 +30,10 @@ import {
   AUTOMATION_RUN_WAITING_FOR,
 } from './automation-run.constants.js';
 import type { AutomationRunVersionNumbers } from './automation-run.types.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /** The columns of `app.automation_runs` (routes-final § 4.B.3), as the table is built from them. */
 const automationRunColumns = {
@@ -45,11 +48,17 @@ const automationRunColumns = {
   /** How this run started — one of the 15 ways (AU21; may differ through "also start from"). */
   trigger_type: varchar('trigger_type', { length: 20 }).notNull(),
   /** The commented, shared or ad post. */
-  trigger_instagram_media_id: varchar('trigger_instagram_media_id', { length: 64 }),
+  trigger_instagram_media_id: varchar('trigger_instagram_media_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   /** The comment; set on the three comment ways. */
-  trigger_instagram_comment_id: varchar('trigger_instagram_comment_id', { length: 64 }),
+  trigger_instagram_comment_id: varchar('trigger_instagram_comment_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   /** The story replied to or mentioned in. */
-  trigger_instagram_story_id: varchar('trigger_instagram_story_id', { length: 64 }),
+  trigger_instagram_story_id: varchar('trigger_instagram_story_id', {
+    length: INSTAGRAM_ID_MAX_LENGTH,
+  }),
   /** The event's own time — the 7-day clock (D9). */
   trigger_occurred_at: timestamp('trigger_occurred_at', { withTimezone: true }).notNull(),
   /** The plan's `post_key` (D13): at most one DM per automation, person and key. */
@@ -154,7 +163,10 @@ function automationRunKeysAndIndexes(table: AutomationRunTableColumns) {
   ];
 }
 
-/** The ways to start that carry a comment (`chk_automation_runs_trigger_targets`). */
+/**
+ * The ways to start that carry a comment (`chk_automation_runs_trigger_targets`). A story reply
+ * carries its story id; a story mention may not — Meta's webhook sends only the story's URL.
+ */
 const COMMENT_TRIGGER_TYPES = sqlLiteralList(['comment', 'live_comment', 'ad_comment']);
 
 /** The value-list and state CHECKs of 4.B.3 (`chk_automation_runs_<rule>`). */
@@ -200,13 +212,13 @@ function automationRunChecks(table: AutomationRunTableColumns) {
     check(
       'chk_automation_runs_trigger_targets',
       sql`(${table.trigger_type} NOT IN (${COMMENT_TRIGGER_TYPES}) OR (${table.trigger_instagram_media_id} IS NOT NULL AND ${table.trigger_instagram_comment_id} IS NOT NULL))
-        AND (${table.trigger_type} NOT IN ('story_reply', 'story_mention') OR ${table.trigger_instagram_story_id} IS NOT NULL)`,
+        AND (${table.trigger_type} <> 'story_reply' OR ${table.trigger_instagram_story_id} IS NOT NULL)`,
     ),
     check(
       'chk_automation_runs_instagram_ids',
-      sql`${table.trigger_instagram_media_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}
-        AND ${table.trigger_instagram_comment_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}
-        AND ${table.trigger_instagram_story_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}`,
+      sql`${table.trigger_instagram_media_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}
+        AND ${table.trigger_instagram_comment_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}
+        AND ${table.trigger_instagram_story_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
     ),
     check(
       'chk_automation_runs_started_at_milliseconds',

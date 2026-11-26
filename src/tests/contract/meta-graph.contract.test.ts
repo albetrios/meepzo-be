@@ -29,6 +29,7 @@ import {
   MetaGraphApiError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
+import { INSTAGRAM_OPAQUE_ID_MAX_LENGTH } from '@/shared/constants/instagram.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
   decryptFieldSecret,
@@ -769,6 +770,22 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/message_attachments`)
         .query(appSecretProofQuery())
         .reply(200, {});
+
+      const rejection = await uploadInstagramMessageAttachment({
+        encryptedAccessToken: encryptedAccountAccessToken,
+        instagramUserId: APP_USER_ID,
+        type: 'image',
+        url: 'https://files.example.test/message-media/org_x/photo.png',
+      }).catch((error: unknown) => error);
+      expect(rejection).toBeInstanceOf(MetaGraphApiError);
+      expect((rejection as MetaGraphApiError).errorClass).toBe('outage');
+    });
+
+    test('an attachment_id longer than its column is a malformed answer (outage), never a failed save', async () => {
+      graphWithAccountToken()
+        .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/message_attachments`)
+        .query(appSecretProofQuery())
+        .reply(200, { attachment_id: '1'.repeat(INSTAGRAM_OPAQUE_ID_MAX_LENGTH + 1) });
 
       const rejection = await uploadInstagramMessageAttachment({
         encryptedAccessToken: encryptedAccountAccessToken,

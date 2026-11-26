@@ -319,7 +319,7 @@ function processMigrationSql(sql: string): void {
     }
   }
 
-  // ALTER TABLE schema.table ALTER COLUMN col SET | DROP NOT NULL (several clauses per statement).
+  // ALTER TABLE schema.table ALTER COLUMN col SET | DROP NOT NULL or TYPE <type> (several clauses per statement).
   const alterColumnPattern =
     /alter\s+table\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?\."?([a-z_][a-z0-9_]*)"?\s+(alter\s[^;]+)/gi;
   for (const alterColumnMatch of sql.matchAll(alterColumnPattern)) {
@@ -334,6 +334,13 @@ function processMigrationSql(sql: string): void {
         );
       const column = nullability ? table.columns.get(nullability[1] ?? '') : undefined;
       if (column) column.notNull = nullability?.[2]?.toLowerCase() === 'set';
+      // ALTER COLUMN col [SET DATA] TYPE <type> [USING ...] — the column takes its new type.
+      const typeChange =
+        /^alter\s+(?:column\s+)?"?([a-z_][a-z0-9_]*)"?\s+(?:set\s+data\s+)?type\s+(.+?)(?:\s+using\s.*)?$/is.exec(
+          clause.trim(),
+        );
+      const retypedColumn = typeChange ? table.columns.get(typeChange[1] ?? '') : undefined;
+      if (retypedColumn) retypedColumn.dbmlType = normalizeSqlType(typeChange?.[2] ?? '');
     }
   }
 

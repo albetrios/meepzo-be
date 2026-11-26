@@ -10,6 +10,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
+import { INSTAGRAM_OPAQUE_ID_MAX_LENGTH } from '@/shared/constants/instagram.constants.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 
@@ -39,7 +40,7 @@ export const instagram_attachments = appSchema
       /** The upload's public id (`upl_…`) — a value, never a key (P25). */
       upload_public_id: varchar('upload_public_id', { length: 28 }).notNull(),
       /** Meta's reusable attachment id for this account. */
-      attachment_id: varchar('attachment_id', { length: 128 }).notNull(),
+      attachment_id: varchar('attachment_id', { length: INSTAGRAM_OPAQUE_ID_MAX_LENGTH }).notNull(),
       created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
       updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },

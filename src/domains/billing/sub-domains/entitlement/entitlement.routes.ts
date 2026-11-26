@@ -64,7 +64,12 @@ export function entitlementRoutes(service: EntitlementService): FastifyPluginAsy
     zodApplication.post(
       '/entitlement-overrides',
       {
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'global-admin route: sets an organization exception, no organization plan applies',
+          },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
         schema: {
@@ -80,7 +85,12 @@ export function entitlementRoutes(service: EntitlementService): FastifyPluginAsy
     zodApplication.delete<{ Params: { entitlement_override_id: string } }>(
       '/entitlement-overrides/:entitlement_override_id',
       {
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'global-admin route: sets an organization exception, no organization plan applies',
+          },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
         schema: {

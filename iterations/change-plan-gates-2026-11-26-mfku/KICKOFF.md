@@ -71,7 +71,7 @@ changes as the checklist. Parallel lanes once dependencies are done: rows 3 ∥ 
 | 7 | Seats onto the module (§5 SEC1–SEC4) | sub-domain | 2, 5 | `/be-build-requirement` | AC-5, AC-9 | Claude | done |
 | 8 | Job declarations for every job; the hand-kept model deleted (§6 JGC1–JGC5) | background | 5, 6 | `/be-worker-complete` (be-workers-events → be-test-generator → be-tsdoc-export-guard) | AC-2, AC-3 | Claude | done |
 | 9 | Remaining plan-access callers (auth me context, Stripe webhook, subscription emits) and the policy test (§1 ENC6, ENC7) | feature | 6, 7, 8 | `/be-build-requirement` | AC-4 | Claude | done |
-| 10 | Docs and close: the "plan gates" pattern in the system narratives, the refusal doc, the stale read-only flow line (P9), the frontend route map, acceptance (§3 RGC7) | flow | 3, 4, 9 | be-system-narrative-maintainer, be-docs-maintainer, `pnpm iteration:frontend-map` | AC-12, AC-13 | Claude | open |
+| 10 | Docs and close: the "plan gates" pattern in the system narratives, the refusal doc, the stale read-only flow line (P9), the frontend route map, acceptance (§3 RGC7) | flow | 3, 4, 9 | be-system-narrative-maintainer, be-docs-maintainer, `pnpm iteration:frontend-map` | AC-12, AC-13 | Claude | done |
 
 ## 6. Requirements index
 

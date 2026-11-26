@@ -4,18 +4,18 @@ Brief mode: each criterion traces to `intake-files/BRIEF.md` or a decision. Resu
 
 | Item | Source | Result | Evidence |
 | --- | --- | --- | --- |
-| AC-1 Every write route declares `config.planGate`; the coverage test fails on an undeclared one | BRIEF:L115 | | |
-| AC-2 Every job declares a plan gate in its queue's worker-registry entry; the coverage test fails on an undeclared one | BRIEF:L116, P33 | | |
-| AC-3 The hand-kept route and job gate model (a test helper) is deleted; the coverage test reads the live declarations | BRIEF:L117 | | |
-| AC-4 No source file outside subscription and entitlement reads plan access, and no feature names a plan; a policy test enforces it | BRIEF:L118 | | |
-| AC-5 Every plan refusal comes from the one builder, with every status as before; integration tests assert the bodies | BRIEF:L119 | | |
-| AC-6 Changing a switch or one of the 2 limits for an organization is one override row; seats are not overridable | BRIEF:L120, P18 | | |
-| AC-7 `GET /api/v1/billing/entitlements` returns each value with its source (`override` / `plan` / `default`) and usage for counted keys | BRIEF:L121 | | |
-| AC-8 Unit tests cover the merge order, override expiry, the registry default and the typed registry | BRIEF:L122 | | |
-| AC-9 The month-cap DB tests, AC-22.4, the account-race tests and the seat lock-order test pass unchanged | BRIEF:L123 | | |
-| AC-10 AC-2.8 passes unchanged; the new order test (plan guard → permission → idempotency claim) passes before and after the guard moves | BRIEF:L124, R2 | | |
-| AC-11 `resolve` does one database read per request or job (asserted); no cross-request cache | BRIEF:L125 | | |
-| AC-12 The system narratives have a "plan gates" pattern; the refusal doc and the frontend route map describe the shapes; the stale read-only flow line is corrected (P9) | BRIEF:L126, P9 | | |
-| AC-13 `pnpm ci:local`, `pnpm test:rls-role` and the SonarQube gate are green; `pnpm iteration:freeze-check` passes after the freeze | BRIEF:L127 | | |
-| AC-14 `LAPSED_PLAN_READ_ONLY_ENABLED` defaults to `false` in the schema, `.env.example` and the env catalog | P5 | | |
-| AC-15 A Free organization can create and send broadcasts and save segments; an override turning a switch off still refuses with `403 plan_lacks_feature` | P13, P27, PL4 | | |
+| AC-1 Every write route declares `config.planGate`; the coverage test fails on an undeclared one | BRIEF:L115 | met | AS-BUILT row 5; `plan-gate-coverage.global.test.ts` reads live route options; verifier: 128/128 match the old model, a removed declaration is caught |
+| AC-2 Every job declares a plan gate in its queue's worker-registry entry; the coverage test fails on an undeclared one | BRIEF:L116, P33 | met | AS-BUILT row 8; 92 jobs declare (12 paid), names derived from code; verifier: matches the old job model; planted gaps caught |
+| AC-3 The hand-kept route and job gate model (a test helper) is deleted; the coverage test reads the live declarations | BRIEF:L117 | met | `route-plan-gate-model.ts` deleted in `d5a07bc`; no reference left (row 8 verification) |
+| AC-4 No source file outside subscription and entitlement reads plan access, and no feature names a plan; a policy test enforces it | BRIEF:L118 | met | `no-plan-access-outside-entitlement.global.test.ts` (row 9); planted violations caught; only subscription's own reads remain (EN7) |
+| AC-5 Every plan refusal comes from the one builder, with every status as before; integration tests assert the bodies | BRIEF:L119 | met | `buildPlanRefusal` is the only producer (rows 2, 5, 6, 7); integration tests assert whole bodies and key order; statuses unchanged (verifier: 10 files / 223 passed) |
+| AC-6 Changing a switch or one of the 2 limits for an organization is one override row; seats are not overridable | BRIEF:L120, P18 | met | override lists derived from the registry, same 13 keys (row 2, unit-pinned); seats not overridable (P18) |
+| AC-7 `GET /api/v1/billing/entitlements` returns each value with its source (`override` / `plan` / `default`) and usage for counted keys | BRIEF:L121 | met | `sources` on `GET /api/v1/billing/entitlements` (row 2); `entitlements.integration.test.ts` covers plan, default, override and expiry |
+| AC-8 Unit tests cover the merge order, override expiry, the registry default and the typed registry | BRIEF:L122 | met | unit tests for merge order, expiry, registry default, typed registry (row 2; verifier: 19 files / 141 passed) |
+| AC-9 The month-cap DB tests, AC-22.4, the account-race tests and the seat lock-order test pass unchanged | BRIEF:L123 | met | month-cap DB tests, AC-22.4 e2e, account-race and row-cap tests unchanged in what they assert (rows 6, 7 verification) |
+| AC-10 AC-2.8 passes unchanged; the new order test (plan guard → permission → idempotency claim) passes before and after the guard moves | BRIEF:L124, R2 | met | AC-2.8 unchanged; the row-1 order tests pass before and after the guard moved, and fail under the mutation (rows 1, 5; verifier) |
+| AC-11 `resolve` does one database read per request or job (asserted); no cross-request cache | BRIEF:L125 | met | one `getPlanAccess` per `resolve`, unit-asserted (row 2); one resolve per request or job by code trace (verifier); no cache |
+| AC-12 The system narratives have a "plan gates" pattern; the refusal doc and the frontend route map describe the shapes; the stale read-only flow line is corrected (P9) | BRIEF:L126, P9 | met | `src/PATTERNS.md` plan-gates pattern, `src/FLOWS.md` read-only flow (P9), refusal doc corrected (`212d681`), frontend route map in sync (row 10) |
+| AC-13 `pnpm ci:local`, `pnpm test:rls-role` and the SonarQube gate are green; `pnpm iteration:freeze-check` passes after the freeze | BRIEF:L127 | met | Close gates on the final commit: see AS-BUILT › Close verification |
+| AC-14 `LAPSED_PLAN_READ_ONLY_ENABLED` defaults to `false` in the schema, `.env.example` and the env catalog | P5 | met | `booleanString('false')`; `.env.example`, env catalog and runbooks say `false` (row 4, `212d681`) |
+| AC-15 A Free organization can create and send broadcasts and save segments; an override turning a switch off still refuses with `403 plan_lacks_feature` | P13, P27, PL4 | met | data migration `20261126140000` + seed, pinned by `plan-catalog-migration.unit.test.ts`; Free allowed, override-off refuses (row 3) |

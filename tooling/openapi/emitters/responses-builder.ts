@@ -228,10 +228,14 @@ function permissionDeniedExample(): Record<string, unknown> {
  * @remarks
  * `GET /auth/oauth/{provider}/callback` signs up, links and signs in; in link mode an account
  * already linked to someone else is `409 provider_account_in_use` (feat-instagram-dm-sending
- * § 10.B.9, AT12). Keyed by `"<METHOD> <openapi-path>"`.
+ * § 10.B.9, AT12). `GET /app/social/channel-connections/{channel_connection_id}/shared-assets`
+ * re-reads Meta and a refused token moves the connection to error, so a connection that is not
+ * connected is `409 channel_connection_not_connected` (feat-meta-connect-flow route 151). Keyed by
+ * `"<METHOD> <openapi-path>"`.
  */
 const GET_ROUTE_KEYS_ANSWERING_CONFLICT = new Set<string>([
   'GET /api/v1/auth/oauth/{provider}/callback',
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/shared-assets',
 ]);
 
 /**

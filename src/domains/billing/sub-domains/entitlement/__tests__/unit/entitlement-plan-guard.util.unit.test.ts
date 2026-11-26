@@ -17,6 +17,7 @@ import type {
   PlanAccessState,
 } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
 import { ForbiddenError, UnauthorizedError } from '@/shared/errors/index.js';
+import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 
 const GRACE_ENDED_AT = new Date('2026-11-01T00:00:00.000Z');
 
@@ -115,7 +116,7 @@ describe('createPlanGuardRouteHook (change-plan-gates RG3, P4)', () => {
   }): RouteOptions {
     return {
       method: 'POST',
-      url: '/api/v1/app/broadcasts/:broadcast_id/send',
+      url: testApiPath('/app/broadcasts/:broadcast_id/send'),
       handler: async () => undefined,
       config: planGate === undefined ? {} : { planGate },
       preHandler,

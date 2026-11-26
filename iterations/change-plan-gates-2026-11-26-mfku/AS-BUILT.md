@@ -56,6 +56,22 @@ None yet.
   - Key namespacing (P17) and seat overrides (P18) wait for a second product and a seat-pricing decision.
   - No request-level test counts plan reads for go-live and broadcast send (the one-read rule is unit-asserted and code-traced; verifier note, AC-11).
 
+## Close verification
+
+All gates ran on commit `e0f0e62`, with a clean working tree. Every command exited 0.
+
+| Gate | Result |
+| --- | --- |
+| `pnpm validate` | 0 issues in 0 files |
+| `pnpm ci:local` | `✓ local: all steps passed`: test:fast 895 files; the database lanes 128 + 37 + 185 + 101 (1,335 tests) + 10 files; 204 routes in the error-status check; route success coverage passed |
+| `pnpm test:rls-role` | 217 files passed, 5 skipped (1,850 tests passed, 10 skipped) |
+| SonarQube (`pnpm sonar:scan`) | 0 issues, 0 hotspots |
+| `pnpm iteration:frontend-map change-plan-gates-2026-11-26-mfku --check` | in sync (207 routes) |
+| `/be-pre-merge-review` (verifier, RLS, idempotency, production hardening, SQL design) | no critical or major finding; the minor findings were fixed (`212d681`, `12b1d4e`) or accepted (P27 SQL list, row 6 § 4.9 note) |
+| `pnpm iteration:freeze-check` | run after the `frozen` commit, before the push |
+
+Rows 2–10 ran under `/goal complete all rows`; the owner reviews them at Close, through the PR.
+
 ## Standing deviations
 
 Baseline `none`, so the starting list is empty. KICKOFF.md § 8 carries in the frozen

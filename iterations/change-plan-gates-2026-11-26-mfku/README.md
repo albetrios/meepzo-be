@@ -9,7 +9,7 @@
 | Opened | 2026-11-26 |
 | Branch | feat/instagram-automation |
 | Baseline | none |
-| Status | implementing |
+| Status | done |
 | Summary | Declare every plan gate once in one billing entitlements module that every route and job enforces. |
 | Drop placed | 2026-11-26 |
 | Drop source | /tmp/claude-0/-home-user-meepzo-be/f16ab168-1d30-578c-964e-48bcb20488cb/scratchpad/drop |
@@ -23,3 +23,4 @@
 - 2026-11-26 · planning → ready-for-approval · — · Nikunj Mavani
 - 2026-11-26 · ready-for-approval → approved · — · Nikunj Mavani
 - 2026-11-26 · approved → implementing · — · Nikunj Mavani
+- 2026-11-26 · implementing → done · — · Nikunj Mavani

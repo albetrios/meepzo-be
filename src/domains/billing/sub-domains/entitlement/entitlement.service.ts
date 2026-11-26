@@ -14,11 +14,13 @@ import type {
 import type { EntitlementOverrideRepository } from './entitlement-override.repository.js';
 import type { OrganizationEntitlementOverrideRow } from './entitlement-override.schema.js';
 import { entitlementOverridePlanChange } from './entitlement-override.util.js';
+import { buildEntitlementSnapshot } from './entitlement-snapshot.util.js';
 import type { SetEntitlementOverrideInput } from './entitlement.dto.js';
 import { serializeEntitlementOverride, serializeEntitlements } from './entitlement.serializer.js';
 import type {
   EntitlementOverrideOutput,
   EntitlementPlanUsage,
+  EntitlementSnapshot,
   EntitlementsOutput,
 } from './entitlement.types.js';
 
@@ -85,9 +87,11 @@ function entitlementOverrideNotFoundError(): NotFoundError {
 }
 
 /**
- * Per-organization plan overrides (plan-gating close, P270): the global admin lists, sets and
- * removes an organization's exceptions to its plan; the plan entitlement merges them in its one
- * read (`resolvePlanAccess`, BL2).
+ * The entitlement module's service (change-plan-gates EN1–EN6): resolves an organization's
+ * entitlement snapshot from the one plan read ({@link EntitlementService.resolve}), answers
+ * `GET /billing/entitlements` from it, and keeps the per-organization plan overrides (plan-gating
+ * close, P270) — the global admin lists, sets and removes an organization's exceptions to its plan;
+ * the plan entitlement merges them in its one read (`resolvePlanAccess`, BL2).
  *
  * @remarks
  * - **Algorithm:** the admin names the target organization (or the override); every read and write
@@ -130,13 +134,42 @@ export class EntitlementService {
   }
 
   /**
-   * `GET /api/v1/billing/entitlements` (P271): the organization's plan state, plan, features after
-   * overrides, each limit with its usage, the dates and the overrides in force.
+   * Resolves an organization's entitlement (change-plan-gates EN2, P19, P24): the plan state, its
+   * dates, the plan and every registry key's `{ value, source }` — the snapshot `can`, `limit` and
+   * the refusal builder read.
    *
    * @remarks
-   * - **Algorithm:** billing's one plan read ({@link SubscriptionService.getPlanAccess}, BL2 — the
+   * - **Algorithm:** exactly one plan read ({@link SubscriptionService.getPlanAccess}, BL2 — one SQL
+   *   statement; the active overrides laid over the plan inside it), then the pure
+   *   `buildEntitlementSnapshot`: each key's source is `override` (an active override set it) →
+   *   `plan` (the plan row carried it) → `default` (the registry default filled a switch the row
+   *   lacked); seats come from the same read's `seatLimit`.
+   * - **Failure modes:** the plan read's failures propagate (a query failure; a plan row whose
+   *   features the strict parse refuses, BL12).
+   * - **Side effects:** none — read-only, no cache and no memo (BL2): a caller with several gates
+   *   resolves once and passes the snapshot on (K2).
+   * - **Notes:** `organizationPublicId` is one the caller has already proved (the signed `org` claim,
+   *   or a verified target), as for `getPlanAccess`.
+   */
+  async resolve({
+    organizationPublicId,
+  }: {
+    organizationPublicId: string;
+  }): Promise<EntitlementSnapshot> {
+    const planAccess = await this.planAccessService.getPlanAccess({ organizationPublicId });
+    return buildEntitlementSnapshot({ planAccess });
+  }
+
+  /**
+   * `GET /api/v1/billing/entitlements` (P271): the organization's plan state, plan, features after
+   * overrides, each limit with its usage, the dates, the overrides in force and each value's source
+   * (change-plan-gates EN6).
+   *
+   * @remarks
+   * - **Algorithm:** one {@link EntitlementService.resolve} (billing's one plan read, BL2 — the
    *   overrides merged inside it), the app's usage port (this month's DMs, the accounts in the plan)
-   *   and tenancy's member count, issued concurrently — none depends on another.
+   *   and tenancy's member count, issued concurrently — none depends on another; the route
+   *   serializes the same snapshot the gates read.
    * - **Failure modes:** a read failure propagates. An unwired port reads as nothing used (logged).
    * - **Side effects:** none (the app may populate its month-count cache).
    */
@@ -146,12 +179,12 @@ export class EntitlementService {
     scope: OrganizationPrincipalDatabaseScope;
   }): Promise<EntitlementsOutput> {
     const organizationPublicId = scope.organizationPublicId;
-    const [planAccess, usage, seatsUsed] = await Promise.all([
-      this.planAccessService.getPlanAccess({ organizationPublicId }),
+    const [snapshot, usage, seatsUsed] = await Promise.all([
+      this.resolve({ organizationPublicId }),
       this.readPlanUsage(scope),
       this.membershipSeatUsage?.countActiveMembers({ organizationPublicId }) ?? Promise.resolve(0),
     ]);
-    return serializeEntitlements({ plan_access: planAccess, usage, seats_used: seatsUsed });
+    return serializeEntitlements({ snapshot, usage, seats_used: seatsUsed });
   }
 
   private async readPlanUsage(

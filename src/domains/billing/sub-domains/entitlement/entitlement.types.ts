@@ -1,6 +1,59 @@
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
-import type { PlanAccessState } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
-import type { EntitlementOverrideKey } from './entitlement.constants.js';
+import type {
+  PlanAccess,
+  PlanAccessState,
+} from '@/domains/billing/sub-domains/subscription/subscription.types.js';
+import type {
+  EntitlementKey,
+  EntitlementLimitKey,
+  EntitlementOverrideKey,
+  EntitlementSwitchKey,
+} from './entitlement.constants.js';
+
+/**
+ * Where a resolved entitlement value came from (change-plan-gates EN2, P19) — the merge order:
+ * `override` (an active organization override set it) → `plan` (the plan row carried it) →
+ * `default` (the registry default filled it).
+ */
+export type EntitlementSource = 'override' | 'plan' | 'default';
+
+/** One resolved registry key: its value and where it came from (EN2). */
+export interface EntitlementResolvedValue<Value> {
+  value: Value;
+  source: EntitlementSource;
+}
+
+/**
+ * Every registry key resolved (EN2): a switch is on or off; a limit is a whole number, or `null` for
+ * unlimited (seats by default, D55; and every limit with no plan in the catalog).
+ */
+export type EntitlementSnapshotValues = {
+  [Key in EntitlementSwitchKey]: EntitlementResolvedValue<boolean>;
+} & {
+  [Key in EntitlementLimitKey]: EntitlementResolvedValue<number | null>;
+};
+
+/**
+ * An organization's resolved entitlement (change-plan-gates EN2, P24) — what `resolve` answers from
+ * the one plan read: the plan state and its dates, the plan, and every registry key with its source.
+ * `can` and `limit` read it; a caller with several gates passes it on instead of reading again (K2).
+ */
+export interface EntitlementSnapshot {
+  state: PlanAccessState;
+  /** When the grace ends (`grace`) or ended (`read_only`); `null` when `active`. */
+  graceEndsAt: Date | null;
+  /** When the trial ends while it runs; `null` otherwise. */
+  trialEndsAt: Date | null;
+  /** The plan whose features apply; `null` only with no Free plan in the catalog. */
+  plan: { publicId: string; name: string } | null;
+  /** Every registry key's value and source. */
+  values: EntitlementSnapshotValues;
+  /** The plan read the snapshot was built from (features, overrides in force, plan choice). */
+  planAccess: PlanAccess;
+}
+
+/** The source of every registry key, keyed by key — `sources` on `GET /billing/entitlements` (EN6). */
+export type EntitlementSourcesOutput = Record<EntitlementKey, EntitlementSource>;
 
 /**
  * Public body of one organization entitlement override (plan-gating close, P270) — the admin
@@ -56,6 +109,11 @@ export interface EntitlementsOutput {
   is_plan_choice_required: boolean;
   /** The overrides in force now (their keys are already in `features`). */
   overrides: { key: EntitlementOverrideKey; expires_at: string | null }[];
+  /**
+   * Where each registry key's value came from (change-plan-gates EN6): `override`, `plan` or
+   * `default` — the 11 switches, `message_month_limit`, `channel_accounts_max` and `seats`.
+   */
+  sources: EntitlementSourcesOutput;
 }
 
 /** What the app reports of an organization's use of its plan — billing's usage port (P271). */

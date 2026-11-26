@@ -100,12 +100,12 @@ const errorResponseSchema = {
         limit: {
           type: 'integer',
           description:
-            "The plan's limit a limit refusal hit — `plan_account_limit` (`channel_accounts_max`), `seat_limit_reached` (seats). Absent otherwise.",
+            "The plan's limit a limit refusal hit — `plan_account_limit` (`channel_accounts_max`), `seat_limit_reached` (seats), `message_month_limit_reached` (`message_month_limit`). Absent otherwise.",
         },
         used: {
           type: 'integer',
           description:
-            'How much of `limit` the organization uses before this write — beside `limit` on `plan_account_limit` and `seat_limit_reached`. Absent otherwise.',
+            'How much of `limit` the organization uses before this write — beside `limit` on `plan_account_limit`, `seat_limit_reached` and `message_month_limit_reached`. Absent otherwise.',
         },
         grace_ends_at: {
           type: ['string', 'null'],
@@ -117,6 +117,12 @@ const errorResponseSchema = {
           type: 'boolean',
           description:
             '`true` when a plan change is what lifts the refusal (`plan_lacks_feature`, `plan_account_limit`, `seat_limit_reached`, `organization_read_only`); pick the plan from `GET /billing/plans` by `feature` / `limit`. Absent otherwise.',
+        },
+        resets_on: {
+          type: 'string',
+          format: 'date',
+          description:
+            "When the month's DM count starts again — the 1st of next month (`YYYY-MM-DD`), on `message_month_limit_reached`. Absent otherwise.",
         },
         documentation_url: {
           type: 'string',

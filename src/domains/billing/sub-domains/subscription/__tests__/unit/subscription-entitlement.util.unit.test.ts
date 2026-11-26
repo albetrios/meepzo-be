@@ -30,6 +30,7 @@ const FREE_PLAN: PlanAccessPlan = {
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
   included_seats: null,
+  defaulted_keys: [],
 };
 const CREATOR_PLAN: PlanAccessPlan = {
   public_id: 'pln_creator',
@@ -39,6 +40,7 @@ const CREATOR_PLAN: PlanAccessPlan = {
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
   included_seats: null,
+  defaulted_keys: [],
 };
 /** A switched-off old row: paid, but its features are Free's (P80). */
 const GROWTH_PLAN: PlanAccessPlan = {
@@ -49,6 +51,7 @@ const GROWTH_PLAN: PlanAccessPlan = {
   price_yearly: '300.00',
   features: FREE_PLAN_FEATURES,
   included_seats: null,
+  defaulted_keys: [],
 };
 
 const ON_FREE = { plan: { publicId: 'pln_free', name: 'Free' }, features: FREE_PLAN_FEATURES };
@@ -109,6 +112,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
     trialEndsAt,
     ...entitlement,
     seatLimit: null,
+    defaultedKeys: [],
     overrides: [],
     isPlanChoiceRequired: false,
   });
@@ -173,6 +177,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         trialEndsAt: null,
         ...ON_CREATOR,
         seatLimit: null,
+        defaultedKeys: [],
         overrides: [],
         isPlanChoiceRequired: false,
       });
@@ -189,6 +194,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       ...ON_FREE,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });
@@ -209,6 +215,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       ...ON_FREE,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });
@@ -233,6 +240,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         features: FREE_PLAN_FEATURES,
       }),
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: true,
     });
@@ -263,6 +271,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       plan: null,
       features: null,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });
@@ -287,6 +296,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       plan: null,
       features: null,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });

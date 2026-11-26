@@ -1087,12 +1087,19 @@ src/
     │   │   │   │   │   └── entitlements.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-refusal.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-registry.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-snapshot.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement.constants.unit.test.ts
     │   │   │   │   │   ├── entitlement.controller.unit.test.ts
     │   │   │   │   │   ├── entitlement.serializer.unit.test.ts
     │   │   │   │   │   └── entitlement.service.unit.test.ts
     │   │   │   ├── entitlement-override.repository.ts
     │   │   │   ├── entitlement-override.schema.ts
     │   │   │   ├── entitlement-override.util.ts
+    │   │   │   ├── entitlement-refusal.util.ts
+    │   │   │   ├── entitlement-registry.util.ts
+    │   │   │   ├── entitlement-snapshot.util.ts
     │   │   │   ├── entitlement.constants.ts
     │   │   │   ├── entitlement.controller.ts
     │   │   │   ├── entitlement.dto.ts

@@ -182,6 +182,7 @@ describe('InstagramSendLaneService (database)', () => {
         state: 'active',
         graceEndsAt: null,
         seatLimit: null,
+        defaultedKeys: [],
         overrides: [],
         isPlanChoiceRequired: false,
         trialEndsAt: null,

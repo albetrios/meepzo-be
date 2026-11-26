@@ -66,6 +66,7 @@ function serviceWith({
       plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
       features,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     })),

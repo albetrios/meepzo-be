@@ -320,6 +320,12 @@ export const entitlementsSchema = {
         required: ['key', 'expires_at'],
       },
     },
+    sources: {
+      type: 'object',
+      description:
+        'Where each value came from (change-plan-gates EN6), one entry per entitlement key — the 11 feature switches, `message_month_limit`, `channel_accounts_max` and `seats`: `override` (an active override set it), `plan` (the plan row carried it) or `default` (the registry default filled it — a switch the plan row lacks reads off).',
+      additionalProperties: { type: 'string', enum: ['override', 'plan', 'default'] },
+    },
   },
   required: [
     'state',
@@ -330,6 +336,7 @@ export const entitlementsSchema = {
     'grace_ends_at',
     'is_plan_choice_required',
     'overrides',
+    'sources',
   ],
 };
 
@@ -346,4 +353,20 @@ export const entitlementsExample = {
   grace_ends_at: null,
   is_plan_choice_required: false,
   overrides: [{ key: 'channel_accounts_max', expires_at: '2026-12-31T00:00:00.000Z' }],
+  sources: {
+    email_ask: 'plan',
+    phone_ask: 'plan',
+    reply_like_person: 'plan',
+    multiple_public_reply_lines: 'plan',
+    message_versions: 'plan',
+    broadcasts: 'plan',
+    segments: 'plan',
+    past_comments: 'plan',
+    extra_delay: 'plan',
+    starter_questions: 'plan',
+    mark_seen: 'plan',
+    message_month_limit: 'plan',
+    channel_accounts_max: 'override',
+    seats: 'plan',
+  },
 };

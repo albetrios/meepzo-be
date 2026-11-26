@@ -82,14 +82,15 @@ export function requiresFreeSeatCeiling({
 
 function planEntitlement(
   plan: PlanAccessPlan | null,
-): Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'> {
+): Pick<PlanAccess, 'plan' | 'features' | 'seatLimit' | 'defaultedKeys'> {
   return plan
     ? {
         plan: { publicId: plan.public_id, name: plan.name },
         features: plan.features,
         seatLimit: plan.included_seats,
+        defaultedKeys: [...plan.defaulted_keys],
       }
-    : { plan: null, features: null, seatLimit: null };
+    : { plan: null, features: null, seatLimit: null, defaultedKeys: [] };
 }
 
 /**
@@ -111,6 +112,9 @@ function planEntitlement(
  * - **Overrides (P270):** the organization's overrides in force at `now` are laid over the decided
  *   plan's features (`applyEntitlementOverrides`) — whichever plan applies, Free included; they
  *   never change `state` or its dates. `overrides` lists them.
+ * - **Registry defaults (change-plan-gates P19):** `defaultedKeys` carries the decided plan row's
+ *   switches that read their registry default (the row lacked them), for the entitlement snapshot's
+ *   `source`; empty with no plan.
  * - **`isReadOnlyEnforced` false** (`LAPSED_PLAN_READ_ONLY_ENABLED` off): the state is always `active`
  *   with no grace date; the plan and features are decided as above.
  * - **Failure modes:** none — pure. `plan` and `features` are `null` only when the catalog has no
@@ -163,7 +167,7 @@ function resolvePlanEntitlement({
     entitlement,
     trialEndsAt = null,
   }: {
-    entitlement: Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'>;
+    entitlement: Pick<PlanAccess, 'plan' | 'features' | 'seatLimit' | 'defaultedKeys'>;
     trialEndsAt?: Date | null;
   }): Omit<PlanAccess, 'isPlanChoiceRequired' | 'overrides'> => ({
     state: PLAN_ACCESS_STATE.ACTIVE,

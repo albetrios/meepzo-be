@@ -16,7 +16,7 @@ import { capListWithWarning } from '@/shared/utils/infrastructure/list-cap.util.
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import { planFeaturesSchema } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/entitlement/entitlement-registry.util.js';
 import type {
   PlanAccessPlan,
   PlanAccessSubject,
@@ -28,7 +28,11 @@ import type {
 import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 import { parseEntitlementOverrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 
-/** A joined plan's columns as one {@link PlanAccessPlan}, its features parsed; `null` when no row joined. */
+/**
+ * A joined plan's columns as one {@link PlanAccessPlan}, its features parsed (a switch the row lacks
+ * reads its registry default and is named in `defaulted_keys`, change-plan-gates P19); `null` when
+ * no row joined.
+ */
 function toPlanAccessPlan(columns: {
   public_id: string | null;
   name: string | null;
@@ -47,13 +51,15 @@ function toPlanAccessPlan(columns: {
   ) {
     return null;
   }
+  const { features, defaultedKeys } = parsePlanFeaturesWithDefaults(columns.features);
   return {
     public_id: columns.public_id,
     name: columns.name,
     is_active: columns.is_active,
     price_monthly: columns.price_monthly,
     price_yearly: columns.price_yearly,
-    features: planFeaturesSchema.parse(columns.features),
+    features,
+    defaulted_keys: defaultedKeys,
     included_seats: columns.included_seats,
   };
 }
@@ -288,7 +294,8 @@ export class SubscriptionRepository {
    *   active plan priced zero on both cycles, lowest id — a scalar subquery over the small catalog),
    *   ordered live-first then newest, `LIMIT 1`. An organization has one live row at most
    *   (`idx_subscriptions_org`) and a short history. Both plans' features are parsed with
-   *   `planFeaturesSchema` (BL12) — a malformed row throws.
+   *   `planFeaturesSchema` (BL12) — a malformed row throws — after the registry default fills a
+   *   switch the row lacks (`parsePlanFeaturesWithDefaults`, change-plan-gates P19).
    * - **Failure modes:** returns `null` when the organization is not visible in the current context
    *   (RLS) or does not exist; `subscription` is `null` when it never had one; `freePlan` is `null`
    *   when the catalog has no Free plan.

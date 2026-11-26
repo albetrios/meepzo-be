@@ -48,6 +48,7 @@ const FREE = {
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
   included_seats: null,
+  defaulted_keys: [],
 };
 const CREATOR = {
   public_id: 'pln_creator',
@@ -57,6 +58,7 @@ const CREATOR = {
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
   included_seats: null,
+  defaulted_keys: [],
 };
 
 /** A TEAM organization whose Creator plan's payment failed, its period ended `days` ago. */
@@ -89,6 +91,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });
@@ -117,6 +120,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
       seatLimit: null,
+      defaultedKeys: [],
       overrides: [],
       isPlanChoiceRequired: false,
     });

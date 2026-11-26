@@ -3,6 +3,8 @@ import {
   serializeEntitlementOverride,
   serializeEntitlements,
 } from '@/domains/billing/sub-domains/entitlement/entitlement.serializer.js';
+import { buildEntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import { PLAN_FEATURE_KEYS } from '@/domains/billing/sub-domains/plan/plan.constants.js';
 import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import type { OrganizationEntitlementOverrideRow } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 
@@ -75,6 +77,7 @@ describe('serializeEntitlements', () => {
     plan: { publicId: 'pln_creator', name: 'Creator' },
     features: { ...CREATOR_PLAN_FEATURES, channel_accounts_max: 7 },
     seatLimit: null,
+    defaultedKeys: [],
     overrides: [
       {
         key: 'channel_accounts_max' as const,
@@ -88,7 +91,7 @@ describe('serializeEntitlements', () => {
   it('answers the limits from the merged features, the usage, the dates and the overrides', () => {
     expect(
       serializeEntitlements({
-        plan_access: planAccess,
+        snapshot: buildEntitlementSnapshot({ planAccess }),
         usage: {
           directMessagesUsed: 120,
           directMessagesResetsOn: '2026-12-01',
@@ -113,12 +116,20 @@ describe('serializeEntitlements', () => {
       grace_ends_at: '2026-12-10T00:00:00.000Z',
       is_plan_choice_required: false,
       overrides: [{ key: 'channel_accounts_max', expires_at: '2026-12-31T00:00:00.000Z' }],
+      sources: {
+        ...Object.fromEntries(PLAN_FEATURE_KEYS.map((key) => [key, 'plan'])),
+        message_month_limit: 'plan',
+        channel_accounts_max: 'override',
+        seats: 'plan',
+      },
     });
   });
 
   it('has no limits without a plan in the catalog', () => {
     const output = serializeEntitlements({
-      plan_access: { ...planAccess, plan: null, features: null, overrides: [] },
+      snapshot: buildEntitlementSnapshot({
+        planAccess: { ...planAccess, plan: null, features: null, overrides: [] },
+      }),
       usage: {
         directMessagesUsed: 0,
         directMessagesResetsOn: '2026-12-01',
@@ -129,5 +140,6 @@ describe('serializeEntitlements', () => {
     expect(output.plan).toBeNull();
     expect(output.limits.direct_messages.limit).toBeNull();
     expect(output.limits.channel_accounts.limit).toBeNull();
+    expect(new Set(Object.values(output.sources))).toEqual(new Set(['default']));
   });
 });

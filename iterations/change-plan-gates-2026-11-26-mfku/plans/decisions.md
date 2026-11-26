@@ -46,3 +46,5 @@ finding ids R1–R19 are `coverage.md`'s.
 | P30 | Route review §3, route declarations and the one guard: RG1–RG7, RGC1–RGC7 | confirm · change | **Confirmed: §3 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |
 | P31 | Route review §4, app gate users: AP1–AP6, APC1–APC5 | confirm · change | **Confirmed: §4 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |
 | P32 | Route review §5, seats: SE1–SE3, SEC1–SEC4 | confirm · change | **Confirmed: §5 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |
+| P33 | Q-JG1 (route review §6): does every job declare a plan gate, or only the paid ones? | every job, in its queue's worker-registry entry · only paid jobs | **Every job declares** (`gates` or `open` with a reason) in its queue's worker-registry entry; the coverage test walks the registry, so a forgotten paid job fails | 2026-11-26 | Nikunj Mavani | RED |
+| P34 | Route review §6, paid-job declarations: JG1–JG4, JGC1–JGC5; the whole route review | confirm · change | **Confirmed: §6 final (rev 1); route review final** | 2026-11-26 | Nikunj Mavani | RED |

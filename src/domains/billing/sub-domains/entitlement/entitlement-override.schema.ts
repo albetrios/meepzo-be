@@ -65,6 +65,8 @@ export const organization_entitlement_overrides = billingSchema
     },
     (table) => [
       uniqueIndex('idx_organization_entitlement_overrides_public_id').on(table.public_id),
+      // The organization key's ON DELETE CASCADE needs a full index (the live-key one is partial).
+      index('idx_organization_entitlement_overrides_organization_id').on(table.organization_id),
       // One live override per organization and key; also the plan entitlement's merge read.
       uniqueIndex('idx_organization_entitlement_overrides_organization_key_live')
         .on(table.organization_id, table.key)

@@ -228,3 +228,11 @@ After the merge:
   organization's active overrides laid over it. Test: `subscription-trial-move-down.integration.test.ts`
   (an override of `channel_accounts_max` lets the move keep every account) — with the entitlement suite
   5 files / 33 tests.
+- The first full `ci:local` on the merged plan gating caught three gaps, each fixed and re-run:
+  - the new `entitlement` sub-domain had no controller or service unit test (the domain unit matrix) —
+    b6e123c, 26 tests;
+  - three new audit actions (`billing.plan_state.changed`, `billing.entitlement_override.set` / `.remove`)
+    were not in the audit catalog — e983465;
+  - the overrides table's organization foreign key had only a partial index, which its ON DELETE CASCADE
+    cannot use (index-hygiene) — new migration `20261126130000_billing_entitlement_overrides_organization_index.sql`
+    with the schema's matching index; `src/tests/integration/database` + entitlement: 21 files / 123 tests.

@@ -13,8 +13,9 @@ sibling folder (`channel-connection-<provider>/`).
 - [`meta-graph.client.ts`](meta-graph.client.ts) — every Graph call: the post and story lists, one post, the webhook
   subscription (`subscribed_apps`), direct messages and private replies (`/messages`), public comment replies
   (`/replies`), a person's profile with the follow check, and the Unified Login reads of a connection's token —
-  `GET /me?fields=client_business_id`, `/me/assigned_instagram_accounts`, `/me/permissions`, `/me/adaccounts` and an
-  ad account's ads. Moved here from the retired `infrastructure/social/` folder (reuse rule — moved, never copied).
+  `GET /me?fields=client_business_id`, `/me/assigned_instagram_accounts`, `/me/permissions` (falling back to
+  `/debug_token`'s `scopes` with the app token when it names nothing or Meta refuses it — the one call whose customer
+  token rides the query, as Meta documents it; fix-meta-unified-login F1), `/me/adaccounts` and an ad account's ads. Moved here from the retired `infrastructure/social/` folder (reuse rule — moved, never copied).
 - [`meta-login.ts`](meta-login.ts) — the Unified Login address (`https://www.facebook.com/dialog/oauth?client_id
   &config_id&redirect_uri&response_type=code&state&prompt=login`) and its code exchange (`/oauth/access_token`).
 - [`meta-graph-usage.util.ts`](meta-graph-usage.util.ts) — reads `X-Business-Use-Case-Usage` and `X-App-Usage` and

@@ -1,0 +1,18 @@
+{
+  "data": {
+    "app_id": "1234567890123456",
+    "type": "SYSTEM_USER",
+    "application": "Contract App",
+    "data_access_expires_at": 0,
+    "expires_at": 0,
+    "is_valid": true,
+    "issued_at": 1764158400,
+    "scopes": ["instagram_basic", "instagram_manage_messages", "instagram_manage_comments"],
+    "granular_scopes": [
+      { "scope": "instagram_basic", "target_ids": ["17841400000000001"] },
+      { "scope": "instagram_manage_messages", "target_ids": ["17841400000000001"] },
+      { "scope": "instagram_manage_comments", "target_ids": ["17841400000000001"] }
+    ],
+    "user_id": "10001"
+  }
+}

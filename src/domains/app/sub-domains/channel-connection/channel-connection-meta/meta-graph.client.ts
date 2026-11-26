@@ -3,6 +3,7 @@ import {
   INSTAGRAM_ACCESS_TOKEN_ERROR_CODE,
   MetaGraphApiError,
   buildMetaGraphMalformedAnswerError,
+  describeMetaGraphError,
   readMetaGraphErrorResponse,
   toMetaGraphApiError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
@@ -1430,32 +1431,118 @@ export async function listMetaAssignedInstagramAccounts({
   return { accounts, isComplete: false };
 }
 
+/** The granted permission names of a `/me/permissions` list, in Meta's order. */
+function readGrantedPermissionList(answer: InstagramGraphListAnswer): string[] {
+  return readGraphListData({ answer, operation: '/me/permissions' }).flatMap((item) => {
+    const permission = readAnswerText(item.permission);
+    return permission !== null && item.status === 'granted' ? [permission] : [];
+  });
+}
+
 /**
- * Reads the permissions the token holds (`GET /me/permissions` — only `status: granted` counts,
- * MC5 step 4, plan:L4577).
+ * Whether a failed `/me/permissions` read may be retried through `/debug_token`
+ * (fix-meta-unified-login F1, F-D4): Meta refused the read itself (`refused`, e.g. code 100 for a
+ * token type the edge does not serve) or refused it for a permission (`auth` other than code 190).
+ * A dead token (190), a throttle or an outage is rethrown — `/debug_token` would not help.
+ */
+function isPermissionReadRetryable(error: unknown): boolean {
+  if (!(error instanceof MetaGraphApiError)) return false;
+  if (error.errorClass === 'refused') return true;
+  return (
+    error.errorClass === 'auth' && error.instagramErrorCode !== INSTAGRAM_ACCESS_TOKEN_ERROR_CODE
+  );
+}
+
+/**
+ * The token's `scopes` as `/debug_token` reports them, with the app token
+ * (`<app id>|<app secret>`) — Meta's token introspection, which reads any token type.
  *
  * @remarks
- * - **Algorithm:** one Graph read with the token in `Authorization` and `appsecret_proof`; returns
- *   the granted permission names, in Meta's order.
- * - **Failure modes:** `MetaGraphApiError`; no `data` list → `outage`.
+ * - **Algorithm:** `GET /v27.0/debug_token?input_token=<token>&access_token=<app id>|<app secret>`;
+ *   the names of `data.scopes`, de-duplicated in Meta's order.
+ * - **Failure modes:** `MetaGraphApiError`; a setting unset → 503 `instagram_not_configured`.
  * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
- * - **Notes:** which call shows a system-user token's permissions is a Meta test (§43); this is
- *   Meta's documented read for a user token.
+ * - **Notes:** both tokens ride in the query, as Meta documents the call; the outbound layer never
+ *   logs a full URL, and both parameter names hold `token`, so any logged URL redacts them.
  */
-export async function readMetaGrantedPermissions({
+async function readMetaDebugTokenScopes({
   encryptedAccessToken,
   requestId,
   recordUsage,
 }: MetaConnectionReadOptions): Promise<string[]> {
-  const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
-    encryptedAccessToken,
-    path: 'me/permissions',
+  const { appId, appSecret } = readMetaAppSettings();
+  const answer = await callMetaGraph<{ data?: unknown }>({
+    url: buildMetaGraphUrl({
+      path: 'debug_token',
+      query: {
+        input_token: decryptFieldSecret(encryptedAccessToken),
+        access_token: `${appId}|${appSecret}`,
+      },
+    }),
     requestId,
     recordUsage,
   });
-  return readGraphListData({ answer, operation: '/me/permissions' }).flatMap((item) => {
-    const permission = readAnswerText(item.permission);
-    return permission !== null && item.status === 'granted' ? [permission] : [];
+  const scopes = readAnswerObject(answer.data).scopes;
+  if (!Array.isArray(scopes)) return [];
+  return [...new Set(scopes.flatMap((scope) => readAnswerText(scope) ?? []))];
+}
+
+/**
+ * Reads the permissions the token holds (MC5 step 4, plan:L4577; fix-meta-unified-login F1):
+ * `GET /me/permissions` (only `status: granted` counts), else `/debug_token`'s `scopes`.
+ *
+ * @remarks
+ * - **Algorithm:** `/me/permissions` with the token in `Authorization` and `appsecret_proof`; when it
+ *   answers no granted permission, or Meta refuses it (`refused`, or `auth` other than code 190 —
+ *   {@link isPermissionReadRetryable}), the token's `scopes` are read from `/debug_token` with the app
+ *   token. The first non-empty list wins.
+ * - **Failure modes:** a dead token (190), a throttle or an outage of `/me/permissions` is rethrown;
+ *   when neither read names a permission, a malformed-answer `outage` (fix-meta-unified-login
+ *   F-D3 — never an empty list, which would read as "nothing granted" and switch every feature
+ *   off), logged as `meta_graph.permissions_unreadable` without the token.
+ * - **Side effects:** one or two Meta calls; their usage goes to `recordUsage`.
+ * - **Notes:** Meta documents neither read for a Business Integration System User token; which one
+ *   answers is the fix iteration's owner test O1.
+ */
+export async function readMetaGrantedPermissions(
+  options: MetaConnectionReadOptions,
+): Promise<string[]> {
+  const { encryptedAccessToken, requestId, recordUsage } = options;
+  let firstFailure: unknown = null;
+  try {
+    const granted = readGrantedPermissionList(
+      await callMetaGraphWithToken<InstagramGraphListAnswer>({
+        encryptedAccessToken,
+        path: 'me/permissions',
+        requestId,
+        recordUsage,
+      }),
+    );
+    if (granted.length > 0) return granted;
+  } catch (error) {
+    if (!isPermissionReadRetryable(error)) throw error;
+    firstFailure = error;
+  }
+  let secondFailure: unknown = null;
+  try {
+    const scopes = await readMetaDebugTokenScopes(options);
+    if (scopes.length > 0) return scopes;
+  } catch (error) {
+    if (error instanceof ServiceUnavailableError) throw error;
+    secondFailure = error;
+  }
+  logger.warn(
+    {
+      event: 'meta_graph.permissions_unreadable',
+      requestId,
+      permissionsRead: firstFailure === null ? 'empty' : describeMetaGraphError(firstFailure),
+      fallbackRead: secondFailure === null ? 'empty' : describeMetaGraphError(secondFailure),
+    },
+    'meta_graph.permissions_unreadable',
+  );
+  throw buildMetaGraphMalformedAnswerError({
+    operation: '/me/permissions and /debug_token',
+    missing: 'a granted permission',
   });
 }
 

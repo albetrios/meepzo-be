@@ -60,6 +60,9 @@ import conversationsSuccessFixture from './fixtures/meta-graph/conversations.suc
 import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
   type: 'json',
 };
+import debugTokenSuccessFixture from './fixtures/meta-graph/debug-token.success.response.json' with {
+  type: 'json',
+};
 import graphErrorApplicationThrottledFixture from './fixtures/meta-graph/graph-error.application-throttled.response.json' with {
   type: 'json',
 };
@@ -145,6 +148,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `me-client-business.success` | `GET /me?fields=client_business_id` of a business-integration system user token — docs/facebook-login/facebook-login-for-business (Business Integration System User access tokens) |
  * | `assigned-instagram-accounts.success` | the system user's `assigned_instagram_accounts` edge (`id`, `username`, cursor paging) — docs/marketing-api/reference/system-user |
  * | `permissions.success` | `GET /me/permissions` (`permission`, `status` granted / declined) — docs/graph-api/reference/user/permissions |
+ * | `debug-token.success` | `GET /debug_token?input_token&access_token=<app token>` → `data` with `type`, `is_valid`, `scopes`, `granular_scopes` (`scope`, `target_ids`) — docs/graph-api/reference/debug_token; the fallback when `/me/permissions` names nothing (fix-meta-unified-login F1) — which of the two answers for a system-user token is still owner test O1 |
  * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
  * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
@@ -311,6 +315,32 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       // The secret rides the query, as Meta documents the exchange; every logged URL is redacted.
       expect(redactSensitiveUrl(interceptedUrl)).not.toContain(String(environment.META_APP_SECRET));
       expect(redactSensitiveUrl(interceptedUrl)).toContain(SENSITIVE_REDACTION_PLACEHOLDER);
+      expect(readLoggedText()).not.toContain(String(environment.META_APP_SECRET));
+    });
+
+    test('the permission read falls back to /debug_token with the app token; both tokens ride the query, every logged URL is redacted (F1)', async () => {
+      const environment = getEnv();
+      const appAccessToken = `${environment.META_APP_ID}|${environment.META_APP_SECRET}`;
+      let interceptedUrl = '';
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me/permissions`)
+        .query(appSecretProofQuery())
+        .reply(200, { data: [] });
+      nock(META_GRAPH_BASE_URL)
+        .get(`${GRAPH_VERSION_PATH}/debug_token`)
+        .query({ input_token: ACCOUNT_ACCESS_TOKEN, access_token: appAccessToken })
+        .reply(200, (interceptedUri: string) => {
+          interceptedUrl = readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL });
+          return debugTokenSuccessFixture;
+        });
+      const readLoggedText = recordLoggedText();
+
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual(debugTokenSuccessFixture.data.scopes);
+      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(ACCOUNT_ACCESS_TOKEN);
+      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(String(environment.META_APP_SECRET));
+      expect(readLoggedText()).not.toContain(ACCOUNT_ACCESS_TOKEN);
       expect(readLoggedText()).not.toContain(String(environment.META_APP_SECRET));
     });
 

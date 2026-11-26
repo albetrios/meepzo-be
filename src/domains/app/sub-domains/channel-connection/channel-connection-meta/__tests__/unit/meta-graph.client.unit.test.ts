@@ -830,6 +830,70 @@ describe('Unified Login reads with a connection token (MC2)', () => {
     ).resolves.toEqual(['instagram_basic', 'instagram_manage_messages']);
   });
 
+  describe('the /debug_token fallback (fix-meta-unified-login F1)', () => {
+    /** The Graph host answering `/debug_token` for the account token with the app token. */
+    function debugToken(): nock.Interceptor {
+      const environment = getEnv();
+      return nock(META_GRAPH_BASE_URL)
+        .get(`${VERSION_PATH}/debug_token`)
+        .query({
+          input_token: ACCOUNT_TOKEN,
+          access_token: `${environment.META_APP_ID}|${environment.META_APP_SECRET}`,
+        });
+    }
+
+    it('reads the scopes from /debug_token when /me/permissions answers no granted permission (AF-1)', async () => {
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/me/permissions`)
+        .query(withProof())
+        .reply(200, { data: [] });
+      debugToken().reply(200, {
+        data: {
+          type: 'SYSTEM_USER',
+          is_valid: true,
+          scopes: ['instagram_basic', 'instagram_manage_messages', 'instagram_basic'],
+        },
+      });
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+      ).resolves.toEqual(['instagram_basic', 'instagram_manage_messages']);
+    });
+
+    it('reads /debug_token when Meta refuses /me/permissions with code 100 or a permission code (AF-2)', async () => {
+      for (const code of [100, 200]) {
+        graphWithAccountToken()
+          .get(`${VERSION_PATH}/me/permissions`)
+          .query(withProof())
+          .reply(400, graphError(code));
+        debugToken().reply(200, { data: { scopes: ['instagram_manage_comments'] } });
+        await expect(
+          readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+        ).resolves.toEqual(['instagram_manage_comments']);
+      }
+    });
+
+    it('rethrows a dead token (190) and never asks /debug_token (AF-2)', async () => {
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/me/permissions`)
+        .query(withProof())
+        .reply(400, graphError(190));
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+      ).rejects.toMatchObject({ errorClass: 'auth', instagramErrorCode: 190 });
+    });
+
+    it('answers an outage, never an empty list, when neither read names a permission (AF-3)', async () => {
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/me/permissions`)
+        .query(withProof())
+        .reply(400, graphError(100));
+      debugToken().reply(200, { data: { is_valid: true } });
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+      ).rejects.toMatchObject({ errorClass: 'outage' });
+    });
+  });
+
   it('lists the ad accounts (first 100)', async () => {
     graphWithAccountToken()
       .get(`${VERSION_PATH}/me/adaccounts`)

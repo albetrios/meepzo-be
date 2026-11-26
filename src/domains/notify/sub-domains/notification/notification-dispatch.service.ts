@@ -450,7 +450,8 @@ export interface ResolveNotificationRecipientsInput {
   /**
    * The person the event is about, added to the rule's holders: the member a team change is about
    * (`membership_managers_and_member`) or who started the run or broadcast
-   * (`starter_and_billing_managers`). Ignored by the other rules.
+   * (`starter_and_billing_managers` — only while still an active member, P268). Ignored by the
+   * other rules.
    */
   subjectUserId?: number | null;
 }
@@ -490,6 +491,15 @@ const RULES_WITH_SUBJECT: ReadonlySet<NotificationRecipientsRule> = new Set([
 ]);
 
 /**
+ * The subject rules whose subject is told only while still an active member (P268): who started a
+ * broadcast or a past-comments read and has since left the organization is not told of its end.
+ * The member a team change is about is told even when the change removed her.
+ */
+const RULES_WITH_MEMBER_SUBJECT: ReadonlySet<NotificationRecipientsRule> = new Set([
+  NOTIFICATION_RECIPIENTS_RULE.STARTER_AND_BILLING_MANAGERS,
+]);
+
+/**
  * Who a kind's notifications go to (feat-instagram-dm-sending UN2): decided by permission codes,
  * never by role names.
  *
@@ -497,7 +507,8 @@ const RULES_WITH_SUBJECT: ReadonlySet<NotificationRecipientsRule> = new Set([
  * - **Algorithm:** `automation_editors` → active `automation:update` holders (Owner, Admin, Editor);
  *   `billing_managers` → `subscription:manage` holders (Owner, Admin); `membership_managers_and_member`
  *   → `membership:update` holders plus `subjectUserId`; `starter_and_billing_managers` →
- *   `subscription:manage` holders plus `subjectUserId`; `every_member` → every active member. One
+ *   `subscription:manage` holders plus `subjectUserId` while that person is still an active member
+ *   (P268); `every_member` → every active member. One
  *   read through tenancy's membership service; the answer is distinct internal user ids, holders
  *   first in the order read, the subject last.
  * - **Failure modes:** `ConfigurationError` when {@link configureNotificationRecipients} was not
@@ -528,7 +539,11 @@ export async function resolveNotificationRecipients({
         });
   const recipients = new Set(holderUserIds);
   if (RULES_WITH_SUBJECT.has(rule) && subjectUserId !== undefined && subjectUserId !== null) {
-    recipients.add(subjectUserId);
+    const isToldAsSubject =
+      !RULES_WITH_MEMBER_SUBJECT.has(rule) ||
+      recipients.has(subjectUserId) ||
+      (await membership.findActiveUserIds({ scope })).includes(subjectUserId);
+    if (isToldAsSubject) recipients.add(subjectUserId);
   }
   return [...recipients];
 }

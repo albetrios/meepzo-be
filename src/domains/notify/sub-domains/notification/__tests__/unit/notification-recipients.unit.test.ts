@@ -60,7 +60,7 @@ describe('resolveNotificationRecipients (UN2)', () => {
     });
   });
 
-  it('membership_managers_and_member → the membership:update holders plus the member it is about', async () => {
+  it('membership_managers_and_member → the membership:update holders plus the member it is about (even one no longer a member)', async () => {
     await expect(
       resolveNotificationRecipients({
         scope,
@@ -86,6 +86,14 @@ describe('resolveNotificationRecipients (UN2)', () => {
         subjectUserId: 3,
       }),
     ).resolves.toEqual([1, 2, 3]);
+    // A starter who has left the organization (no longer an active member) is not told (P268).
+    await expect(
+      resolveNotificationRecipients({
+        scope,
+        rule: NOTIFICATION_RECIPIENTS_RULE.STARTER_AND_BILLING_MANAGERS,
+        subjectUserId: 9,
+      }),
+    ).resolves.toEqual([1, 2]);
     // No starter known (gone): the billing holders alone.
     await expect(
       resolveNotificationRecipients({

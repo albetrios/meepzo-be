@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
@@ -13,6 +14,8 @@ import { setMonthCount } from '@/domains/app/sub-domains/instagram-sending/__tes
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import {
   type FlowAccount,
   emptyFlowQueues,
@@ -446,6 +449,95 @@ describe('Flow — a broadcast from draft to done (R56)', () => {
     expect((await readLane({ account, lane: 'broadcast' })).state).toBe('stopped');
     expect(broadcast.status).toBe('sending');
   });
+
+  /**
+   * The sender's membership changed while her broadcast sends, as the Owner does over the
+   * membership routes: `demote` makes the Editor a Viewer (no broadcast codes), `remove` takes her
+   * out of the organization.
+   */
+  async function changeSenderMembership(change: 'demote' | 'remove'): Promise<void> {
+    const [membership] = await operatorQuery<Array<{ public_id: string }>>`
+      SELECT public_id FROM tenancy.memberships
+      WHERE organization_id = ${team.organization.id} AND user_id = ${team.editor.id}`;
+    const url = testApiPath(`/tenancy/organization/memberships/${membership?.public_id}`);
+    if (change === 'remove') {
+      const removed = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: `${url}?reason=not_needed`,
+        token: team.ownerToken,
+      });
+      expect(removed.statusCode, removed.body).toBe(204);
+      return;
+    }
+    const [viewer] = await operatorQuery<Array<{ public_id: string }>>`
+      SELECT public_id FROM tenancy.roles
+      WHERE organization_id = ${team.organization.id} AND name = 'Viewer' AND deleted_at IS NULL`;
+    const demoted = await injectAuthenticated(app, {
+      method: 'PATCH',
+      url,
+      token: team.ownerToken,
+      payload: { role_ids: [viewer?.public_id] },
+    });
+    expect(demoted.statusCode, demoted.body).toBe(200);
+  }
+
+  it.each([
+    { change: 'demote' as const, told: 'the sender (still a member), the Owner and the Admin' },
+    { change: 'remove' as const, told: 'the Owner and the Admin only' },
+  ])(
+    'a running broadcast belongs to the organization: its sender’s $change mid-send changes nothing — every recipient sent, done, the note to $told (P267)',
+    async ({ change }) => {
+      await insertAudience({ team, account, count: 3, tags: ['vip'], openHoursAgo: 1 });
+      const { bodies } = mockInstagramSends();
+      const publicId = await sendBroadcastOverRoutes({
+        app,
+        token: team.editorToken,
+        account,
+        name: 'Members only',
+        audience: { conditions: VIP },
+        send: { mode: 'now' },
+      });
+      expect(await workDatabaseTasks({ app, queue: queues[0]! })).toContain('broadcast-audience');
+      const broadcast = await readBroadcast(publicId);
+      expect(broadcast.created_by_user_id).toBe(team.editor.id);
+      await freeTheBox({ account, lane: 'broadcast' });
+      await workLaneTurn({ app, team, account, lane: 'broadcast' });
+      expect(bodies).toHaveLength(1);
+
+      await changeSenderMembership(change);
+      // Her own token no longer reaches the broadcast routes; the broadcast goes on without her.
+      const refused = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath(`/app/broadcasts/${publicId}/cancel`),
+        token: team.editorToken,
+        payload: {},
+        headers: { 'x-idempotency-key': randomUUID() },
+      });
+      expect(refused.statusCode).toBe(403);
+
+      await sendTheBroadcastLane(10);
+      expect(bodies).toHaveLength(3);
+      const recipients = await readRecipients(broadcast.id);
+      expect(recipients.map((row) => row.status)).toEqual(['sent', 'sent', 'sent']);
+      expect(
+        (await runBroadcastEndDuty({ context: repairContext(), services: endServices() })).done,
+      ).toBe(1);
+      expect(await readBroadcast(publicId)).toMatchObject({
+        status: 'done',
+        sent: 3,
+        skipped: 0,
+        created_by_user_id: team.editor.id,
+      });
+      const notes = await operatorQuery<Array<{ user_id: string }>>`
+      SELECT user_id FROM notify.notifications
+      WHERE organization_id = ${team.organization.id} AND type = 'broadcast.done'`;
+      const told =
+        change === 'demote'
+          ? [team.owner.id, team.editor.id, await adminUserId()]
+          : [team.owner.id, await adminUserId()];
+      expect(notes.map((row) => Number(row.user_id)).sort()).toEqual(told.sort());
+    },
+  );
 
   /** The team's Admin's user id (the fixture names its token only). */
   async function adminUserId(): Promise<number> {

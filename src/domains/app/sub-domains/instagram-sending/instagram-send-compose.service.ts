@@ -119,9 +119,9 @@ function skipOf(reason: InstagramMessageReason): InstagramSendComposition {
  * @remarks
  * - **Algorithm:** one read unit — the automation (also deleted), the run (its comment and public
  *   id), her (name, Instagram id), the account's username, the account's newest post only for a
- *   `post` of `newest`; then {@link composeInstagramMessage}. The call sends it; a refused email or
- *   phone button (`isQuickReplyRefused`) sends the plain-text form once more in the same send; a
- *   private reply's maybe-gone comment is checked ({@link callWithCommentCheck}).
+ *   `post` of `newest`; then {@link composeInstagramMessage}. The call sends it (an email or phone
+ *   question is plain text — fix-meta-unified-login F2); a private reply's maybe-gone comment is
+ *   checked ({@link callWithCommentCheck}).
  * - **Failure modes:** a read error propagates (the core retries it inside the send); the call
  *   throws Meta's error as is.
  * - **Side effects:** reads; the call's Meta requests.
@@ -313,28 +313,15 @@ export class InstagramSendComposeService {
             requestId: SEND_REQUEST_ID,
             recordUsage,
           });
-        const sendWithFallback = async () => {
-          try {
-            return await send(composed.build(attachmentId));
-          } catch (error) {
-            if (
-              error instanceof MetaGraphApiError &&
-              error.isQuickReplyRefused &&
-              composed.plainTextFallback !== null
-            ) {
-              return send(composed.plainTextFallback);
-            }
-            throw error;
-          }
-        };
+        const sendComposed = () => send(composed.build(attachmentId));
         const sent =
           commentId === null
-            ? await sendWithFallback()
+            ? await sendComposed()
             : await callWithCommentCheck({
                 access,
                 instagramCommentId: commentId,
                 recordUsage,
-                call: sendWithFallback,
+                call: sendComposed,
               });
         return { instagramMessageId: sent.messageId };
       },

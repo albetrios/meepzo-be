@@ -597,25 +597,6 @@ describe('sends', () => {
     ).resolves.toEqual({ messageId: 'aWdfZAG1-message', recipientId: '5550001' });
   });
 
-  it('flags a refused email quick reply so the question can go again as plain text', async () => {
-    graphWithAccountToken()
-      .post(`${VERSION_PATH}/${APP_USER_ID}/messages`)
-      .query(true)
-      .reply(400, graphError(100, 2534015));
-
-    await expect(
-      sendInstagramMessage({
-        encryptedAccessToken: encryptedAccountToken,
-        instagramUserId: APP_USER_ID,
-        recipient: { id: '5550001' },
-        message: {
-          text: 'Please share your email to continue!',
-          quick_replies: [{ content_type: 'user_email' }],
-        },
-      }),
-    ).rejects.toMatchObject({ errorClass: 'refused', isQuickReplyRefused: true });
-  });
-
   it('replies publicly under a comment', async () => {
     graphWithAccountToken()
       .post(`${VERSION_PATH}/17850000000000001/replies`, { message: 'Sent you a DM' })

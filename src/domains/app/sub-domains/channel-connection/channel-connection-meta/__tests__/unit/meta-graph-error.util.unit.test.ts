@@ -193,7 +193,6 @@ describe('readMetaGraphErrorResponse', () => {
       fbtraceId: 'trace-1',
       upstreamRequestId: 'trace-1',
       countsAsCircuitFailure: false,
-      isQuickReplyRefused: false,
     });
     expect(error.retryAfterMs).toBeUndefined();
   });
@@ -247,16 +246,18 @@ describe('readMetaGraphErrorResponse', () => {
     });
   });
 
-  it('flags the email / phone quick reply refusal (code 100, subcode 2534015) as refused', () => {
+  it('reads the old email / phone quick reply refusal (code 100, subcode 2534015) as a plain refusal — no flag since fix F2', () => {
     const error = answer({
       httpStatus: 400,
       body: graphErrorBody({ code: 100, error_subcode: 2534015 }),
     });
-    expect(error).toMatchObject({ errorClass: 'refused', isQuickReplyRefused: true });
-    expect(
-      answer({ httpStatus: 400, body: graphErrorBody({ code: 100, error_subcode: 33 }) })
-        .isQuickReplyRefused,
-    ).toBe(false);
+    expect(error).toMatchObject({
+      errorClass: 'refused',
+      instagramErrorCode: 100,
+      instagramErrorSubcode: 2534015,
+      countsAsCircuitFailure: false,
+    });
+    expect(error).not.toHaveProperty('isQuickReplyRefused');
   });
 
   it('a message outside the messaging window is refused, carries no connection status and never counts against the circuit', () => {
@@ -273,7 +274,6 @@ describe('readMetaGraphErrorResponse', () => {
       connectionStatus: null,
       instagramErrorCode: 10,
       instagramErrorSubcode: INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
-      isQuickReplyRefused: false,
       countsAsCircuitFailure: false,
     });
     expect(error.message).toBe('Instagram answered HTTP 400: refused (code 10, subcode 2534022)');

@@ -36,8 +36,9 @@ No routes of its own: contacts (routes 24–26) and automations (routes 36–37)
   `recordMessageResult` in its commit), the lane move, the own-echo lookup (`findOwnSentMessageIds`,
   the webhook receiver's 4th argument) and route 63's sources (`countWaitingByLane`, `findLastRetry`).
 - `instagram-message-compose.util.ts` — a waiting message's Meta `message` built from its automation's steps at
-  the last moment (ROUTE row R43): the hello and nudge, the follow ask, the email / phone questions with Instagram's
-  button and their plain-text fallback (the default texts when a wording is empty), each list kind, `{name}`. The
+  the last moment (ROUTE row R43): the hello and nudge, the follow ask, the email / phone questions as plain
+  text — no Instagram button since Meta disabled them on 5 Oct 2026, fix-meta-unified-login F2 (the default texts
+  when a wording is empty), each list kind, `{name}`. The
   service adds `endWaitingMessage` (a lane's check again: `expired` / `skipped`, the engine told in its commit) and
   `listWindowClosedByAutomation` (route 63's "chat closed" lines); the repository the lanes' pick reads.
 - `instagram-message.types.ts` — the engine result port, the `retry-failed` queue port (R46), the

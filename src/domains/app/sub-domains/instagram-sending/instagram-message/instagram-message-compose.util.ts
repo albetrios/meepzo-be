@@ -8,10 +8,7 @@ import {
   AUTOMATION_CARD_TEXT_MAX_LENGTH,
   AUTOMATION_MESSAGE_TEXT_MAX_BYTES,
 } from '@/domains/app/sub-domains/automation/automation.constants.js';
-import type {
-  InstagramOutgoingMessage,
-  InstagramQuickReply,
-} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import type { InstagramOutgoingMessage } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type { InstagramMessageRow } from './instagram-message.repository.js';
 
 /** The account's profile address a follow ask's first button opens. */
@@ -42,8 +39,7 @@ export interface InstagramComposeInput {
 
 /**
  * A composed message: `skip` (its step is gone from the automation — the reason), or the call's
- * `message` built for the file's Meta id when it has one (`uploadPublicId`), and the plain-text
- * form a refused quick reply falls back to (plan §31 "email / phone as plain text").
+ * `message` built for the file's Meta id when it has one (`uploadPublicId`).
  */
 export type InstagramComposedMessage =
   | { kind: 'skip'; reason: 'cancelled_by_owner' }
@@ -51,7 +47,6 @@ export type InstagramComposedMessage =
       kind: 'send';
       uploadPublicId: string | null;
       build: (attachmentId: string | null) => InstagramOutgoingMessage;
-      plainTextFallback: InstagramOutgoingMessage | null;
     };
 
 /**
@@ -158,23 +153,16 @@ function textWithButtons({
 
 /** A fixed message (no file). */
 function fixed(message: InstagramOutgoingMessage): InstagramComposedMessage {
-  return { kind: 'send', uploadPublicId: null, build: () => message, plainTextFallback: null };
+  return { kind: 'send', uploadPublicId: null, build: () => message };
 }
 
-/** A question with Instagram's email or phone button, and its plain-text fallback. */
-function question({
-  text,
-  contentType,
-}: {
-  text: string;
-  contentType: InstagramQuickReply['content_type'];
-}): InstagramComposedMessage {
-  return {
-    kind: 'send',
-    uploadPublicId: null,
-    build: () => ({ text, quick_replies: [{ content_type: contentType }] }),
-    plainTextFallback: { text },
-  };
+/**
+ * The email or phone question as plain text (fix-meta-unified-login F2): Meta disabled the
+ * `user_email` / `user_phone_number` quick replies for Instagram messaging on 5 Oct 2026, so the
+ * question goes without a button and her typed answer is read as before.
+ */
+function question(text: string): InstagramComposedMessage {
+  return fixed({ text });
 }
 
 /** The version a message was saved with (1-based; none → the first). */
@@ -248,10 +236,7 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
       });
     }
     case 'invalid_email':
-      return question({
-        text: input.translate(AUTOMATION_MESSAGE_KEYS.invalidEmail),
-        contentType: 'user_email',
-      });
+      return question(input.translate(AUTOMATION_MESSAGE_KEYS.invalidEmail));
     case 'message':
     case 'broadcast': {
       // A broadcast's messages are the automation's message-list shape (BC8): the caller passes
@@ -275,16 +260,15 @@ function composeQuestionMessage({
   isEmail: boolean;
   fill: FillText;
 }): InstagramComposedMessage {
-  const contentType = isEmail ? 'user_email' : 'user_phone_number';
   const step = isEmail ? input.steps.email : input.steps.phone;
   const wording = step?.wordings[indexOf(input.message.wording_number)];
   if (wording !== undefined && wording.trim().length > 0) {
-    return question({ text: fill({ text: wording }), contentType });
+    return question(fill({ text: wording }));
   }
   const defaultKey = isEmail
     ? AUTOMATION_MESSAGE_KEYS.emailQuestion
     : AUTOMATION_MESSAGE_KEYS.phoneQuestion;
-  return question({ text: input.translate(defaultKey), contentType });
+  return question(input.translate(defaultKey));
 }
 
 /** One message of the list by its row's kind (plan §18.5; a text's picture is its `image` row). */
@@ -313,7 +297,6 @@ function composeListMessage({
           build: (attachmentId: string | null) => ({
             attachment: { type, payload: { attachment_id: attachmentId ?? '' } },
           }),
-          plainTextFallback: null,
         } as const);
   switch (listMessage.kind) {
     case 'text':

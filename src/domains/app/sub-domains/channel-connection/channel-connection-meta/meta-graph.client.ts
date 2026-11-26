@@ -1009,9 +1009,13 @@ export async function readInstagramLatestConversationTime({
 /** Who a message goes to: a person (`id`, their Instagram-scoped id) or a comment (a private reply). */
 export type InstagramMessageRecipient = { id: string } | { comment_id: string };
 
-/** A quick reply under a message: a text choice, or Instagram's own email / phone button. */
+/**
+ * A quick reply under a message: a text choice. Instagram's own email / phone buttons
+ * (`user_email`, `user_phone_number`) were disabled by Meta on 5 Oct 2026 and are not sent
+ * (fix-meta-unified-login F2).
+ */
 export interface InstagramQuickReply {
-  content_type: 'text' | 'user_email' | 'user_phone_number';
+  content_type: 'text';
   title?: string;
   payload?: string;
 }
@@ -1044,8 +1048,8 @@ export interface InstagramSentMessage {
  * - **Algorithm:** `POST /v27.0/{id}/messages` with JSON `{ recipient, message }` and the token in
  *   the `Authorization` header; returns Instagram's `message_id` and `recipient_id`.
  * - **Failure modes:** `MetaGraphApiError` — `auth` (a dead token: the guarded status change),
- *   `refused` (`isQuickReplyRefused` for code 100 / 2534015: send the question as plain text; code
- *   10 outside the 24-hour messaging window: only this send fails, D32), `throttled`, `outage`.
+ *   `refused` (code 10 outside the 24-hour messaging window: only this send fails,
+ *   D32), `throttled`, `outage`.
  * - **Side effects:** one Instagram call — the person receives the message.
  * - **Notes:** not idempotent — the run engine's claim keeps a message from going twice (D16); the
  *   200–1000 ms pause before a send (K10) is the caller's.

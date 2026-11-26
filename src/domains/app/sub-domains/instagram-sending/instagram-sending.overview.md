@@ -153,8 +153,8 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   this lane for twice the time (Meta's too); the slow or fast lane's too fast holds it too. Buttons carry
   `<brc_…>::<igm_…>` (`broadcast-recipient-button-payload.util.ts`, read by intake R38).
 - `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
-  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions with their
-  plain-text fallback and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
+  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions as plain text
+  (Meta disabled its email / phone buttons on 5 Oct 2026 — fix-meta-unified-login F2) and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
   once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too; `composeBroadcastMessage` the
   broadcast lane's (R45: the broadcast's message N as a list message, a normal DM to her id, no tag).
 - `instagram-send-pace.util.ts` — the boxes, the mix, the reply box second and the line pick (pure).

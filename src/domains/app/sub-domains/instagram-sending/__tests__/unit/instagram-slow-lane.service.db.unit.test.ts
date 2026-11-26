@@ -328,24 +328,14 @@ describe('InstagramSlowLaneRules (database)', () => {
     ]);
   });
 
-  it('sends a refused email button again as plain text, the default text when the wording is empty (P133)', async () => {
+  it('sends the email question once as plain text, the default text when the wording is empty (P133, fix F2 AF-4)', async () => {
     const contact = await contactWith();
     await waitingOpening({ contactId: contact.id, messageType: 'email_question' });
     const bodies: Array<{ message: unknown }> = [];
-    const meta = metaSends(
-      [
-        { status: 400, body: { error: { code: 100, error_subcode: 2534015, message: 'x' } } },
-        { status: 200, body: { message_id: 'mid.plain' } },
-      ],
-      bodies,
-    );
+    const meta = metaSends([{ status: 200, body: { message_id: 'mid.plain' } }], bodies);
     await harness.turn('slow');
     expect(meta.isDone()).toBe(true);
     expect(bodies.map((body) => body.message)).toEqual([
-      {
-        text: 't:common:automationMessages.emailQuestion',
-        quick_replies: [{ content_type: 'user_email' }],
-      },
       { text: 't:common:automationMessages.emailQuestion' },
     ]);
     expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');

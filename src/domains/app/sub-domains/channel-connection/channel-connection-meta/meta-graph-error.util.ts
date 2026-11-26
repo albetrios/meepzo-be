@@ -80,10 +80,6 @@ const INSTAGRAM_PERMISSION_ERROR_CODE_RANGE = { first: 200, last: 299 } as const
  * business-use-case limit of one account (80002, D53).
  */
 const INSTAGRAM_THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([4, 17, 32, 613, 80002]);
-/** Graph's invalid-parameter code. */
-const INSTAGRAM_INVALID_PARAMETER_ERROR_CODE = 100;
-/** Subcode of {@link INSTAGRAM_INVALID_PARAMETER_ERROR_CODE}: the email / phone quick reply is refused. */
-const INSTAGRAM_QUICK_REPLY_REFUSED_SUBCODE = 2534015;
 /** HTTP status of a throttle without a Graph code. */
 const HTTP_TOO_MANY_REQUESTS = 429;
 
@@ -269,8 +265,7 @@ export interface MetaGraphApiErrorOptions {
  * @remarks
  * - **Algorithm:** an {@link ExternalServiceError} (`integration: 'meta-graph'`, so an unmapped one
  *   answers 503, with `Retry-After` when it carries `retryAfterMs`) plus `errorClass`, the
- *   `connectionStatus` an `auth` failure means, Instagram's code, subcode, type and `fbtraceId`, and `isQuickReplyRefused` (code 100, subcode 2534015 — the email / phone quick
- *   reply refused; the question goes again as plain text, schema-routes §6.5).
+ *   `connectionStatus` an `auth` failure means, Instagram's code, subcode, type and `fbtraceId`.
  * - **Failure modes:** none — a value object.
  * - **Side effects:** none.
  * - **Notes:** `countsAsCircuitFailure` is false for `auth`, `refused` and `throttled`: Instagram
@@ -291,8 +286,6 @@ export class MetaGraphApiError extends ExternalServiceError {
   readonly instagramErrorType: string | null;
   /** Meta's trace id for this failure, when its body had one. */
   readonly fbtraceId: string | null;
-  /** Whether Instagram refused the email / phone quick reply (code 100, subcode 2534015). */
-  readonly isQuickReplyRefused: boolean;
   /** Read by the circuit breaker: false unless this is an `outage`. */
   readonly countsAsCircuitFailure: boolean;
 
@@ -314,9 +307,6 @@ export class MetaGraphApiError extends ExternalServiceError {
     this.instagramErrorSubcode = details.subcode;
     this.instagramErrorType = details.type;
     this.fbtraceId = details.fbtraceId;
-    this.isQuickReplyRefused =
-      details.code === INSTAGRAM_INVALID_PARAMETER_ERROR_CODE &&
-      details.subcode === INSTAGRAM_QUICK_REPLY_REFUSED_SUBCODE;
     this.countsAsCircuitFailure = options.errorClass === 'outage';
   }
 }

@@ -12,6 +12,7 @@ Add-only. Kind: `RED` (answered by the user), `AMBER` (safe default, still open)
 | F-D6 | C3 — match Meta's deauthorize by the system user id too? | add a third resolver · store only | store only: Meta documents no deauthorize callback for Unified Login, so which id a signed request carries is unknown (owner test O3); a resolver on a guess is speculative | 2026-11-26 | Claude | AMBER |
 | F-D7 | C5 — a login that shares no Instagram account | fix here · design in the feat | moved to `feat-meta-connect-flow-2026-11-26-bqmw`: it is a connect outcome the frontend must show | 2026-11-26 | Claude | SCOPE |
 | F-D8 | C6 — the "Allow access to messages" probe | change code · test first | test first (owner test O2); no code change | 2026-11-26 | Claude | SCOPE |
+| F-D9 | F2 — keep the refused-quick-reply fallback once no email / phone button is sent? | keep · remove | remove (supersedes F-D5): only those buttons set a fallback and code 2534015 is their refusal, so the path would be dead; a 2534015 now reads as a plain `refused` | 2026-11-26 | Claude | AMBER |
 
 ## Owner items (need the Meta dev app — not code)
 

@@ -10,6 +10,8 @@ import { SubscriptionTrialService } from './sub-domains/subscription/subscriptio
 import { TrialAccountRepository } from './sub-domains/subscription/trial-account.repository.js';
 import { StripeWebhookService } from './sub-domains/stripe-webhook/stripe-webhook.service.js';
 import { StripeWebhookEventRepository } from './sub-domains/stripe-webhook/stripe-webhook-event.repository.js';
+import { EntitlementOverrideRepository } from './sub-domains/entitlement/entitlement-override.repository.js';
+import { EntitlementService } from './sub-domains/entitlement/entitlement.service.js';
 
 /**
  * Services exposed by the billing domain composition root for routes and the
@@ -24,6 +26,8 @@ export type BillingContainer = {
    */
   subscriptionTrialService: SubscriptionTrialService;
   stripeWebhookService: StripeWebhookService;
+  /** Per-organization plan overrides and the entitlements read (plan-gating close, P270, P271). */
+  entitlementService: EntitlementService;
 };
 
 /**
@@ -71,11 +75,18 @@ export function createBillingContainer({
     planRepository,
   );
 
+  const entitlementService = new EntitlementService({
+    organizationService,
+    overrideRepository: new EntitlementOverrideRepository(),
+    planAccessService: subscriptionService,
+  });
+
   return {
     planService,
     subscriptionService,
     subscriptionTrialService,
     stripeWebhookService,
+    entitlementService,
   };
 }
 

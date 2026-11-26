@@ -17,6 +17,7 @@ export const ACTIVE_PLAN_ACCESS: Readonly<PlanAccess> = Object.freeze({
   trialEndsAt: null,
   plan: null,
   features: null,
+  overrides: [],
   isPlanChoiceRequired: false,
 });
 

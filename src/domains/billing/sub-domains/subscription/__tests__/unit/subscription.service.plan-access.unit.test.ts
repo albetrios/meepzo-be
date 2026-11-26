@@ -67,6 +67,7 @@ const dunningOrganization = (days: number): PlanAccessSubject => ({
     plan: CREATOR,
   },
   freePlan: FREE,
+  overrides: [],
 });
 
 describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', () => {
@@ -85,6 +86,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
     await expect(
@@ -99,6 +101,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       organization: { type: 'TEAM' },
       subscription: null,
       freePlan: FREE,
+      overrides: [],
     });
 
     const access = await service.getPlanAccess({ organizationPublicId: 'org_new' });
@@ -110,6 +113,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });

@@ -14,6 +14,7 @@ import { uploads } from '@/domains/upload/upload.schema.js';
 import { notifications } from '@/domains/notify/sub-domains/notification/notification.schema.js';
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { trial_accounts } from '@/domains/billing/sub-domains/subscription/trial-account.schema.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 import { logs } from '@/domains/audit/audit.schema.js';
 import { organization_settings } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.schema.js';
 import { organization_notification_policies } from '@/domains/tenancy/sub-domains/organization/organization-notification-policy/organization-notification-policy.schema.js';
@@ -517,6 +518,24 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     organizationA: trialAccountA!.id,
     organizationB: trialAccountB!.id,
   });
+
+  // Plan-gating close (P270): one entitlement override per organization.
+  const [entitlementOverrideA, entitlementOverrideB] = await database
+    .insert(organization_entitlement_overrides)
+    .values(
+      [organizationA, organizationB].map((organization) => ({
+        public_id: generatePublicId('organizationEntitlementOverride'),
+        organization_id: organization.id,
+        key: 'broadcasts',
+        value: true,
+        reason: 'RLS matrix',
+      })),
+    )
+    .returning();
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'billing', tableName: 'organization_entitlement_overrides' }),
+    { organizationA: entitlementOverrideA!.id, organizationB: entitlementOverrideB!.id },
+  );
 
   const [auditA] = await database
     .insert(logs)

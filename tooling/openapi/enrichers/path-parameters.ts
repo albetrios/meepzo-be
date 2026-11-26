@@ -39,6 +39,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   trialAccount: 'trial account',
   instagramMessage: 'Instagram message',
   broadcast: 'broadcast',
+  organizationEntitlementOverride: 'entitlement override',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */

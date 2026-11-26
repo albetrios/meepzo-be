@@ -73,6 +73,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'billing', tableName: 'stripe_webhook_events' },
   { schemaName: 'billing', tableName: 'subscriptions' },
   { schemaName: 'billing', tableName: 'trial_accounts' },
+  { schemaName: 'billing', tableName: 'organization_entitlement_overrides' },
   { schemaName: 'notify', tableName: 'notifications' },
   { schemaName: 'notify', tableName: 'webhook_delivery_attempts' },
   { schemaName: 'notify', tableName: 'webhooks' },

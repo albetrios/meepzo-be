@@ -32,6 +32,7 @@ What it does not own: invoicing UI; customer dunning emails (Stripe's own dunnin
 | [plan](src/domains/billing/sub-domains/plan/) | Plan catalog (price, features, limits). Public read; admin-only write. |
 | [subscription](src/domains/billing/sub-domains/subscription/) | Subscription lifecycle bound to a Stripe customer + Stripe subscription. |
 | [stripe-webhook](src/domains/billing/sub-domains/stripe-webhook/) | Inbound webhook ingestion, signature verification, idempotent persistence, reclaim worker. |
+| [entitlement](src/domains/billing/sub-domains/entitlement/) | Per-organization plan overrides (feature switches, limits; global-admin set and remove, audited) merged in the one plan read, and the entitlements read. |
 
 ## Patterns used
 

@@ -66,6 +66,7 @@ TableGroup auth {
 }
 
 TableGroup billing {
+  billing.organization_entitlement_overrides
   billing.plans
   billing.stripe_subscription_tombstones
   billing.stripe_webhook_events
@@ -1256,6 +1257,25 @@ Table auth.webauthn_credentials {
 
 Note auth.webauthn_credentials {
   'RLS: enabled\nPolicies: webauthn_credentials_owner_access\nFORCE ROW LEVEL SECURITY'
+}
+
+Table billing.organization_entitlement_overrides {
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  deleted_at timestamptz
+  expires_at timestamptz
+  id bigint [pk, increment]
+  key varchar(64) [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  reason varchar(500) [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+  value jsonb [not null]
+}
+
+Note billing.organization_entitlement_overrides {
+  'RLS: enabled\nPolicies: organization_entitlement_overrides_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table billing.plans {

@@ -223,3 +223,47 @@ export const webhookReceivedSchema = {
 };
 
 export const webhookReceivedExample = { received: true };
+
+// ── Entitlement override (plan-gating close, P270) ──
+export const entitlementOverrideSchema = {
+  type: 'object',
+  description:
+    "One organization's override of a plan key — a feature switch (`value` boolean) or a limit (`value` integer) — set by a global admin.",
+  properties: {
+    id: { type: 'string', description: '`ovr_…`' },
+    organization_id: { type: 'string', description: '`org_…`' },
+    key: {
+      type: 'string',
+      description: 'A plan feature key, `message_month_limit` or `channel_accounts_max`.',
+    },
+    value: { oneOf: [{ type: 'boolean' }, { type: 'integer' }] },
+    expires_at: { type: 'string', format: 'date-time', nullable: true },
+    is_active: { type: 'boolean', description: 'In force now (not past `expires_at`).' },
+    reason: { type: 'string' },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+  required: [
+    'id',
+    'organization_id',
+    'key',
+    'value',
+    'expires_at',
+    'is_active',
+    'reason',
+    'created_at',
+    'updated_at',
+  ],
+};
+
+export const entitlementOverrideExample = {
+  id: 'ovr_a1b2c3d4e5f6g7h8i9j0k',
+  organization_id: 'org_a1b2c3d4e5f6g7h8i9j0k',
+  key: 'broadcasts',
+  value: true,
+  expires_at: '2026-12-31T00:00:00.000Z',
+  is_active: true,
+  reason: 'Support deal',
+  created_at: '2026-11-26T12:00:00.000Z',
+  updated_at: '2026-11-26T12:00:00.000Z',
+};

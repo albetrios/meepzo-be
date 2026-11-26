@@ -1,4 +1,5 @@
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import type { EntitlementOverrideEntry } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 /** MVCC token and provider watermark used to guard an authoritative same-second reconciliation. */
 export interface StripeSubscriptionOrderingState {
   version: string;
@@ -128,8 +129,16 @@ export interface PlanAccess {
    * longer grants its plan; `null` only when the catalog holds no Free plan.
    */
   plan: { publicId: string; name: string } | null;
-  /** That plan's typed features (BL12); `null` exactly when `plan` is. */
+  /**
+   * That plan's typed features (BL12) with the organization's active overrides laid over them
+   * (P270); `null` exactly when `plan` is.
+   */
   features: PlanFeatures | null;
+  /**
+   * The organization's overrides in force now (P270) — already laid over `features`; empty when
+   * none. Listed so `GET /billing/entitlements` can name them.
+   */
+  overrides: EntitlementOverrideEntry[];
   /**
    * BL24 (P80): the live subscription points at a switched-off plan (Starter, Growth, Pro) — the
    * organization is held to Free's features until it picks Creator or Studio.
@@ -208,4 +217,9 @@ export interface PlanAccessSubject {
   } | null;
   /** The catalog's Free plan (active, priced zero on both cycles); `null` when there is none. */
   freePlan: PlanAccessPlan | null;
+  /**
+   * The organization's stored, not-deleted entitlement overrides (P270), expired ones included —
+   * read in the same query; `resolvePlanAccess` keeps those in force.
+   */
+  overrides: EntitlementOverrideEntry[];
 }

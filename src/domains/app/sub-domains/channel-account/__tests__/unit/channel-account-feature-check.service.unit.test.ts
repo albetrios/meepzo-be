@@ -65,6 +65,7 @@ function serviceWith({
       trialEndsAt: null,
       plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
       features,
+      overrides: [],
       isPlanChoiceRequired: false,
     })),
   };

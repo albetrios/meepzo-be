@@ -181,6 +181,7 @@ describe('InstagramSendLaneService (database)', () => {
       getPlanAccess: async () => ({
         state: 'active',
         graceEndsAt: null,
+        overrides: [],
         isPlanChoiceRequired: false,
         trialEndsAt: null,
         plan: { publicId: 'pln_test', name: 'Free' },

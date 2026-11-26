@@ -3983,6 +3983,21 @@ Added at Close from the plan-gating audit; built as written here (AS-BUILT › "
 | `organization_read_only` | 403 | `grace_ends_at` (when write access ended), `upgrade_required: true` |
 | `message_month_limit_reached` | 409 | none — the month's numbers are on the entitlements read |
 
+**Per-organization overrides (P270, P273).** Table `billing.organization_entitlement_overrides` (`ovr_…`): one live
+override per organization and key — a plan feature switch (boolean) or `message_month_limit` (≥ 0) /
+`channel_accounts_max` (1–100), optional `expires_at`, a `reason`. Merged inside `resolvePlanAccess` from the same one
+query (BL2), over whichever plan applies, strictly typed (BL12); never changes the state. Global admin only:
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| C1 | GET | `/billing/entitlement-overrides?organization_id=org_…` | One organization's overrides (`is_active` false once expired) | ROLE super_admin | |
+| C2 | POST | `/billing/entitlement-overrides` | Set one key (`organization_id`, `key`, `value`, `expires_at?`, `reason`); replaces the live one; audited `billing.entitlement_override.set` | ROLE super_admin | |
+| C3 | DELETE | `/billing/entitlement-overrides/{entitlement_override_id}` | Remove (soft delete) → 204; audited `billing.entitlement_override.remove`; `404 entitlement_override_not_found` | ROLE super_admin | |
+
+A set or remove that moves the features emits `subscription.plan_state_changed` (`upgraded` / `moved_down`, BL8).
+Errors: `400` (value type or bounds, unknown key, past `expires_at`), `403` (not a global admin), `404` (organization,
+override), `409 entitlement_override_conflict` (two sets of a new key racing).
+
 ---
 
 ### 8.A Plans — `billing/sub-domains/plan/` — final (rev 4, confirmed 2026-11-24)

@@ -65,6 +65,7 @@ function organizationSubject(
     organization: { type: options.type ?? 'TEAM' },
     subscription: options.subscription ?? null,
     freePlan: options.freePlan === undefined ? FREE_PLAN : options.freePlan,
+    overrides: [],
   };
 }
 
@@ -104,6 +105,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
     graceEndsAt: null,
     trialEndsAt,
     ...entitlement,
+    overrides: [],
     isPlanChoiceRequired: false,
   });
 
@@ -166,6 +168,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         graceEndsAt: daysAfter(daysAgo(4), LAPSE_GRACE_DAYS),
         trialEndsAt: null,
         ...ON_CREATOR,
+        overrides: [],
         isPlanChoiceRequired: false,
       });
     }
@@ -180,6 +183,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAfter(daysAgo(30), LAPSE_GRACE_DAYS),
       trialEndsAt: null,
       ...ON_FREE,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -198,6 +202,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAgo(1),
       trialEndsAt: null,
       ...ON_FREE,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -220,6 +225,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         plan: { publicId: 'pln_growth', name: 'Growth' },
         features: FREE_PLAN_FEATURES,
       }),
+      overrides: [],
       isPlanChoiceRequired: true,
     });
   });
@@ -248,6 +254,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -270,6 +277,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });

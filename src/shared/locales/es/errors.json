@@ -123,7 +123,9 @@
     "broadcastScheduledAtForMode": "scheduled_at va con el modo scheduled, y solo con él",
     "broadcastOpenWaitDaysForMode": "open_wait_days va con el modo when_chat_opens, y solo con él",
     "broadcastScheduledAtRange": "La hora debe ser futura y como máximo 30 días adelante",
-    "passwordComplexity": "La contraseña debe incluir al menos 3 de: minúsculas, mayúsculas, números, símbolos"
+    "passwordComplexity": "La contraseña debe incluir al menos 3 de: minúsculas, mayúsculas, números, símbolos",
+    "entitlementOverrideValueInvalid": "Usa true o false para una función, o un número entero dentro del rango del límite del plan para un límite",
+    "entitlementOverrideExpiresAtPast": "El final debe estar en el futuro"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -305,7 +307,8 @@
     "Ad account": "Cuenta publicitaria",
     "Payment method": "Método de pago",
     "Segment": "el segmento",
-    "Broadcast": "Difusión"
+    "Broadcast": "Difusión",
+    "Entitlement override": "Excepción del plan"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",
@@ -377,5 +380,6 @@
   "invalidEmailOrPassword": "Correo o contraseña no válidos",
   "passwordAuthNotEnabled": "Autenticación por contraseña no habilitada",
   "currentPasswordIncorrect": "Contraseña actual incorrecta",
-  "invalidOrExpiredResetToken": "Token de restablecimiento no válido o caducado"
+  "invalidOrExpiredResetToken": "Token de restablecimiento no válido o caducado",
+  "entitlementOverrideConflict": "Otra persona acaba de establecer esta excepción. Inténtalo de nuevo."
 }

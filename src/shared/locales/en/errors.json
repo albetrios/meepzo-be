@@ -123,7 +123,9 @@
     "broadcastScheduledAtForMode": "scheduled_at goes with mode scheduled, and only with it",
     "broadcastOpenWaitDaysForMode": "open_wait_days goes with mode when_chat_opens, and only with it",
     "broadcastScheduledAtRange": "The time must be in the future and at most 30 days ahead",
-    "passwordComplexity": "Password must include at least 3 of: lowercase, uppercase, number, symbol"
+    "passwordComplexity": "Password must include at least 3 of: lowercase, uppercase, number, symbol",
+    "entitlementOverrideValueInvalid": "Use true or false for a feature, or a whole number within the plan limit's range for a limit",
+    "entitlementOverrideExpiresAtPast": "The end must be in the future"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -305,7 +307,8 @@
     "Ad account": "Ad account",
     "Payment method": "Payment method",
     "Segment": "Segment",
-    "Broadcast": "Broadcast"
+    "Broadcast": "Broadcast",
+    "Entitlement override": "Entitlement override"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",
@@ -377,5 +380,6 @@
   "invalidEmailOrPassword": "Invalid email or password",
   "passwordAuthNotEnabled": "Password auth not enabled",
   "currentPasswordIncorrect": "Current password is incorrect",
-  "invalidOrExpiredResetToken": "Invalid or expired reset token"
+  "invalidOrExpiredResetToken": "Invalid or expired reset token",
+  "entitlementOverrideConflict": "This override was just set by someone else. Try again."
 }

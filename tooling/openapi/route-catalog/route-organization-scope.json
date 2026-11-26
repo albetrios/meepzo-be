@@ -201,5 +201,8 @@
   "GET /api/v1/app/contacts/:contact_id/failed-messages/summary": "team",
   "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": "team",
   "GET /api/v1/app/automations/:automation_id/failed-messages/summary": "team",
-  "POST /api/v1/app/automations/:automation_id/failed-messages/retry": "team"
+  "POST /api/v1/app/automations/:automation_id/failed-messages/retry": "team",
+  "GET /api/v1/billing/entitlement-overrides": "both",
+  "POST /api/v1/billing/entitlement-overrides": "both",
+  "DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id": "both"
 }

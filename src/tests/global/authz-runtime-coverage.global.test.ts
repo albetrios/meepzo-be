@@ -210,6 +210,8 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'DELETE /api/v1/users/:user_id': 'admin-only: regular user denied',
   'POST /api/v1/users/:user_id/suspend': 'admin-only: regular user denied',
   'POST /api/v1/users/:user_id/unsuspend': 'admin-only: regular user denied',
+  'DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id':
+    'admin-only: regular user denied',
 };
 
 describe('Global: authorization-model attack-test mapping parity', () => {

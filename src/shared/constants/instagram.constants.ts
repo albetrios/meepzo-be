@@ -184,3 +184,21 @@ export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-stor
  * CHECK to these columns: an encoding change at Meta would then fail the save again.
  */
 export const INSTAGRAM_OPAQUE_ID_MAX_LENGTH = 1024;
+
+/**
+ * The longest numeric Meta id the database stores — Instagram user, account and Instagram-scoped
+ * ids, media, comment, story and ad ids, a business id (feat-instagram-dm-sending 6.B.3).
+ *
+ * @remarks
+ * Meta types these ids only as (numeric) strings; every documented example is 17 digits. They stay
+ * strings, never `bigint`: a real id such as `17841405726653026` is past JavaScript's safe integer
+ * range, so any `Number` on the way would silently change it. 64 leaves ample room; one constant
+ * names the width every such column and reader uses.
+ */
+export const INSTAGRAM_ID_MAX_LENGTH = 64;
+
+/** A numeric Meta id, digits only (the SQL CHECK and regex source every id column and reader share). */
+export const INSTAGRAM_ID_PATTERN = `^[0-9]{1,${INSTAGRAM_ID_MAX_LENGTH}}$`;
+
+/** {@link INSTAGRAM_ID_PATTERN} compiled, for the readers and request validators. */
+export const INSTAGRAM_ID_REGEX = new RegExp(INSTAGRAM_ID_PATTERN);

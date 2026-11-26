@@ -14,10 +14,15 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH } from './instagram-media.constants.js';
+import {
+  INSTAGRAM_ID_MAX_LENGTH,
+  INSTAGRAM_ID_PATTERN,
+} from '@/shared/constants/instagram.constants.js';
 
 /**
  * `app.instagram_media` — a post, reel or Live an automation ran on (launch routes-final § 1.C.3,
@@ -45,7 +50,9 @@ export const instagram_media = appSchema
       /** The channel account the post belongs to; composite → `app.channel_accounts` (P47). */
       channel_account_id: bigint('channel_account_id', { mode: 'number' }).notNull(),
       /** Instagram's media id — digits. */
-      instagram_media_id: varchar('instagram_media_id', { length: 64 }).notNull(),
+      instagram_media_id: varchar('instagram_media_id', {
+        length: INSTAGRAM_ID_MAX_LENGTH,
+      }).notNull(),
       shortcode: varchar('shortcode', { length: INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH }),
       /** `image` · `video` · `carousel_album` (Instagram's upper case, lowered). */
       media_type: varchar('media_type', { length: 20 }),
@@ -98,7 +105,7 @@ export const instagram_media = appSchema
         .where(sql`${table.comments_next_check_at} IS NOT NULL`),
       check(
         'chk_instagram_media_instagram_media_id',
-        sql`${table.instagram_media_id} ~ '^[0-9]{1,64}$'`,
+        sql`${table.instagram_media_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check(
         'chk_instagram_media_media_type',

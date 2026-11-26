@@ -225,9 +225,6 @@ export const AUTOMATION_RUN_EVENT_KEY_MAX_LENGTH = 512;
 /** The longest once key (`post_key`, D13) a run keeps (`varchar(255)`). */
 export const AUTOMATION_RUN_ONCE_KEY_MAX_LENGTH = 255;
 
-/** A media, comment or story id as the channel sends it: digits only. */
-export const AUTOMATION_RUN_INSTAGRAM_ID_PATTERN = '^[0-9]{1,64}$';
-
 /** The highest message number of the list (`last_message_number`, 1–10). */
 export const AUTOMATION_RUN_LAST_MESSAGE_NUMBER_MAX = 10;
 

@@ -21,6 +21,7 @@ import {
   SEGMENT_TAG_MATCHES,
   SEGMENT_TAG_VALUES_MAX_COUNT,
 } from './broadcast-segment.constants.js';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 
 /** A well-formed `cha_…` id (the channel account, BC5). */
 const channelAccountIdSchema = z
@@ -92,7 +93,7 @@ const cameInConditionSchema = z
 const commentedConditionSchema = z
   .object({
     field: z.literal('commented'),
-    post: z.union([z.literal('any'), z.string().regex(/^\d{1,64}$/)]),
+    post: z.union([z.literal('any'), z.string().regex(INSTAGRAM_ID_REGEX)]),
     days: daysSchema.optional(),
     keyword: z.string().trim().min(1).max(SEGMENT_COMMENT_KEYWORD_MAX_LENGTH).optional(),
     at_least: z.number().int().min(1).max(SEGMENT_COMMENT_AT_LEAST_MAX).optional(),

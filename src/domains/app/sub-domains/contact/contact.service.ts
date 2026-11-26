@@ -94,6 +94,7 @@ import {
   normalizeContactEmail,
   normalizeContactPhone,
 } from './contact.validator.js';
+import { INSTAGRAM_ID_REGEX } from '@/shared/constants/instagram.constants.js';
 
 /**
  * The normalized kinds that are a message in her chat — the first one sets `first_message_at`
@@ -190,9 +191,6 @@ function tagCountDeltas({
     ...removed.map((tag) => ({ tag, delta: -1 })),
   ];
 }
-
-/** An Instagram user id as the webhook sends it: digits only (`chk_contacts_instagram_user_id`). */
-const INSTAGRAM_USER_ID = /^\d{1,64}$/;
 
 /** "What happened" shows our messages of about this many days (CT14 `meta.message_horizon_days`, P13). */
 const CONTACT_MESSAGE_HORIZON_DAYS = 30;
@@ -1166,7 +1164,7 @@ export class ContactService {
   async recordContactInteraction(
     input: RecordContactInteractionInput,
   ): Promise<ContactInteractionResult> {
-    if (!INSTAGRAM_USER_ID.test(input.instagramUserId)) {
+    if (!INSTAGRAM_ID_REGEX.test(input.instagramUserId)) {
       throw new Error('recordContactInteraction: the Instagram user id must be digits only');
     }
     const { contact, isInserted } = await createWorkerContactRepository(

@@ -3,10 +3,8 @@ import type {
   InstagramWebhookEventKind,
   InstagramWebhookEventSkipReason,
 } from './instagram-webhook-event/instagram-webhook-event.constants.js';
-import {
-  INSTAGRAM_WEBHOOK_EVENT_KEY_MAX_LENGTH,
-  INSTAGRAM_WEBHOOK_USER_ID_PATTERN,
-} from './instagram-webhook.constants.js';
+import { META_NUMERIC_ID_PATTERN } from '@/shared/constants/instagram.constants.js';
+import { INSTAGRAM_WEBHOOK_EVENT_KEY_MAX_LENGTH } from './instagram-webhook.constants.js';
 
 /** A JSON object as Meta sent it. */
 type MetaObject = Record<string, unknown>;
@@ -87,8 +85,7 @@ function sha256Hex(value: unknown): string {
  * number that is still exact) — else `null`.
  */
 export function readInstagramWebhookUserId(value: unknown): string | null {
-  if (typeof value === 'string')
-    return INSTAGRAM_WEBHOOK_USER_ID_PATTERN.test(value) ? value : null;
+  if (typeof value === 'string') return META_NUMERIC_ID_PATTERN.test(value) ? value : null;
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
   return null;
 }

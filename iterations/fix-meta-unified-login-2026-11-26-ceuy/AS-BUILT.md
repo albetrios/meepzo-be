@@ -19,15 +19,31 @@ Verification (F3): `pnpm db:migrate:lint` 0 violations (159 files); `pnpm db:mig
 
 Verification (F4): `channel-connection.integration.test.ts` — 26 tests pass; `pnpm typecheck`, `pnpm validate`, `pnpm tsdoc:check` clean.
 
+## Close review (one independent review agent over `git diff 2e6e65b..HEAD -- src migrations docs`, user's choice of the cheaper review)
+
+No critical or major finding. Five minor ones, each checked against the code and fixed:
+
+| # | Finding | Fix | Proof |
+| --- | --- | --- | --- |
+| 1 | F1 regression: a login declining every permission answered "restart" (outage) instead of `422 provider_permissions_missing` | `/me/permissions` naming only declined permissions is an answer (`[]`); only an **empty** list falls back; a valid `/debug_token` answer with `scopes: []` is an answer too | client unit › "answers [] without /debug_token when /me/permissions names only declined permissions (review 1)", "takes a valid /debug_token answer with no scopes as nothing granted (review 1)" |
+| 2 | F3: a reconnect without a usable `/me` id overwrote a known `provider_user_id` with NULL | the upsert's update sets `COALESCE(EXCLUDED.provider_user_id, provider_user_id)` | integration › the F3 test's third reconnect (`systemUserId: null`) keeps `20002` |
+| 3 | F1: `/debug_token` scopes trusted when `is_valid: false` or for another `app_id` | either → no answer (`null`) → the outage | client unit › "never trusts the scopes of an invalid token or of another app (review 3)"; the contract test answers with this environment's `app_id` |
+| 4 | F1: the fallback required all four Meta settings via `readMetaAppSettings` | reads only `META_APP_ID` + `readMetaAppSecret()` | client unit › "reads /debug_token with only the app id and secret set … (review 4)" |
+| 5 | Reuse rule: a third copy of the digits-only id pattern | one `META_NUMERIC_ID_PATTERN` in `src/shared/constants/instagram.constants.ts`; `INSTAGRAM_WEBHOOK_USER_ID_PATTERN` and the contact service's private copy removed, both callers and the client read it | typecheck; contact + webhook suites pass |
+
+Also: F4's call pushed `finishLogin` to 101 lines (Biome `noExcessiveLinesPerFunction`, a warning) — the `null` check moved into `logDatedToken`.
+
+Verification (close): `pnpm vitest run` channel-connection, contact, instagram-webhook — 59 files, 1,024 tests; `pnpm test:contract` 94; `pnpm lint`, `pnpm typecheck`, `pnpm validate`, `pnpm tsdoc:check`, `pnpm routes:catalog:check` clean.
+
 ## Revisions to upcoming rows
 
 - none
 
 ## Summary
 
-- Planned, not built: —
-- Built, not planned: —
-- Follow-ups: owner tests O1–O5 (`plans/decisions.md`)
+- Planned, not built: — (C5 moved to `feat-meta-connect-flow-2026-11-26-bqmw` by F-D7; C6 is owner test O2)
+- Built, not planned: the removal of the refused-quick-reply fallback (F-D9); the shared `META_NUMERIC_ID_PATTERN` and the five review fixes (Close review)
+- Follow-ups: owner tests O1–O5 (`plans/decisions.md`) — O1 decides whether the `/debug_token` fallback is ever reached; the connect-flow iteration designs the frontend answer for missing permissions and unreadable permissions
 
 ## Standing deviations
 

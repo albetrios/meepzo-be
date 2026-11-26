@@ -17,9 +17,6 @@ export const INSTAGRAM_WEBHOOK_SUBSCRIBE_MODE = 'subscribe';
  */
 export const INSTAGRAM_WEBHOOK_EVENT_KEY_MAX_LENGTH = 512;
 
-/** An Instagram id as the events table stores it (`^[0-9]{1,64}$`, WH9). */
-export const INSTAGRAM_WEBHOOK_USER_ID_PATTERN = /^\d{1,64}$/;
-
 /**
  * The BullMQ priority of each intake job (feat-instagram-dm-sending § 5 WH5, WH11; BullMQ runs a
  * lower number first): chat events and Live comments `1`, comments `5`, and

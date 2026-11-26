@@ -331,7 +331,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .query({ input_token: ACCOUNT_ACCESS_TOKEN, access_token: appAccessToken })
         .reply(200, (interceptedUri: string) => {
           interceptedUrl = readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL });
-          return debugTokenSuccessFixture;
+          // Meta answers for the asking app: the fixture's `app_id` is this environment's.
+          return {
+            ...debugTokenSuccessFixture,
+            data: { ...debugTokenSuccessFixture.data, app_id: String(environment.META_APP_ID) },
+          };
         });
       const readLoggedText = recordLoggedText();
 

@@ -16,6 +16,7 @@ import {
   outboundFetchJsonWithHeaders,
 } from '@/infrastructure/outbound/index.js';
 import { getEnv } from '@/shared/config/env.config.js';
+import { META_NUMERIC_ID_PATTERN } from '@/shared/constants/instagram.constants.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
@@ -1302,9 +1303,6 @@ export interface MetaConnectionReadOptions extends MetaGraphCallTracing {
   encryptedAccessToken: string;
 }
 
-/** A Meta id kept in a digits-only column (`chk_channel_connections_provider_user_id`). */
-const META_DIGIT_ID_PATTERN = /^[0-9]{1,64}$/;
-
 /** Who a Unified Login token is: its business portfolio and its system user (MC5 step 3, F3). */
 export interface MetaBusinessIdentity {
   /** Meta's `client_business_id` — the client's business portfolio; digits. */
@@ -1353,7 +1351,9 @@ export async function readMetaBusinessIdentity({
   return {
     clientBusinessId,
     providerUserId:
-      providerUserId !== null && META_DIGIT_ID_PATTERN.test(providerUserId) ? providerUserId : null,
+      providerUserId !== null && META_NUMERIC_ID_PATTERN.test(providerUserId)
+        ? providerUserId
+        : null,
   };
 }
 
@@ -1455,9 +1455,15 @@ export async function listMetaAssignedInstagramAccounts({
   return { accounts, isComplete: false };
 }
 
-/** The granted permission names of a `/me/permissions` list, in Meta's order. */
-function readGrantedPermissionList(answer: InstagramGraphListAnswer): string[] {
-  return readGraphListData({ answer, operation: '/me/permissions' }).flatMap((item) => {
+/**
+ * The granted permission names of a `/me/permissions` answer, in Meta's order — or `null` when the
+ * list is empty, which says nothing (a token type the edge does not serve answers `data: []`). A
+ * list naming only declined permissions is an answer: nothing granted (`[]`).
+ */
+function readGrantedPermissionList(answer: InstagramGraphListAnswer): string[] | null {
+  const items = readGraphListData({ answer, operation: '/me/permissions' });
+  if (items.length === 0) return null;
+  return items.flatMap((item) => {
     const permission = readAnswerText(item.permission);
     return permission !== null && item.status === 'granted' ? [permission] : [];
   });
@@ -1479,12 +1485,16 @@ function isPermissionReadRetryable(error: unknown): boolean {
 
 /**
  * The token's `scopes` as `/debug_token` reports them, with the app token
- * (`<app id>|<app secret>`) — Meta's token introspection, which reads any token type.
+ * (`<app id>|<app secret>`) — Meta's token introspection, which reads any token type — or `null`
+ * when the answer cannot be trusted.
  *
  * @remarks
  * - **Algorithm:** `GET /v27.0/debug_token?input_token=<token>&access_token=<app id>|<app secret>`;
- *   the names of `data.scopes`, de-duplicated in Meta's order.
- * - **Failure modes:** `MetaGraphApiError`; a setting unset → 503 `instagram_not_configured`.
+ *   `null` when `data.is_valid` is `false`, `data.app_id` names another app, or `data.scopes` is not
+ *   a list; else its names, de-duplicated in Meta's order (`[]` is an answer: nothing granted).
+ * - **Failure modes:** `MetaGraphApiError`; `META_APP_ID` or `META_APP_SECRET` unset → 503
+ *   `instagram_not_configured` (only those two are needed — a worker without the login settings
+ *   still reads it).
  * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
  * - **Notes:** both tokens ride in the query, as Meta documents the call; the outbound layer never
  *   logs a full URL, and both parameter names hold `token`, so any logged URL redacts them.
@@ -1493,8 +1503,10 @@ async function readMetaDebugTokenScopes({
   encryptedAccessToken,
   requestId,
   recordUsage,
-}: MetaConnectionReadOptions): Promise<string[]> {
-  const { appId, appSecret } = readMetaAppSettings();
+}: MetaConnectionReadOptions): Promise<string[] | null> {
+  const appSecret = readMetaAppSecret();
+  const appId = getEnv().META_APP_ID;
+  if (!appId) throw instagramNotConfiguredError();
   const answer = await callMetaGraph<{ data?: unknown }>({
     url: buildMetaGraphUrl({
       path: 'debug_token',
@@ -1506,9 +1518,11 @@ async function readMetaDebugTokenScopes({
     requestId,
     recordUsage,
   });
-  const scopes = readAnswerObject(answer.data).scopes;
-  if (!Array.isArray(scopes)) return [];
-  return [...new Set(scopes.flatMap((scope) => readAnswerText(scope) ?? []))];
+  const data = readAnswerObject(answer.data);
+  const answeredAppId = readAnswerId(data.app_id);
+  if (data.is_valid === false || (answeredAppId !== null && answeredAppId !== appId)) return null;
+  if (!Array.isArray(data.scopes)) return null;
+  return [...new Set(data.scopes.flatMap((scope) => readAnswerText(scope) ?? []))];
 }
 
 /**
@@ -1516,14 +1530,16 @@ async function readMetaDebugTokenScopes({
  * `GET /me/permissions` (only `status: granted` counts), else `/debug_token`'s `scopes`.
  *
  * @remarks
- * - **Algorithm:** `/me/permissions` with the token in `Authorization` and `appsecret_proof`; when it
- *   answers no granted permission, or Meta refuses it (`refused`, or `auth` other than code 190 —
- *   {@link isPermissionReadRetryable}), the token's `scopes` are read from `/debug_token` with the app
- *   token. The first non-empty list wins.
+ * - **Algorithm:** `/me/permissions` with the token in `Authorization` and `appsecret_proof`; a
+ *   non-empty list is the answer (only declined ones → `[]`, which the callback answers
+ *   `422 provider_permissions_missing`). When it answers an empty list, or Meta refuses it
+ *   (`refused`, or `auth` other than code 190 — {@link isPermissionReadRetryable}), the token's
+ *   `scopes` are read from `/debug_token` with the app token — a valid answer for this app is the
+ *   answer, `[]` included.
  * - **Failure modes:** a dead token (190), a throttle or an outage of `/me/permissions` is rethrown;
- *   when neither read names a permission, a malformed-answer `outage` (fix-meta-unified-login
- *   F-D3 — never an empty list, which would read as "nothing granted" and switch every feature
- *   off), logged as `meta_graph.permissions_unreadable` without the token.
+ *   when neither read gives an answer (both empty or refused, `/debug_token` invalid or for another
+ *   app), a malformed-answer `outage` (fix-meta-unified-login F-D3), logged as
+ *   `meta_graph.permissions_unreadable` with codes only.
  * - **Side effects:** one or two Meta calls; their usage goes to `recordUsage`.
  * - **Notes:** Meta documents neither read for a Business Integration System User token; which one
  *   answers is the fix iteration's owner test O1.
@@ -1542,7 +1558,7 @@ export async function readMetaGrantedPermissions(
         recordUsage,
       }),
     );
-    if (granted.length > 0) return granted;
+    if (granted !== null) return granted;
   } catch (error) {
     if (!isPermissionReadRetryable(error)) throw error;
     firstFailure = error;
@@ -1550,7 +1566,7 @@ export async function readMetaGrantedPermissions(
   let secondFailure: unknown = null;
   try {
     const scopes = await readMetaDebugTokenScopes(options);
-    if (scopes.length > 0) return scopes;
+    if (scopes !== null) return scopes;
   } catch (error) {
     if (error instanceof ServiceUnavailableError) throw error;
     secondFailure = error;
@@ -1560,13 +1576,13 @@ export async function readMetaGrantedPermissions(
       event: 'meta_graph.permissions_unreadable',
       requestId,
       permissionsRead: firstFailure === null ? 'empty' : describeMetaGraphError(firstFailure),
-      fallbackRead: secondFailure === null ? 'empty' : describeMetaGraphError(secondFailure),
+      fallbackRead: secondFailure === null ? 'unusable' : describeMetaGraphError(secondFailure),
     },
     'meta_graph.permissions_unreadable',
   );
   throw buildMetaGraphMalformedAnswerError({
     operation: '/me/permissions and /debug_token',
-    missing: 'a granted permission',
+    missing: 'a usable permission list',
   });
 }
 

@@ -190,6 +190,8 @@ export class ChannelConnectionRepository {
             ],
             set: {
               ...connectedColumns,
+              // A reconnect whose `/me` named no system user keeps the one already known (F3).
+              provider_user_id: sql`COALESCE(EXCLUDED.provider_user_id, ${channel_connections.provider_user_id})`,
               status_changed_at: sql`CASE WHEN ${channel_connections.status} = 'connected' THEN ${channel_connections.status_changed_at} ELSE now() END`,
               updated_at: connectionUpdatedAtTimestamp,
             },

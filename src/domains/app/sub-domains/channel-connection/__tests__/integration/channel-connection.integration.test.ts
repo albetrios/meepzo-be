@@ -303,6 +303,12 @@ describe('Channel connection routes', () => {
       const rows = await readChannelConnectionRows(team.organization.id);
       expect(rows).toHaveLength(1);
       expect(rows[0]?.provider_user_id).toBe('20002');
+
+      // A reconnect whose `/me` names no system user keeps the known one (review 2).
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: null });
+      expect((await callback({ state: await start() })).statusCode).toBe(200);
+      const [kept] = await readChannelConnectionRows(team.organization.id);
+      expect(kept?.provider_user_id).toBe('20002');
     });
 
     it('keeps no end for a token Meta names none for (a configuration whose token never ends)', async () => {

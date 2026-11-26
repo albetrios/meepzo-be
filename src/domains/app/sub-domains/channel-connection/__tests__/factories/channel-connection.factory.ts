@@ -98,8 +98,8 @@ export function mockMetaLogin({
   exchange?: 'success' | 'refused' | 'outage';
   /** The exchange's `expires_in` — absent for a configuration whose token never ends (P355). */
   expiresInSeconds?: number;
-  /** The `/me` `id` — the token's Meta system user (fix-meta-unified-login F3). */
-  systemUserId?: string;
+  /** The `/me` `id` — the token's Meta system user (fix-meta-unified-login F3); `null` answers none. */
+  systemUserId?: string | null;
 }): nock.Scope {
   const graph = nock(META_GRAPH_BASE_URL)
     .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
@@ -120,7 +120,10 @@ export function mockMetaLogin({
     })
     .get(`/${META_GRAPH_VERSION}/me`)
     .query(true)
-    .reply(200, { client_business_id: clientBusinessId, id: systemUserId })
+    .reply(200, {
+      client_business_id: clientBusinessId,
+      ...(systemUserId === null ? {} : { id: systemUserId }),
+    })
     .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
     .query(true)
     .reply(200, { data: assignedAccounts })

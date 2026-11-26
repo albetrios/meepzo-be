@@ -453,15 +453,13 @@ export class ChannelConnectionService {
       scope,
       accounts: committed.reconnected.map(({ account }) => account),
     });
-    if (login.tokenExpiresAt !== null) {
-      this.logDatedToken({
-        requestId,
-        configId: payload.config_id,
-        organizationPublicId: scope.organizationPublicId,
-        channelConnectionPublicId: committed.connection.public_id,
-        expiresAt: login.tokenExpiresAt,
-      });
-    }
+    this.logDatedToken({
+      requestId,
+      configId: payload.config_id,
+      organizationPublicId: scope.organizationPublicId,
+      channelConnectionPublicId: committed.connection.public_id,
+      expiresAt: login.tokenExpiresAt,
+    });
 
     return {
       data: {
@@ -1049,7 +1047,7 @@ export class ChannelConnectionService {
   }
 
   /**
-   * A connect whose token ends (fix-meta-unified-login F4): the configuration should issue a
+   * Flags a connect whose token ends (fix-meta-unified-login F4): the configuration should issue a
    * never-ending token (P359, F-D2), so a dated one means `META_CONFIG_ID` / `META_PAGE_CONFIG_ID`
    * drifted — flagged on the day it happens, not 7 days before the end (the token check, P355).
    * Never the token; the end is logged as `expiresAt` (a key holding `token` is redacted).
@@ -1065,8 +1063,10 @@ export class ChannelConnectionService {
     configId: string;
     organizationPublicId: string;
     channelConnectionPublicId: string;
-    expiresAt: Date;
+    /** The token's end; `null` (a never-ending token) logs nothing. */
+    expiresAt: Date | null;
   }): void {
+    if (expiresAt === null) return;
     logger.warn(
       {
         requestId,

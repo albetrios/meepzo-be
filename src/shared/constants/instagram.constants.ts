@@ -173,3 +173,10 @@ export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-stor
 
 /** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
 export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;
+
+/**
+ * A Meta id as our tables keep it — digits only, at most 64 (`chk_contacts_instagram_user_id`, the
+ * webhook events' ids, `chk_channel_connections_provider_user_id`; WH9). The one copy: the webhook
+ * classifier, the contact service and the Meta client read it (fix-meta-unified-login review).
+ */
+export const META_NUMERIC_ID_PATTERN = /^\d{1,64}$/;

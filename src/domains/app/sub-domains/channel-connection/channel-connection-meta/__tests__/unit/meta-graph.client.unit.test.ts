@@ -865,6 +865,67 @@ describe('Unified Login reads with a connection token (MC2)', () => {
       }
     });
 
+    it('answers [] without /debug_token when /me/permissions names only declined permissions (review 1)', async () => {
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/me/permissions`)
+        .query(withProof())
+        .reply(200, { data: [{ permission: 'instagram_basic', status: 'declined' }] });
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+      ).resolves.toEqual([]);
+    });
+
+    it('takes a valid /debug_token answer with no scopes as nothing granted (review 1)', async () => {
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/me/permissions`)
+        .query(withProof())
+        .reply(200, { data: [] });
+      debugToken().reply(200, {
+        data: { app_id: getEnv().META_APP_ID, is_valid: true, scopes: [] },
+      });
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+      ).resolves.toEqual([]);
+    });
+
+    it('never trusts the scopes of an invalid token or of another app (review 3)', async () => {
+      for (const data of [
+        { is_valid: false, scopes: ['instagram_basic'] },
+        { app_id: '999', is_valid: true, scopes: ['instagram_basic'] },
+      ]) {
+        graphWithAccountToken()
+          .get(`${VERSION_PATH}/me/permissions`)
+          .query(withProof())
+          .reply(200, { data: [] });
+        debugToken().reply(200, { data });
+        await expect(
+          readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+        ).rejects.toMatchObject({ errorClass: 'outage' });
+      }
+    });
+
+    it('reads /debug_token with only the app id and secret set — no login settings needed (review 4)', async () => {
+      const savedRedirectUri = process.env.META_REDIRECT_URI;
+      const savedConfigId = process.env.META_CONFIG_ID;
+      delete process.env.META_REDIRECT_URI;
+      delete process.env.META_CONFIG_ID;
+      resetEnvCacheForTests();
+      try {
+        graphWithAccountToken()
+          .get(`${VERSION_PATH}/me/permissions`)
+          .query(withProof())
+          .reply(200, { data: [] });
+        debugToken().reply(200, { data: { scopes: ['instagram_basic'] } });
+        await expect(
+          readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+        ).resolves.toEqual(['instagram_basic']);
+      } finally {
+        process.env.META_REDIRECT_URI = savedRedirectUri;
+        process.env.META_CONFIG_ID = savedConfigId;
+        resetEnvCacheForTests();
+      }
+    });
+
     it('rethrows a dead token (190) and never asks /debug_token (AF-2)', async () => {
       graphWithAccountToken()
         .get(`${VERSION_PATH}/me/permissions`)

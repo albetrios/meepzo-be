@@ -739,7 +739,6 @@ src/
     │   │   ├── app-partition-upkeep.worker.ts
     │   │   ├── app-table-clean-up.constants.ts
     │   │   └── app-table-clean-up.processor.ts
-    │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts
     │   ├── app.failed-messages.serializer.ts
@@ -1087,6 +1086,7 @@ src/
     │   │   │   │   │   └── entitlements.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-plan-guard.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-refusal.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-registry.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-snapshot.util.unit.test.ts
@@ -1097,6 +1097,7 @@ src/
     │   │   │   ├── entitlement-override.repository.ts
     │   │   │   ├── entitlement-override.schema.ts
     │   │   │   ├── entitlement-override.util.ts
+    │   │   │   ├── entitlement-plan-guard.util.ts
     │   │   │   ├── entitlement-refusal.util.ts
     │   │   │   ├── entitlement-registry.util.ts
     │   │   │   ├── entitlement-snapshot.util.ts

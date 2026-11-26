@@ -1,9 +1,4 @@
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  UnprocessableEntityError,
-} from '@/shared/errors/index.js';
+import { ConflictError, NotFoundError, UnprocessableEntityError } from '@/shared/errors/index.js';
 import { applyEntitlementOverrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 import { randomUUID } from 'node:crypto';
 
@@ -687,10 +682,11 @@ export class SubscriptionService {
    *   organization that does not exist reads `active` with no plan (the route's own checks answer).
    * - **Side effects:** none — read-only, Postgres only (no cache, BL2).
    * - **Notes:** `organizationPublicId` is one the caller has already proved — the signed `org`
-   *   claim (the app write guard, `GET /auth/me/context`) or a switch's verified target — read under
+   *   claim (the plan guard, `GET /auth/me/context`) or a switch's verified target — read under
    *   that organization's context, which a surrounding context for the same organization lends its
    *   transaction (me/context adds none). Read by `GET /auth/me/context` and the organization
-   *   switches (`active_organization.plan_access`), by {@link assertOrganizationWritable}, and — from
+   *   switches (`active_organization.plan_access`), by the entitlement module's `resolve` (the one
+   *   read-only plan guard, change-plan-gates RG3), and — from
    *   later iteration rows — by the account limit, the one feature check and the month limit.
    */
   async getPlanAccess({
@@ -712,40 +708,6 @@ export class SubscriptionService {
       now: new Date(Date.now()),
       isReadOnlyEnforced: env.LAPSED_PLAN_READ_ONLY_ENABLED,
     });
-  }
-
-  /**
-   * Refuses a write from a read-only organization: 403 with `error.reason` `organization_read_only`.
-   *
-   * @remarks
-   * - **Algorithm:** {@link getPlanAccess}; throws only for `read_only` — `active` and `grace` pass.
-   * - **Failure modes:** `ForbiddenError` (`errors:organizationReadOnly`, reason
-   *   `organization_read_only`) carrying the plan refusal contract's fields (P269): `grace_ends_at`
-   *   (when write access ended — the grace end or the cancelled plan's period end) and
-   *   `upgrade_required: true`; a query failure propagates.
-   * - **Side effects:** none.
-   * - **Notes:** the app domain runs it as a `preHandler` on two writes only — go-live (`POST
-   *   /api/v1/app/automations/{automation_id}/go-live`, route 32) and the broadcast send (`POST
-   *   /api/v1/app/broadcasts/{broadcast_id}/send`, route 75); `src/domains/app/app-plan-access.ts`,
-   *   P10 (which narrowed launch D27's create / edit / delete). Drafts, edits, pause, duplicate and
-   *   delete stay open, and so do billing, auth, user, tenancy and upload, so a read-only
-   *   organization can still pay, sign in, manage its team, export its data, connect or disconnect
-   *   Instagram and erase a contact's personal data; reads and running automations go on.
-   */
-  async assertOrganizationWritable({
-    organizationPublicId,
-  }: {
-    organizationPublicId: string;
-  }): Promise<void> {
-    const access = await this.getPlanAccess({ organizationPublicId });
-    if (access.state === PLAN_ACCESS_STATE.READ_ONLY) {
-      throw new ForbiddenError('errors:organizationReadOnly')
-        .withReason('organization_read_only')
-        .withFields({
-          grace_ends_at: access.graceEndsAt?.toISOString() ?? null,
-          upgrade_required: true,
-        });
-    }
   }
 
   /**

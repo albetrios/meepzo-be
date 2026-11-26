@@ -1,4 +1,4 @@
-import Fastify, { type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyRequest, type RouteOptions } from 'fastify';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env, getEnv } from '@/shared/config/env.config.js';
 import { registerMiddleware } from '@/shared/middlewares/index.js';
@@ -60,6 +60,12 @@ function registerRawBodyRouteFromConfig(routeOptions: { url: string; config?: un
 export type RegisteredRouteCapture = {
   method: string;
   url: string;
+  /**
+   * The route's options object as Fastify registers it — the same object later `onRoute` hooks
+   * still change (the plan guard, the idempotency claim), so read it after `ready()` (the
+   * plan-gate coverage test reads its `config.planGate` and `preHandler` list).
+   */
+  routeOptions: RouteOptions;
 };
 
 /**
@@ -115,7 +121,7 @@ export async function buildApp(options?: BuildAppOptions) {
         : [routeOptions.method];
       for (const method of methods) {
         if (method === 'HEAD') continue;
-        captures.push({ method: method.toUpperCase(), url: routeOptions.url });
+        captures.push({ method: method.toUpperCase(), url: routeOptions.url, routeOptions });
       }
     });
   }

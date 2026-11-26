@@ -1,37 +1,64 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import Fastify from 'fastify';
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { describe, expect, it, vi } from 'vitest';
-import { isAppPlanAccessPreHandler } from '@/domains/app/app-plan-access.js';
-import { createAppContainer } from '@/domains/app/app.container.js';
-import { appRoutesPlugin } from '@/domains/app/app.routes.js';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  ENTITLEMENT_LIMIT_KEYS,
+  ENTITLEMENT_SWITCH_KEYS,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
+import {
+  declaresReadOnlyPlanGate,
+  isPlanReadOnlyGuard,
+} from '@/domains/billing/sub-domains/entitlement/entitlement-plan-guard.util.js';
+import type { PlanGateDeclaration } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import { PLAN_FEATURE_KEYS } from '@/domains/billing/sub-domains/plan/plan.constants.js';
-import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import type { RegisteredRouteCapture } from '@/app.js';
 import { routeModelKey } from '@/tests/helpers/route-authorization-model.js';
 import { loadRouteRegistryFromCatalog } from '@/tests/helpers/route-catalog-registry.js';
 import {
-  isWriteRoute,
+  JOB_PLAN_GATE_KINDS,
   JOB_PLAN_GATE_MODEL,
-  type PlanGateEntry,
-  PLAN_GATE_KINDS,
-  ROUTE_PLAN_GATE_MODEL,
+  type JobPlanGateEntry,
 } from '@/tests/helpers/route-plan-gate-model.js';
-import {
-  buildPublicApiPrefix,
-  PUBLIC_API_VERSION_SEGMENT_V1,
-} from '@/shared/utils/http/api-versioning.util.js';
+import { createTestApp } from '@/tests/helpers/test-app.js';
 
-const APP_PREFIX = `${buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1)}/app`;
 const DOMAINS_ROOT = join(process.cwd(), 'src', 'domains');
+const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-/** Every gate value the model may use: the fixed kinds and one `feature:<key>` per plan switch. */
-const KNOWN_GATES: ReadonlySet<string> = new Set([
-  ...PLAN_GATE_KINDS,
+/**
+ * The Bull Board dashboard (`ENABLE_QUEUE_DASHBOARD`, `/admin/queues`): a third-party plugin's own
+ * operator routes, outside the API catalog — no route of ours, so no plan-gate declaration.
+ */
+const QUEUE_DASHBOARD_PREFIX = '/admin/queues';
+
+/** Every gate a route may declare — read from the entitlement registry at run time (RG6). */
+const KNOWN_ROUTE_GATES: ReadonlySet<string> = new Set([
+  'read_only',
+  ...ENTITLEMENT_SWITCH_KEYS.map((key) => `feature:${key}`),
+  ...ENTITLEMENT_LIMIT_KEYS.map((key) => `limit:${key}`),
+]);
+
+/** Every gate the job model may use: the fixed kinds and one `feature:<key>` per plan switch. */
+const KNOWN_JOB_GATES: ReadonlySet<string> = new Set([
+  ...JOB_PLAN_GATE_KINDS,
   ...PLAN_FEATURE_KEYS.map((key) => `feature:${key}`),
 ]);
 
-function listInvalidEntries(model: Readonly<Record<string, PlanGateEntry>>): string[] {
+/** What is wrong with one route's live declaration — empty when it is valid. */
+function listDeclarationProblems(planGate: PlanGateDeclaration): string[] {
+  const hasGates = Array.isArray(planGate.gates) && planGate.gates.length > 0;
+  const reason = planGate.open;
+  const hasReason = typeof reason === 'string' && reason.trim().length > 0;
+  if (hasGates === hasReason) return ['exactly one of gates / a non-empty open reason'];
+  const problems: string[] = [];
+  for (const gate of planGate.gates ?? []) {
+    if (!KNOWN_ROUTE_GATES.has(gate)) problems.push(`unknown gate ${gate}`);
+  }
+  if (hasReason && /[\r\n]/.test(reason)) problems.push('the open reason is one line');
+  return problems;
+}
+
+function listInvalidJobEntries(model: Readonly<Record<string, JobPlanGateEntry>>): string[] {
   const invalid: string[] = [];
   for (const [key, entry] of Object.entries(model)) {
     const hasGates = Array.isArray(entry.gates) && entry.gates.length > 0;
@@ -42,7 +69,7 @@ function listInvalidEntries(model: Readonly<Record<string, PlanGateEntry>>): str
       continue;
     }
     for (const gate of entry.gates ?? []) {
-      if (!KNOWN_GATES.has(gate)) invalid.push(`${key} → unknown gate ${gate}`);
+      if (!KNOWN_JOB_GATES.has(gate)) invalid.push(`${key} → unknown gate ${gate}`);
     }
     if (hasReason && reason.includes('\n')) invalid.push(`${key} → the reason is one line`);
   }
@@ -63,81 +90,84 @@ function readDomainSource(directory: string = DOMAINS_ROOT, parts: string[] = []
   return parts;
 }
 
-/**
- * The app routes whose registered `preHandler` list carries the read-only guard — read from the
- * real routes plugin, so the model's `read_only_guard` is checked against what runs.
- */
-async function listGuardedAppRoutes(): Promise<Set<string>> {
-  const application = Fastify();
-  application.setValidatorCompiler(validatorCompiler);
-  application.setSerializerCompiler(serializerCompiler);
-  application.decorate('authenticate', async () => undefined);
-  application.decorate(
-    'appDomain',
-    createAppContainer({
-      organizationService: {} as OrganizationService,
-      planAccessService: { getPlanAccess: vi.fn() },
-      trialPort: { assertAccountsMayTrial: vi.fn(), recordTrialAccounts: vi.fn() },
-    }),
-  );
-  application.decorate('billingDomain', {
-    subscriptionService: { assertOrganizationWritable: vi.fn() },
-  } as never);
-  const guarded = new Set<string>();
-  application.addHook('onRoute', (route) => {
-    const preHandlers = [route.preHandler ?? []].flat();
-    if (route.method === 'HEAD' || !preHandlers.some(isAppPlanAccessPreHandler)) return;
-    for (const method of [route.method].flat()) guarded.add(`${String(method)} ${route.url}`);
-  });
-  await application.register(appRoutesPlugin, { prefix: APP_PREFIX });
-  await application.ready();
-  await application.close();
-  return guarded;
+function routeKey(route: RegisteredRouteCapture): string {
+  return `${route.method} ${route.url}`;
+}
+
+/** The route's final `preHandler` list, as Fastify built it (after every `onRoute` hook). */
+function listPreHandlers(route: RegisteredRouteCapture): unknown[] {
+  return [route.routeOptions.preHandler ?? []].flat();
 }
 
 /**
- * Coverage gate for plan gating (owner 2026-11-26, plan-gating audit item 9).
+ * Coverage gate for route plan gates (change-plan-gates RG6, owner 2026-11-26).
  *
- * Every write route in docs/routes.txt declares its plan gates or why it is deliberately open in
- * `route-plan-gate-model.ts`; no entry outlives its route; every gate is known; and the read-only
- * guard the model declares is the one the registered routes really run. Every job that sends or
- * starts paid work declares its gates too, and no job entry outlives its job name.
+ * Reads the LIVE routes — the fully built app, every route plugin, the MCP and ops routes — never a
+ * hand list: every registered write route declares `config.planGate` (its gates, or the one-line
+ * reason it meets none); every gate is a registry key; and the routes declaring `read_only` are
+ * exactly the routes the one plan guard was attached to, first in their `preHandler` list. Every
+ * job that sends or starts paid work declares its gates too (the hand-kept job model, until part 6).
  */
 describe('Global: plan-gate coverage', () => {
-  const routes = loadRouteRegistryFromCatalog();
-  const writes = routes.filter(isWriteRoute);
+  let app: FastifyInstance | undefined;
+  let routes: RegisteredRouteCapture[] = [];
+  let writes: RegisteredRouteCapture[] = [];
 
-  it('covers a meaningful number of write routes', () => {
-    expect(writes.length).toBeGreaterThan(100);
+  beforeAll(async () => {
+    const testApp = await createTestApp({ connectRedisClients: false });
+    app = testApp.app;
+    routes = testApp.registeredRoutes;
+    writes = routes.filter(
+      (route) => WRITE_METHODS.has(route.method) && !route.url.startsWith(QUEUE_DASHBOARD_PREFIX),
+    );
   });
 
-  it('every write route has a plan-gate entry', () => {
-    const missing = writes.map(routeModelKey).filter((key) => !(key in ROUTE_PLAN_GATE_MODEL));
-    expect(missing, `Write routes missing a plan-gate entry:\n${missing.join('\n')}`).toEqual([]);
+  afterAll(async () => {
+    await app?.close();
   });
 
-  it('every plan-gate entry maps to a write route in the catalog (no stale entries)', () => {
-    const writeKeys = new Set(writes.map(routeModelKey));
-    const stale = Object.keys(ROUTE_PLAN_GATE_MODEL).filter((key) => !writeKeys.has(key));
-    expect(stale, `Stale plan-gate entries:\n${stale.join('\n')}`).toEqual([]);
+  it('reads every write route of the catalog from the live app', () => {
+    const catalogWrites = loadRouteRegistryFromCatalog()
+      .filter((route) => route.method !== 'GET')
+      .map(routeModelKey);
+    const liveWrites = new Set(writes.map(routeKey));
+    expect(catalogWrites.length).toBeGreaterThan(100);
+    const unregistered = catalogWrites.filter((key) => !liveWrites.has(key));
+    expect(unregistered, `Catalog writes not registered:\n${unregistered.join('\n')}`).toEqual([]);
   });
 
-  it('every route entry names known gates or a one-line reason', () => {
-    expect(listInvalidEntries(ROUTE_PLAN_GATE_MODEL)).toEqual([]);
+  it('every write route declares config.planGate', () => {
+    const missing = writes
+      .filter((route) => route.routeOptions.config?.planGate === undefined)
+      .map(routeKey);
+    expect(missing, `Write routes without a planGate:\n${missing.join('\n')}`).toEqual([]);
   });
 
-  it('the read-only guard runs on exactly the routes the model declares it on', async () => {
-    const declared = Object.entries(ROUTE_PLAN_GATE_MODEL)
-      .filter(([, entry]) => entry.gates?.includes('read_only_guard'))
-      .map(([key]) => key)
+  it('every declaration names registry gates or a one-line open reason', () => {
+    const invalid = writes.flatMap((route) => {
+      const planGate = route.routeOptions.config?.planGate;
+      if (planGate === undefined) return [];
+      return listDeclarationProblems(planGate).map((problem) => `${routeKey(route)} → ${problem}`);
+    });
+    expect(invalid).toEqual([]);
+  });
+
+  it('the plan guard runs first on exactly the routes that declare read_only', () => {
+    const declared = writes
+      .filter((route) => declaresReadOnlyPlanGate(route.routeOptions.config?.planGate))
+      .map(routeKey)
       .sort();
-    const registered = [...(await listGuardedAppRoutes())].sort();
+    const guarded = routes.filter((route) => listPreHandlers(route).some(isPlanReadOnlyGuard));
+    const notFirst = guarded
+      .filter((route) => !isPlanReadOnlyGuard(listPreHandlers(route)[0]))
+      .map(routeKey);
     expect(declared.length).toBeGreaterThan(0);
-    expect(registered).toEqual(declared);
+    expect(guarded.map(routeKey).sort()).toEqual(declared);
+    expect(notFirst, `Guard attached but not first:\n${notFirst.join('\n')}`).toEqual([]);
   });
 
   it('every job entry names known gates and a job name the source still declares', () => {
-    expect(listInvalidEntries(JOB_PLAN_GATE_MODEL)).toEqual([]);
+    expect(listInvalidJobEntries(JOB_PLAN_GATE_MODEL)).toEqual([]);
     const source = readDomainSource().join('\n');
     const stale = Object.keys(JOB_PLAN_GATE_MODEL).filter((name) => !source.includes(`'${name}'`));
     expect(stale, `Job entries with no declared job name:\n${stale.join('\n')}`).toEqual([]);

@@ -9,7 +9,10 @@ import type { TenancyContainer } from '@/domains/tenancy/tenancy.container.js';
 import type { UploadContainer } from '@/domains/upload/upload.container.js';
 import type { UserContainer } from '@/domains/user/user.container.js';
 import type { AuthContext } from '@/shared/types/index.js';
-import type { PlanGateDeclaration } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
+import type {
+  EntitlementSnapshot,
+  PlanGateDeclaration,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { PrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import type { FailedAuthenticationRateLimit } from '@/shared/middlewares/rate-limit/failed-authentication-rate-limit.js';
@@ -78,6 +81,12 @@ declare module 'fastify' {
      */
     metaSignedRequest?: MetaSignedRequestPayload;
     metricsStartTimeNanoseconds?: bigint;
+    /**
+     * The organization's entitlement snapshot, resolved once by the plan guard on a route that
+     * declares `read_only` (change-plan-gates RG5, P24) for the controller to pass on; `null` on
+     * every other route (decorated in `src/routes.ts`).
+     */
+    entitlementSnapshot: EntitlementSnapshot | null;
     /** i18n translate function fixed to `language` (set by the i18n middleware on every request). */
     t?: TFunction;
     /** The request's supported language code (`SUPPORTED_LANGUAGES`: "en", "es"). */

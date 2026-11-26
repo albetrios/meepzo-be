@@ -21,6 +21,13 @@ import type { PlanService } from '@/domains/billing/sub-domains/plan/plan.servic
 import type { PaymentProvider } from '@/domains/billing/sub-domains/subscription/payment-provider.port.js';
 import type { SubscriptionRepository } from '@/domains/billing/sub-domains/subscription/subscription.repository.js';
 import type { PlanAccessSubject } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
+import {
+  EntitlementService,
+  type EntitlementOrganizationService,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.service.js';
+import type { EntitlementOverrideRepository } from '@/domains/billing/sub-domains/entitlement/entitlement-override.repository.js';
+import { createPlanReadOnlyGuard } from '@/domains/billing/sub-domains/entitlement/entitlement-plan-guard.util.js';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import {
   CREATOR_PLAN_FEATURES,
@@ -28,6 +35,28 @@ import {
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Runs the one read-only plan guard (change-plan-gates RG3) over this service's plan read — the
+ * write check `assertOrganizationWritable` answered before the guard moved into the entitlement
+ * module — for a request of `organizationPublicId`.
+ */
+async function guardWrite({
+  service,
+  organizationPublicId,
+}: {
+  service: SubscriptionService;
+  organizationPublicId: string;
+}): Promise<void> {
+  const entitlementService = new EntitlementService({
+    organizationService: {} as EntitlementOrganizationService,
+    overrideRepository: {} as EntitlementOverrideRepository,
+    planAccessService: service,
+  });
+  const guard = createPlanReadOnlyGuard({ entitlementService });
+  const request = { principalScope: { organizationPublicId } } as unknown as FastifyRequest;
+  await guard(request, {} as FastifyReply);
+}
 
 function serviceReading(subject: PlanAccessSubject | null) {
   const repository = { findPlanAccessSubject: vi.fn().mockResolvedValue(subject) };
@@ -95,9 +124,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       overrides: [],
       isPlanChoiceRequired: false,
     });
-    await expect(
-      service.assertOrganizationWritable({ organizationPublicId: 'org_old' }),
-    ).resolves.toBeUndefined();
+    await expect(guardWrite({ service, organizationPublicId: 'org_old' })).resolves.toBeUndefined();
     expect(repository.findPlanAccessSubject).toHaveBeenCalledTimes(2);
   });
 
@@ -131,9 +158,9 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
     const subject = dunningOrganization(40);
     const { service } = serviceReading(subject);
 
-    const refusal = await service
-      .assertOrganizationWritable({ organizationPublicId: 'org_old' })
-      .catch((error: unknown) => error);
+    const refusal = await guardWrite({ service, organizationPublicId: 'org_old' }).catch(
+      (error: unknown) => error,
+    );
 
     expect(refusal).toBeInstanceOf(ForbiddenError);
     expect(refusal).toMatchObject({
@@ -156,8 +183,6 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
     env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
     const { service } = serviceReading(dunningOrganization(3));
 
-    await expect(
-      service.assertOrganizationWritable({ organizationPublicId: 'org_new' }),
-    ).resolves.toBeUndefined();
+    await expect(guardWrite({ service, organizationPublicId: 'org_new' })).resolves.toBeUndefined();
   });
 });

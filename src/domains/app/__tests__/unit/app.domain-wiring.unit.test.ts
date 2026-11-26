@@ -133,10 +133,6 @@ describe('app domain wiring', () => {
       'appDomain',
       createAppContainer({ organizationService, planAccessService, trialPort }),
     );
-    // The automation writes' read-only guard reads billing's subscription service (AQ8).
-    application.decorate('billingDomain', {
-      subscriptionService: { assertOrganizationWritable: vi.fn() },
-    } as never);
     const registeredRoutes: string[] = [];
     application.addHook('onRoute', (route) => {
       if (route.method !== 'HEAD') registeredRoutes.push(`${String(route.method)} ${route.url}`);

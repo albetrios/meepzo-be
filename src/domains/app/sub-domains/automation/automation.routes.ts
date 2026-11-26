@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
@@ -39,19 +39,17 @@ const AUTOMATION_PRO_FEATURE_GATES = [
  *
  * @remarks
  * Gates (4.A.4): `automation:read` on 27, 29, 35, 36; `automation:create` on 28, 34;
- * `automation:update` on 30, 32, 33, 37; `automation:delete` on 31. The read-only plan guard
- * (`planAccessPreHandler`, AU4 (1), P10) runs on route 32 only, first — create, edit, pause,
- * duplicate and delete stay open. `X-Idempotency-Key` is required on 28, 34 and 37 (AU5); 32, 33 (state
- * no-ops) and 35 (saves nothing) take none. The writes and route 35 carry the organization-scoped
+ * `automation:update` on 30, 32, 33, 37; `automation:delete` on 31. Route 32 declares `read_only`
+ * (AU4 (1), P10), so the one plan guard (`src/routes.ts`) runs on it first — create, edit, pause,
+ * duplicate and delete stay open; every write declares its `config.planGate` (change-plan-gates
+ * RG1). `X-Idempotency-Key` is required on 28, 34 and 37 (AU5); 32, 33 (state no-ops) and 35
+ * (saves nothing) take none. The writes and route 35 carry the organization-scoped
  * rate limit; the reads ride the global limiter.
  */
 export function automationRoutes({
   automationService,
-  planAccessPreHandler,
 }: {
   automationService: AutomationService;
-  /** The app domain's read-only plan guard (`createAppPlanAccessPreHandler`). */
-  planAccessPreHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }): FastifyPluginAsync {
   const controller = createAutomationController(automationService);
 
@@ -151,10 +149,7 @@ export function automationRoutes({
       '/automations/:automation_id/go-live',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
-        ],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
         config: {
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
           planGate: {

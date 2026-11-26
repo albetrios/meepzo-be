@@ -34,7 +34,7 @@ export type PlanRefusalInput =
  * @remarks
  * - **Algorithm:** one case per reason:
  *   - `organization_read_only` → `403` `errors:organizationReadOnly` + `grace_ends_at` (ISO 8601 or
- *     `null`), `upgrade_required: true` (as `SubscriptionService.assertOrganizationWritable`);
+ *     `null`), `upgrade_required: true` (the one read-only plan guard, `createPlanReadOnlyGuard`);
  *   - `plan_lacks_feature` → `403` `errors:planLacksFeature` + `feature`, `upgrade_required: true`
  *     (as the channel account's feature check and the automation's PRO-part check);
  *   - `plan_account_limit` → `409` `errors:planAccountLimit` + `limit`, `used`,

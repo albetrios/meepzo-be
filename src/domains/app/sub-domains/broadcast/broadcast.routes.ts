@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
@@ -27,7 +27,8 @@ const DRAFT_FIELDS_DESCRIPTION =
  * @remarks
  * Gates (7.A.4, P20 — the automation codes): `automation:read` on 70, 72; `automation:create` on 71;
  * `automation:update` on 73, 75, 76; `automation:delete` on 74. The PRO `broadcasts` switch is the
- * service's (BC3). The read-only plan guard (`planAccessPreHandler`) runs on route 75 only, first.
+ * service's (BC3). Route 75 declares `read_only`, so the one plan guard (`src/routes.ts`) runs on
+ * it first; every write declares its `config.planGate` (change-plan-gates RG1).
  * 71 creates a row, 75 starts background work and 76 hands the broadcast to the end duty, so all
  * three need `X-Idempotency-Key` (`idempotencyRequired`, 7.7); 73 takes an optional
  * `expected_updated_at`. The writes carry the organization-scoped rate limit; the reads ride the
@@ -35,11 +36,8 @@ const DRAFT_FIELDS_DESCRIPTION =
  */
 export function broadcastRoutes({
   broadcastService,
-  planAccessPreHandler,
 }: {
   broadcastService: BroadcastService;
-  /** The app domain's read-only plan guard (`createAppPlanAccessPreHandler`). */
-  planAccessPreHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }): FastifyPluginAsync {
   const controller = createBroadcastController(broadcastService);
 
@@ -136,10 +134,7 @@ export function broadcastRoutes({
       '/broadcasts/:broadcast_id/send',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
-        ],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,

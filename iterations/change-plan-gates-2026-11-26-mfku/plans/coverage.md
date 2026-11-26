@@ -7,6 +7,8 @@ A brief from scratch has no `PRD.md` or `schema-routes.md`, so **Reconciliation*
 **the code as it stands** (`feat/instagram-automation` at `e247c4a`) and against the frozen
 `feat-instagram-dm-sending-2026-11-23-oxak` iteration's decisions and Standing deviations.
 
+Step 4 answers: `decisions.md` PG1–PG13.
+
 Status: `covered` (a requirement reaches it) · `open` (waits for a RED answer in Step 4) · `out-of-scope` (with its reason).
 Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 
@@ -16,30 +18,30 @@ Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| BRIEF:L14 | Key registry: kind, type, global default, namespaced keys | `quality.entitlement-key-registry` | entitlement-module | BRIEF:L122 | open: key names and namespacing (R3, R6; Q2, Q4) |
-| BRIEF:L19 | One module: resolve, can, limit, consume, refusal | `access.entitlement-module-single-entry` | entitlement-module | BRIEF:L118 | open: location (Q1) |
+| BRIEF:L14 | Key registry: kind, type, global default, namespaced keys | `quality.entitlement-key-registry` | entitlement-module | BRIEF:L122 | covered — PG2, PG4 |
+| BRIEF:L19 | One module: resolve, can, limit, consume, refusal | `access.entitlement-module-single-entry` | entitlement-module | BRIEF:L118 | covered — PG1 |
 | BRIEF:L21 | resolve wraps plan access + overrides, one uncached read | `quality.entitlement-single-read` | entitlement-module | BRIEF:L125 | covered (R4: the merge already exists; a per-request memo is NEW) |
-| BRIEF:L24 | consume: atomic, month cap kept, account lock kept, idempotent | `operations.entitlement-consume` | limit-gates | BRIEF:L123 | open: what consume wraps (R7, R5; Q5) |
+| BRIEF:L24 | consume: atomic, month cap kept, account lock kept, idempotent | `operations.entitlement-consume` | limit-gates | BRIEF:L123 | covered — PG12 (AMBER), PG6 |
 | BRIEF:L28 | Route declarations `config.planGate` on every write route | `access.route-plan-gate-declaration` | route-gates | BRIEF:L115 | covered (128 write routes, R1) |
-| BRIEF:L29 | One global preHandler replaces the hand-added one | `access.route-plan-gate-enforcement` | route-gates | BRIEF:L124 | open: hook position (R9; Q6) |
-| BRIEF:L31 | Job gates declared in the job registry; worker checks at claim | `background.job-plan-gate-declaration` | job-gates | BRIEF:L116 | open: declare vs live check (R12; Q7) |
+| BRIEF:L29 | One global preHandler replaces the hand-added one | `access.route-plan-gate-enforcement` | route-gates | BRIEF:L124 | covered — PG7 (order test first, R2) |
+| BRIEF:L31 | Job gates declared in the job registry; worker checks at claim | `background.job-plan-gate-declaration` | job-gates | BRIEF:L116 | covered — PG8 |
 | BRIEF:L33 | One refusal shape built only by the module | `quality.plan-refusal-shape` | refusal-shape | BRIEF:L119 | covered (R10: statuses unchanged, body unified) |
 | BRIEF:L36 | Coverage test reads the live declarations; the hand-kept model goes | `quality.plan-gate-coverage-test` | route-gates, job-gates | BRIEF:L115–117 | covered (R1, R2) |
 | BRIEF:L39 | Entitlements GET: value + source + usage | `operations.entitlements-read-source` | entitlements-read | BRIEF:L121 | covered (R17: usage exists; source is NEW) |
-| BRIEF:L41 | No `getPlanAccess` / `checkFeature` outside the module; policy test | `quality.no-direct-plan-reads` | clean-up | BRIEF:L118 | open: checkFeature's channel steps (R8; Q3) |
+| BRIEF:L41 | No `getPlanAccess` / `checkFeature` outside the module; policy test | `quality.no-direct-plan-reads` | clean-up | BRIEF:L118 | covered — PG3 |
 
 ### Rules
 
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| BRIEF:L81 | Gate order unchanged (CA11/P61) | `access.feature-gate-order` | feature-gates | BRIEF:L124 | open (R8; Q3) |
+| BRIEF:L81 | Gate order unchanged (CA11/P61) | `access.feature-gate-order` | feature-gates | BRIEF:L124 | covered — PG3 |
 | BRIEF:L84 | Read-only guard before the idempotency claim | `access.read-only-before-idempotency` | route-gates | BRIEF:L124 | covered (R2: the order test is NEW, not "unchanged") |
 | BRIEF:L86 | BL2: no plan cache; per request/job memo only | `quality.entitlement-single-read` | entitlement-module | BRIEF:L125 | covered |
-| BRIEF:L89 | Merge order override → plan → global default | `data.entitlement-merge-order` | entitlement-module | BRIEF:L122 | open (R4: no global-default layer today; Q4) |
+| BRIEF:L89 | Merge order override → plan → global default | `data.entitlement-merge-order` | entitlement-module | BRIEF:L122 | covered — PG5 |
 | BRIEF:L90 | Unknown keys fail at compile time; override writes read the registry | `quality.entitlement-key-registry` | entitlement-module | BRIEF:L122 | covered |
 | BRIEF:L92 | Month-cap concurrency keeps lane C's logic | `operations.entitlement-consume` | limit-gates | BRIEF:L123 | covered (R7) |
 | BRIEF:L94 | Downgrade rule per kind | `operations.entitlement-downgrade-rule` | feature-gates, limit-gates | — | covered (as built today; R13) |
-| BRIEF:L97 | Product-first defaults; `LAPSED_PLAN_READ_ONLY_ENABLED=false` at launch | `quality.product-first-defaults` | entitlement-module | — | open (R14; Q8) |
+| BRIEF:L97 | Product-first defaults; `LAPSED_PLAN_READ_ONLY_ENABLED=false` at launch | `quality.product-first-defaults` | entitlement-module | — | covered — PG9, PG10 |
 | BRIEF:L98 | No plan names in feature code | `quality.no-direct-plan-reads` | clean-up | BRIEF:L118 | covered |
 | BRIEF:L99 | Rate limits stay outside plans | — | — | — | out-of-scope: BRIEF:L134 |
 
@@ -47,10 +49,10 @@ Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| BRIEF:L103 | Module location | `access.entitlement-module-single-entry` | entitlement-module | — | open (Q1) |
-| BRIEF:L105 | Starting keys | `quality.entitlement-key-registry` | entitlement-module | — | open (Q2; R3: the code has 11 switches and 2 limits, not 8 keys) |
-| BRIEF:L108 | Upgrade hint shape | `quality.plan-refusal-shape` | refusal-shape | — | open (Q9) |
-| BRIEF:L109 | Namespacing + migrating stored keys | `data.entitlement-key-namespacing` | entitlement-module | — | open (Q4; R6) |
+| BRIEF:L103 | Module location | `access.entitlement-module-single-entry` | entitlement-module | — | covered — PG1 |
+| BRIEF:L105 | Starting keys | `quality.entitlement-key-registry` | entitlement-module | — | covered — PG2 |
+| BRIEF:L108 | Upgrade hint shape | `quality.plan-refusal-shape` | refusal-shape | — | covered — PG11 |
+| BRIEF:L109 | Namespacing + migrating stored keys | `data.entitlement-key-namespacing` | entitlement-module | — | covered — PG4 |
 
 ### Acceptance criteria
 
@@ -61,7 +63,7 @@ Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 | BRIEF:L117 | The hand-kept model is deleted | `quality.plan-gate-coverage-test` | clean-up | AC-3 | covered |
 | BRIEF:L118 | No direct plan reads outside the module; policy test | `quality.no-direct-plan-reads` | clean-up | AC-4 | covered |
 | BRIEF:L119 | One refusal body shape, asserted | `quality.plan-refusal-shape` | refusal-shape | AC-5 | covered |
-| BRIEF:L120 | A limit change is one override row | `data.entitlement-override-row` | entitlement-module | AC-6 | open: seats have no override today (R5; Q5) |
+| BRIEF:L120 | A limit change is one override row | `data.entitlement-override-row` | entitlement-module | AC-6 | covered — PG6: the switches and the 2 limits; seats have no override |
 | BRIEF:L121 | GET returns value, source, usage | `operations.entitlements-read-source` | entitlements-read | AC-7 | covered |
 | BRIEF:L122 | Unit tests: merge order, expiry, typed registry | `data.entitlement-merge-order` | entitlement-module | AC-8 | covered |
 | BRIEF:L123 | Month-cap DB tests, AC-22.4 and account-race tests pass unchanged | `operations.entitlement-consume` | limit-gates | AC-9 | covered |
@@ -78,7 +80,7 @@ Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 | BRIEF:L132 | Usage counters in a shared store | out-of-scope: BRIEF:L132 |
 | BRIEF:L133 | Any entitlements cache | out-of-scope: BRIEF:L133 (BL2) |
 | BRIEF:L134 | Rate limits as plan features | out-of-scope: BRIEF:L134 |
-| BRIEF:L135 | Price or plan changes, new tiers | out-of-scope: BRIEF:L135 |
+| BRIEF:L135 | Price or plan changes, new tiers | out-of-scope: BRIEF:L135, **except PG10** (Free gets segments and broadcasts, now in scope) |
 | BRIEF:L136 | meepzo-fe changes | out-of-scope: BRIEF:L136 (frontend route map only) |
 
 ## Delta
@@ -112,3 +114,11 @@ Paths are cited as evidence only; the plan does not prescribe them.
 | R17 | Entitlements GET | add usage and source (BRIEF:L39) | already returns `limits.{direct_messages, channel_accounts, seats}.{used, limit}` and `overrides:[{key, expires_at}]` (`entitlement.serializer.ts:47-80`) | usage exists; source is NEW | additive change only |
 | R18 | Idempotent consume | "an idempotency key stops a retry counting twice" (BRIEF:L24) | the month count is added inside the send claim's transaction, once per claimed message (`instagram-send-gate.service.ts:520`); a re-claimed message doesn't reach the add again (checked at kickoff) | keep today's guarantee | AMBER: confirm at kickoff; no new key table |
 | R19 | Oxak pending #12 | — | AC-9.1 vs P76/BC3: are segments and broadcasts on Free? (`plans/pending-and-deferred.md` #12) | touches product-first defaults | Q8 |
+
+## Added by Step 4
+
+| Source | Item | Requirement | Feature | Acceptance | Status |
+| --- | --- | --- | --- | --- | --- |
+| decisions PG9 | `LAPSED_PLAN_READ_ONLY_ENABLED` defaults to `false`; template, catalog and docs agree | `quality.read-only-flag-default` | launch-defaults | AC-14 | covered — PG9 |
+| decisions PG10 | Free's segments and broadcasts switches on | `data.free-plan-segments-broadcasts` | launch-defaults | AC-15 | covered — PG10 (PG10-a open for Step 5) |
+| coverage R2 | the order test (authenticate → plan gate → permission → idempotency claim) is written first | `access.read-only-before-idempotency` | route-gates | AC-10 | covered — PG7 |

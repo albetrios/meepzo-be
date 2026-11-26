@@ -1,0 +1,22 @@
+# Decisions — feat-meta-connect-flow-2026-11-26-bqmw
+
+Add-only: a changed mind is a new row. Kind: `RED` (answered by the user), `AMBER` (safe default, still open),
+`SCOPE`. Coverage questions `Q1`–`Q8` ([coverage.md](coverage.md)).
+
+| # | Question | Options | Decision | Date | Who | Kind |
+| --- | --- | --- | --- | --- | --- | --- |
+| C-D1 | Q1 — the callback's answer to Meta's cancel (`error=access_denied`) | 200 `outcome: cancelled` · 422 `provider_login_cancelled` | **200 with `outcome: cancelled`**: the state is spent, nothing saved — a cancel is the person's choice, not a client error (method→status policy: success is 200) | 2026-11-26 | user | RED |
+| C-D2 | Q2 — a **reconnect** whose login shares no Instagram account | mark and keep · refuse and change nothing | **mark and keep**: the fresh token is stored, every account of that connection is marked not shared (the token check's `account_not_shared` stop), the outcome is answered; nothing deleted. A **first** connect sharing none saves nothing → `422 provider_no_accounts_shared` | 2026-11-26 | user | RED |
+| C-D3 | Q3 — how long a connection with no picked account keeps its token | 24 h · 7 days · 30 days | **7 days**, then a background job revokes it and deletes its token | 2026-11-26 | user | RED |
+| C-D4 | Q4 — picks over the plan limit | all-or-nothing · up to the limit | **all-or-nothing kept**; the `409 plan_account_limit` adds `plan_room` | 2026-11-26 | user | RED |
+| C-D5 | Q5 — the name of the "what the login shared" read | `shared-assets` · `available-accounts` · `assigned-accounts` | `GET channel-connections/{channel_connection_id}/shared-assets` — "assets" holds a Page later (Pages-ready) | 2026-11-26 | Claude | AMBER |
+| C-D6 | Q6 — where the linked Facebook Page id comes from | an Instagram-user field · the Page's `instagram_business_account` · `granular_scopes` target ids | no documented Instagram-user field under Unified Login ⚠️ — stays `null` until owner test O6 shows the source; the webhook watch (`is_messages_webhook_missing`) keeps detecting outcome 16 meanwhile | 2026-11-26 | Claude | AMBER |
+| C-D7 | Q7 — capabilities as their own route or embedded in the account read | own route · embedded | own route `GET channel-accounts/{channel_account_id}/capabilities`: the account list (route 6) stays light; the screen reads capabilities for the account it shows | 2026-11-26 | Claude | AMBER |
+| C-D8 | Q8 — the on-demand message-access re-check | `POST …/message-access-checks` · a `PATCH` field | `POST channel-accounts/{channel_account_id}/message-access-checks` (an action that calls Meta, `channel-account:manage`) | 2026-11-26 | Claude | AMBER |
+
+## Owner items (need the Meta dev app — not code)
+
+| # | Test | Settles |
+| --- | --- | --- |
+| O1 | (fix iteration) `/me/permissions` vs `/debug_token` — and whether `granular_scopes` lists target ids per asset | DB-3, WC-4 |
+| O6 | Where a Unified Login token reads an Instagram account's linked Facebook Page id | C-D6, DB-2, WC-3 |

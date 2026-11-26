@@ -352,7 +352,12 @@ export type InstagramSendResult =
         /** A fast message: her contact is being claimed, or another of hers is `sending` (§30.2). */
         | 'person_busy'
         /** A fast message: the account's 20, its 5 audio or the organization's places are taken. */
-        | 'fast_busy';
+        | 'fast_busy'
+        /**
+         * A counted DM: the month moved near its limit between the claim's free read and its check —
+         * the next try takes the month lock (the hard cap, SN8).
+         */
+        | 'month_busy';
     }
   | {
       kind: 'done';

@@ -395,6 +395,34 @@ export class InstagramSendLaneRepository {
   }
 
   /**
+   * How many send lanes the organization has (four per account, made at the pick) — the most claims
+   * of the organization that can be in flight at once, each holding its own lane row (SN3, SN8 — the
+   * hard month cap's margin, owner 2026-11-26).
+   */
+  async countOrganizationLanes(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .select({ total: sql<number>`count(*)::int` })
+      .from(instagram_send_lanes)
+      .where(eq(instagram_send_lanes.organization_id, organizationId));
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /**
+   * Locks every send lane row of the organization, in id order (`FOR UPDATE`) — a claim near the
+   * month limit waits here for every claim in flight to commit, and holds back new ones until its own
+   * commit (the hard month cap, owner 2026-11-26). Answers how many rows it locked.
+   */
+  async lockOrganizationLanes(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .select({ id: instagram_send_lanes.id })
+      .from(instagram_send_lanes)
+      .where(eq(instagram_send_lanes.organization_id, organizationId))
+      .orderBy(asc(instagram_send_lanes.id))
+      .for('update');
+    return rows.length;
+  }
+
+  /**
    * Claims a test turn of a stopped lane whose stop time is over (plan §33.4): only while the
    * ticket's turn is the lane's and the stop is not one the owner must end. Sets the lease. Returns
    * the claimed row, or `null`.

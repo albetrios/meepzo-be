@@ -9,6 +9,10 @@ import {
   setLocalDatabaseConfig,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import {
+  RESOURCE_QUOTA_LOCK_NAMESPACE,
+  acquireResourceQuotaLock,
+} from '@/infrastructure/database/resource-quota-lock.util.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
 import {
   type MessageMonthNoticeService,
@@ -102,8 +106,23 @@ export type InstagramSendClaim =
     }
   | {
       kind: 'refused';
-      reason: 'gone' | 'hour_limit' | 'person_limit' | 'month_limit' | 'person_busy' | 'fast_busy';
+      reason:
+        | 'gone'
+        | 'hour_limit'
+        | 'person_limit'
+        | 'month_limit'
+        | 'month_busy'
+        | 'person_busy'
+        | 'fast_busy';
     };
+
+/**
+ * How the claim guards the month (the hard cap, owner 2026-11-26): not counted or no limit
+ * (`unchecked`); far from the limit, lock-free, passing only with room for every lane's claim
+ * (`far`, `laneCount` lanes); near it, under the organization's month lock with every lane locked
+ * (`near`).
+ */
+type MonthGuard = { mode: 'unchecked' } | { mode: 'far'; laneCount: number } | { mode: 'near' };
 
 /**
  * The two gates and the month count of a send (feat-instagram-dm-sending routes-final § 6 SN3, SN8,
@@ -120,7 +139,8 @@ export type InstagramSendClaim =
  *   claims of one account and group never check and add at once), the message still `waiting` in
  *   this lane and channel, the fast places — the account's 20 `sending`, 5 audio, the organization's
  *   25 (S21; else `fast_busy`) — gate 2 (the 61 minute rows of the group against the hour limit), her
- *   sent messages of the last hour, the month's 16 slots against the plan's limit (a DM only), the
+ *   sent messages of the last hour, the month's 16 slots against the plan's limit (a DM only — a
+ *   hard cap, see {@link InstagramSendGateService.guardMonth}), the
  *   adds, `sending` (a fast one + 1 on `sending_count`), the attempt. A DM that fills the month starts the organization's `plan_limit`
  *   in the same commit (SN8: slow, fast and broadcast lanes stop; the reply lane goes on).
  * - **Failure modes:** gate 1 fails open (Postgres decides, P32); database errors roll the claim back
@@ -348,12 +368,14 @@ export class InstagramSendGateService {
     input,
     found,
     month,
+    guard,
   }: {
     input: InstagramSendClaimInput;
     found: { organization_id: number; is_counted_as_direct_message: boolean };
     month: MessageMonthCountRepository;
-  }): Promise<'month_limit' | { isMonthLimitReached: boolean }> {
-    if (!found.is_counted_as_direct_message || input.monthLimit === null) {
+    guard: MonthGuard;
+  }): Promise<'month_limit' | 'month_busy' | { isMonthLimitReached: boolean }> {
+    if (guard.mode === 'unchecked' || input.monthLimit === null) {
       return { isMonthLimitReached: false };
     }
     const used = (await month.readMonth(found.organization_id))?.used ?? 0;
@@ -361,6 +383,9 @@ export class InstagramSendGateService {
       await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
       return 'month_limit';
     }
+    // Far mode passes only with room for every lane's claim in flight; the month moved near the
+    // limit between the free read and this one — the message waits for the next try, which locks.
+    if (guard.mode === 'far' && used + guard.laneCount > input.monthLimit) return 'month_busy';
     const lineBefore = decideMessageMonthLine({ used, limit: input.monthLimit });
     const lineAfter = decideMessageMonthLine({ used: used + 1, limit: input.monthLimit });
     const monthNotice = this.options.monthNotice;
@@ -370,6 +395,54 @@ export class InstagramSendGateService {
       );
     }
     return { isMonthLimitReached: used + 1 >= input.monthLimit };
+  }
+
+  /**
+   * The hard month cap (owner 2026-11-26, superseding D34's soft cap — SN8): decides, before any lock
+   * of the claim, whether the month is near its limit, and near it serializes the organization.
+   *
+   * @remarks
+   * - **Algorithm:** a counted DM under a limit reads the month (lock-free) and the organization's
+   *   send-lane count. Far — `used + lanes <= limit` — it takes no lock: every claim holds its own
+   *   lane row while it checks and adds, so at most `lanes` are in flight, and passing only while
+   *   `used + lanes <= limit` (checked again under the lane, {@link checkMonth}) leaves room for all
+   *   of them. Near, it takes the organization's `pg_advisory_xact_lock` (`MESSAGE_MONTH_LIMIT`, the
+   *   organization's id) and then every lane row of the organization in id order — waiting for every
+   *   claim in flight to commit and holding new ones back — so {@link checkMonth} reads the exact
+   *   month and passes while `used < limit`. The lock is taken in the last `lanes` messages of the
+   *   month only (four lanes an account), so the rest of the month stays lock-free.
+   * - **Failure modes:** the claim's `lock_timeout` (1 s) bounds the waits — a timeout or a deadlock
+   *   with a result save rolls the claim back and the ticket goes back (nothing was sent).
+   * - **Side effects:** near the limit, the advisory lock and the lane row locks until the commit.
+   * - **Notes:** taken before {@link busyRefusal} locks the claim's own lane, so a near claim never
+   *   waits on the advisory lock while it holds a lane another near claim needs.
+   */
+  private async guardMonth({
+    input,
+    found,
+    databaseHandle,
+    lanes,
+  }: {
+    input: InstagramSendClaimInput;
+    found: InstagramMessageRow;
+    databaseHandle: RequestScopedPostgresDatabase;
+    lanes: InstagramSendLaneRepository;
+  }): Promise<MonthGuard> {
+    if (!found.is_counted_as_direct_message || input.monthLimit === null) {
+      return { mode: 'unchecked' };
+    }
+    const organizationId = found.organization_id;
+    const used =
+      (await new MessageMonthCountRepository(databaseHandle).readMonth(organizationId))?.used ?? 0;
+    const laneCount = await lanes.countOrganizationLanes(organizationId);
+    if (used + laneCount <= input.monthLimit) return { mode: 'far', laneCount };
+    await acquireResourceQuotaLock({
+      namespace: RESOURCE_QUOTA_LOCK_NAMESPACE.MESSAGE_MONTH_LIMIT,
+      key: organizationId,
+      databaseHandle,
+    });
+    await lanes.lockOrganizationLanes(organizationId);
+    return { mode: 'near' };
   }
 
   /**
@@ -428,6 +501,7 @@ export class InstagramSendGateService {
       channelAccountId: found.channel_account_id,
     };
     const lanes = new InstagramSendLaneRepository(databaseHandle);
+    const guard = await this.guardMonth({ input, found, databaseHandle, lanes });
     const busyRefusal = await this.busyRefusal({ input, found, databaseHandle, lanes, messages });
     if (busyRefusal !== null) return { kind: 'refused', reason: busyRefusal };
     const minutes = new InstagramSendMinuteCountRepository(databaseHandle);
@@ -435,8 +509,10 @@ export class InstagramSendGateService {
     if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };
     const isCounted = found.is_counted_as_direct_message;
     const month = new MessageMonthCountRepository(databaseHandle);
-    const monthCheck = await this.checkMonth({ input, found, month });
-    if (monthCheck === 'month_limit') return { kind: 'refused', reason: 'month_limit' };
+    const monthCheck = await this.checkMonth({ input, found, month, guard });
+    if (monthCheck === 'month_limit' || monthCheck === 'month_busy') {
+      return { kind: 'refused', reason: monthCheck };
+    }
     const { isMonthLimitReached } = monthCheck;
     if (input.countGroup !== 'none') {
       await minutes.addToMinute({ ...account, countGroup: input.countGroup, count: 1 });

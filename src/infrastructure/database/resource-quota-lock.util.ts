@@ -58,6 +58,14 @@ export const RESOURCE_QUOTA_LOCK_NAMESPACE = {
    * (feat-instagram-dm-sending routes-final § 4.C AU32, ROUTE row R41).
    */
   AUTOMATION_BACKFILL_READ: 0x41_42_46_52,
+  /**
+   * Per-organization message month limit, keyed by organization id. ASCII `MMON`. Not a quota of
+   * rows: the send claim takes it only when the month's count is within the organization's send
+   * lanes of the plan's `message_month_limit`, then locks every lane and re-reads, so parallel
+   * accounts never push the month over its limit (feat-instagram-dm-sending SN8, the hard cap of
+   * owner 2026-11-26 superseding D34's soft cap).
+   */
+  MESSAGE_MONTH_LIMIT: 0x4d_4d_4f_4e,
 } as const;
 
 /**

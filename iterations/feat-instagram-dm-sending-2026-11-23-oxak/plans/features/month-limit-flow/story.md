@@ -11,7 +11,7 @@ Route review: [routes-final.md](../../routes-final.md) § 6 (the month count), �
 
 ## Rules
 
-- The month count is per organization, every account and channel together, in the organization's time zone; it is checked in the same commit as each send and may go over by the few DMs on their way (billing.plan-message-month-limit; D34, D18)
+- The month count is per organization, every account and channel together, in the organization's time zone; it is checked in the same commit as each send and never goes over the limit — near it the claims take the organization's month lock (billing.plan-message-month-limit; D34, D18; the hard cap P368 supersedes D34's "over by the DMs on their way")
 - At 100 %, only new DMs stop: the slow, fast and broadcast lanes of every account get the plan stop; the reply lane keeps going for DMs already sent (billing.plan-message-month-limit; D62, P3)
 - Waiting DMs stay waiting; one whose 7 days end behind the limit becomes `expired` · `plan_limit` (operations.instagram-message-expiry; D62)
 - Go-live is refused while the limit is reached (operations.automation-go-live-check; D34)
@@ -23,7 +23,7 @@ Route review: [routes-final.md](../../routes-final.md) § 6 (the month count), �
 - AC-22.1 — A Free organization at 820 of 1,000 DMs gets one "820 of 1,000 DMs used this month" notice and email — intake-files/Instagram-DM-Sending-Plan-v8.md:2775
 - AC-22.2 — At the 1,000th DM the slow, fast and broadcast lanes of every account of the organization stop with `plan_limit`; public replies and hides of DMs already sent still go — intake-files/BRIEF.md:73
 - AC-22.3 — A tap at 15:10 after the limit waits; 40 opening DMs wait; none is sent until the stop ends — intake-files/Instagram-DM-Sending-Plan-v8.md:2775
-- AC-22.4 — Two accounts sending at the same moment never push the count more than the DMs on their way over the limit — intake-files/Instagram-DM-Sending-Plan-v8.md:2025
+- AC-22.4 — Two accounts sending at the same moment never push the count more than the DMs on their way over the limit (tightened by P368: never over the limit) — intake-files/Instagram-DM-Sending-Plan-v8.md:2025
 - AC-22.5 — Go-live is refused while the limit is reached — intake-files/Instagram-DM-Sending-Plan-v8.md:2030
 - AC-22.6 — At 00:00 on the 1st in the organization's time zone the count is 0, the stops end, and the waiting DMs under 7 days go; answers whose window closed meanwhile are `skipped` — intake-files/Instagram-DM-Sending-Plan-v8.md:2040
 - AC-22.7 — An upgrade whose limit is above the count ends the stop at once and wakes the lanes — intake-files/Instagram-DM-Sending-Plan-v8.md:2029

@@ -467,7 +467,7 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
     expect(await monthUsed()).toBe(1000);
   });
 
-  it('two accounts sending at the same moment push the count no further than the DMs on their way (AC-22.4)', async () => {
+  it('two accounts sending at the same moment never push the count over the limit (AC-22.4, the hard cap — P368)', async () => {
     await setMonthCount({ organizationId: team.organization.id, count: 998 });
     for (let index = 0; index < 3; index += 1) {
       await waitingMessage(accountA);
@@ -483,9 +483,9 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
     await Promise.all([work(accountA), work(accountB)]);
 
     const used = await monthUsed();
-    expect(used).toBeGreaterThanOrEqual(1000);
-    // Over the limit by at most the one DM the other account had on its way.
-    expect(used).toBeLessThanOrEqual(1001);
+    // The hard cap (owner 2026-11-26, superseding D34's "over by the DMs on their way"): near the
+    // limit the claims take the organization's month lock, so the month ends exactly at it.
+    expect(used).toBe(1000);
     expect(await planStops()).toEqual(['plan_limit', 'plan_limit']);
     const sent = (await readInstagramMessages(team.organization.id)).filter(
       (row) => row.status === 'sent',

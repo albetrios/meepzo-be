@@ -939,7 +939,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     if (result.kind === 'refused') {
       if (result.reason === 'person_busy') {
         await context.returnTicket(FAST_LANE_SETTINGS.personBusyRetryMilliseconds);
-      } else if (result.reason === 'fast_busy') {
+      } else if (result.reason === 'fast_busy' || result.reason === 'month_busy') {
         await context.returnTicket(FAST_LANE_SETTINGS.accountBusyRetryMilliseconds);
       } else if (
         result.reason === 'hour_limit' ||

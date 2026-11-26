@@ -62,6 +62,9 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   (shared, P43): per organization, month of its time zone and 16 slots. The service is the channel account's plan-stop
   port (`plan_limit`), the month add (tombstones the copy after commit) and route 64's read through the 10-second
   Redis copy `app:message_month_count:<organization>`.
+  The month is a hard cap (owner 2026-11-26, P368/P369): the claim's `guardMonth` takes the organization's
+  `pg_advisory_xact_lock` (`MESSAGE_MONTH_LIMIT`) and every send lane row only when the month is within the
+  organization's send lanes of the limit (lock-free otherwise); a far claim that finds the month near answers `month_busy`.
 - `message-month-notice.service.ts` — the month at 80 % and 100 % (WC-56, R53): one `billing.usage_threshold`
   notice and email per organization, month and line (`month-limit:<month>:<line>`), told after the claim that crossed
   a line; `workers/message-month-notice-check.*` is its every-minute backup check on the intake queue.

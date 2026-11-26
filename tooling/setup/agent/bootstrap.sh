@@ -22,7 +22,8 @@
 #                                background; a volume whose first-time setup was cut short by a
 #                                pause is rebuilt (ensure-postgres-volume.sh)
 #    6 Database                  pnpm db:migrate: create, migrate, the three local logins
-#    7 Seed                      pnpm db:seed:full, with the API and worker booting alongside
+#    7 OpenAPI spec + seed       pnpm docs:generate (gitignored; the API reads it at boot), then
+#                                pnpm db:seed:full, with the API and worker booting alongside
 #    8 API · 9 Worker            health checked, then left running
 #   10 Sign-in check             the demo user signs in through the API (verify-sign-in.mjs)
 # Then "live", and in the background the agent's own tools (install-agent-tools.sh: gh,
@@ -372,6 +373,14 @@ else
   pnpm db:migrate >&2 || die "db:migrate failed"
 fi
 ok "[6/${TOTAL}] database migrated, logins enabled"
+
+# 7a) The OpenAPI spec the API reads at boot ----------------------------------
+# docs/openapi/*.json is gitignored, so a fresh clone has none, and with ENABLE_API_REFERENCE on
+# the API refuses to boot without it (scalar-api-reference.ts). Generated every run — about a
+# second, and never stale against the routes — after step 4, since generating it loads the env.
+step "[7/${TOTAL}] OpenAPI spec (pnpm docs:generate)"
+pnpm docs:generate >&2 || die "docs:generate failed — the API reads docs/openapi/openapi.json at boot"
+ok "[7/${TOTAL}] docs/openapi/openapi.json generated"
 
 # 7) Seed, with the API and worker already starting --------------------------
 # Neither needs the demo data to boot, so both start before the seed and their start-up

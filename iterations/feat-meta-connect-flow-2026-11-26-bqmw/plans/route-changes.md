@@ -7,7 +7,7 @@
 | Intake mode | brief — from scratch |
 | Intake hash | `f1ff32a8eb81` |
 | Date | 2026-11-26 |
-| Stage | Step 4 — RED answers C-D1–C-D4 applied, AMBER defaults C-D5–C-D8 |
+| Stage | Step 5 — sub-domain 1 drafted in `routes-final.md` (rev 1); route numbers added |
 
 Every route is a **proposal** — what must be true; the built truth is `docs/routes.txt`. Paths are under
 `/api/v1/app/social/`. Permission codes keep today's split: `channel-account:manage` writes, `channel-account:read` reads.
@@ -24,12 +24,12 @@ Every route is a **proposal** — what must be true; the built truth is `docs/ro
 | RC-2 | CHANGED | same (2) | manage | `422 provider_permissions_missing` names `missing_permissions`; `409 channel_connection_business_mismatch` names the expected `client_business_id` | L46, L64 |
 | RC-3 | CHANGED | same (2) | manage | a login sharing no Instagram account saves nothing → `422 provider_no_accounts_shared` (a **reconnect** sharing none stores the token, marks that connection's accounts not shared and answers the outcome — [C-D2](decisions.md)); accounts of this business no longer assigned are marked as the token check marks them | L52, L61 |
 | RC-4 | CHANGED | `POST channel-connections/{channel_connection_id}/accounts` (3) | manage | the plan-limit refusal stays all-or-nothing and carries `plan_room` ([C-D4](decisions.md)) | L58 |
-| RC-5 | NEW | `GET channel-connections/{channel_connection_id}/shared-assets` ([C-D5](decisions.md)) | read | re-reads what the login shared from Meta (never cached): each asset with `channel`, `provider_account_id`, username, pick state (`free` · `connected_here` · `connected_elsewhere` · `not_shared_any_more`) and the plan room; Meta down → `503` | L54, L61, L94 |
-| RC-6 | NEW | `GET channel-accounts/{channel_account_id}/capabilities` ([C-D7](decisions.md)) | read | every capability of the account's channel: `allowed`, or the first blocking reason (`permission_not_granted` + permission name · `plan_lacks_feature` · `message_access_off` · `messages_webhook_missing` · `meta_test_required`) and its fix (`reconnect` · `upgrade` · `turn_on_message_access` · `reconnect_with_page`) | L48, L95 |
+| RC-5 | NEW | (route 151) `GET channel-connections/{channel_connection_id}/shared-assets` ([C-D5](decisions.md)) | read | re-reads what the login shared from Meta (never cached): each asset with `channel`, `provider_account_id`, username, pick state (`free` · `connected_here` · `connected_elsewhere` · `not_shared_any_more`) and the plan room; Meta down → `503` | L54, L61, L94 |
+| RC-6 | NEW | (route 153) `GET channel-accounts/{channel_account_id}/capabilities` ([C-D7](decisions.md)) | read | every capability of the account's channel: `allowed`, or the first blocking reason (`permission_not_granted` + permission name · `plan_lacks_feature` · `message_access_off` · `messages_webhook_missing` · `meta_test_required`) and its fix (`reconnect` · `upgrade` · `turn_on_message_access` · `reconnect_with_page`) | L48, L95 |
 | RC-7 | CHANGED | `GET channel-accounts[/{channel_account_id}]` (6, 7) | read | `instagram.message_access` `{ status, checked_at }` and `instagram.linked_page_id` added | L85, L87 |
-| RC-8 | NEW | `POST channel-accounts/{channel_account_id}/message-access-checks` ([C-D8](decisions.md)) | manage | runs the probe now, stores DB-1, answers the result; lifts or keeps the `access_off` stop | L69 |
+| RC-8 | NEW | (route 154) `POST instagram/accounts/{channel_account_id}/message-access-checks` ([C-D9](decisions.md) — Instagram-only routes live under `/instagram/accounts/…`) | manage | runs the probe now, stores DB-1, answers the result; lifts or keeps the `access_off` stop | L69 |
 | RC-9 | CHANGED | every route refusing `409 permission_not_granted` | — | the error also names `permission` (Meta's permission), beside `feature` | L49 |
-| RC-10 | NEW | `GET channel-connections/{provider}/connect-options` | read | whether connecting is possible now: `is_configured`, `is_page_login_offered`, `can_manage` (the caller's role), `plan_room` | L13, L96 |
+| RC-10 | NEW | (route 152) `GET channel-connections/{provider}/connect-options` | read | whether connecting is possible now: `is_configured`, `is_page_login_offered`, `can_manage` (the caller's role), `plan_room` | L13, L96 |
 
 Pages-ready (brief:L78): RC-5 and RC-6 name the `channel` of every asset; the route review carries a written Pages
 sketch showing `facebook_page` arriving as one more `channel` value with no route change.

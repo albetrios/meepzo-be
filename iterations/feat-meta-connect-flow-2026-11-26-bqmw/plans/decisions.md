@@ -13,6 +13,8 @@ Add-only: a changed mind is a new row. Kind: `RED` (answered by the user), `AMBE
 | C-D6 | Q6 — where the linked Facebook Page id comes from | an Instagram-user field · the Page's `instagram_business_account` · `granular_scopes` target ids | no documented Instagram-user field under Unified Login ⚠️ — stays `null` until owner test O6 shows the source; the webhook watch (`is_messages_webhook_missing`) keeps detecting outcome 16 meanwhile | 2026-11-26 | Claude | AMBER |
 | C-D7 | Q7 — capabilities as their own route or embedded in the account read | own route · embedded | own route `GET channel-accounts/{channel_account_id}/capabilities`: the account list (route 6) stays light; the screen reads capabilities for the account it shows | 2026-11-26 | Claude | AMBER |
 | C-D8 | Q8 — the on-demand message-access re-check | `POST …/message-access-checks` · a `PATCH` field | `POST channel-accounts/{channel_account_id}/message-access-checks` (an action that calls Meta, `channel-account:manage`) | 2026-11-26 | Claude | AMBER |
+| C-D9 | Step 5 — where the message-access re-check lives (supersedes C-D8's path) | `channel-accounts/{id}/…` · `instagram/accounts/{channel_account_id}/…` | `POST instagram/accounts/{channel_account_id}/message-access-checks`: the probe is Instagram-only, and Instagram-only routes already live there (`…/settings`, `…/media`, `…/stories`, `docs/routes.txt`) | 2026-11-26 | Claude | AMBER |
+| C-D10 | Step 5 — the unpicked clean-up as its own job or in the token check | own scheduled job · the daily token check | the daily token check (reuse rule — it already visits every connection daily in the right scope) | 2026-11-26 | Claude | AMBER |
 
 ## Owner items (need the Meta dev app — not code)
 

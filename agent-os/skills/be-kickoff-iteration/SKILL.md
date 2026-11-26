@@ -182,6 +182,40 @@ authorize changing either.
    (date · who · the commit reviewed). A change they ask for is made, verified and shown again
    before the cell is filled.
 
+## Parallel lanes — only under a `/goal` or the user's delegation
+
+Without a `/goal` or the user's explicit go to build without stops, rows run one at a time as above.
+Under one, rows whose dependencies are done may be built **in parallel lanes**: the same steps per row
+(do → verify → record → check impact), a one-line report instead of the stop, review at Close. Order and
+scope never change — a lane only runs a row early when everything it depends on is done.
+
+**Setup.** The main checkout (the iteration branch) is lane A: it merges and closes. Each other lane is a
+`git worktree` on its own branch, with its own test databases, its own Redis DB and its own range of
+decision numbers. Every test run **and every `git commit`** (the pre-commit hook runs database tests)
+goes through one wrapper that holds a single global lock (e.g. `flock`) around the command. Read-only
+helpers (audits, docs comparisons, reviewers) run beside the builders and need no lock.
+
+| # | Rule | Why |
+| --- | --- | --- |
+| 1 | A worker commits only on its own lane's branch and never checks out or resets another lane's. | Lanes never overwrite each other. |
+| 2 | Workers get separate scopes — never the same file. | Merges stay mechanical. |
+| 3 | Take the next free decision number in the lane's range, checked across all branches (`git log --all -p -- '*decisions.md'`). | Decision rows never clash. |
+| 4 | Never `git stash pop` / `drop` a stash you did not create; prefer not stashing. | The stash is shared by every worktree. |
+| 5 | Cap test workers (`--maxWorkers=2`) while several lanes share the machine. | The machine stays responsive. |
+| 6 | Verify a row with its narrow set — its sub-domain's unit, integration and e2e tests and `src/tests/global`, plus `src/tests/security/rls` and the permission matrix when it touched tables, routes or permissions. This replaces `pnpm test:select --run` per row; the full suites run at Close. | Lock waits stay short. |
+| 7 | A row is done only after its final code state was re-run; every report says so. | No "done" without proof. |
+| 8 | `pnpm docs:all` before committing a route, schema or merge change. | Stale generated specs block the commit. |
+| 9 | A merge into lane A runs the static gates and the tests of the conflicted and changed files — re-run on lane A itself, not only in the lane — and logs every conflict (file · sides · resolution · risk) in `plans/merge-log.md`. | Lanes may use another database login than lane A; conflicts stay auditable. |
+| 10 | An idle lane may merge lane A and another lane first, so lane A fast-forwards. | Lane A's merges stay small. |
+| 11 | Never change lane A's working tree while a full gate runs on it. | The gate's result stays valid. |
+| 12 | **Push last, once** — only when the user wants a push, and only after everything is complete: every lane merged, the records written, and the full gates (`pnpm ci:local`, `pnpm test:rls-role`, `pnpm sonar:scan`) green on that exact commit (re-run after any later change or a killed run). Unpushed commits wait for it; a backup push earlier only when the user asks. | The pushed code is the tested, finished code. |
+| 13 | A user request during the build: audit read-only first (code, third-party docs), show a gap table with a recommendation, ask once with every question batched, then build in separate lanes. | No rework on wrong guesses. |
+| 14 | Before the freeze, write `plans/pending-and-deferred.md`: deferred work, open owner questions, deploy steps, sibling-repository work. | Nothing is lost at the freeze. |
+
+Still in force in every lane: `--no-verify` is never used, a scope change stops and asks, and nothing is
+pushed, opened as a PR or merged into `main` unless the user asks — merging a lane into the iteration
+branch locally is part of the build.
+
 ## Close
 
 - Run the repository's gates: `pnpm validate`, `pnpm ci:local`, and the route and domain gates.
@@ -272,6 +306,8 @@ initial iteration), minus what this iteration resolved, plus its new ones.
 | The approved plan rewritten after the fact | `KICKOFF.md` frozen; revisions live in AS-BUILT |
 | An existing migration edited for a CHANGE table | incremental route: new `ALTER` migrations only |
 | "Done" claimed with open rows | close: every row done or deferred with the user's OK |
+| Parallel lanes wiping each other's tests or data | Parallel lanes: a worktree, databases and Redis DB per lane, one lock for tests and commits |
+| Code pushed that was not the code tested | Parallel lanes rule 12: full gates on the exact commit before a push |
 
 ## Related
 

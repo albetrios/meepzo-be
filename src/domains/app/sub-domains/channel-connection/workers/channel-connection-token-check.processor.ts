@@ -1,3 +1,4 @@
+import { META_PERMISSION_NAMES_MAX } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import {
   type OrganizationPrincipalDatabaseScope,
   PRINCIPAL_SCOPE,
@@ -306,7 +307,7 @@ async function recordPermissionMissing({
       requestId: target.requestId,
       recordUsage: target.recordUsage,
     });
-    scopes = [...new Set(granted)].slice(0, 20);
+    scopes = [...new Set(granted)].slice(0, META_PERMISSION_NAMES_MAX);
   } catch (permissionError) {
     logger.warn(
       {

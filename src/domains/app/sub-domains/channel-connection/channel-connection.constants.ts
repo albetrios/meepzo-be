@@ -42,6 +42,13 @@ export const META_REQUIRED_PERMISSIONS = [
   'instagram_manage_comments',
 ] as const;
 
+/**
+ * The most Meta permission names a connection or a channel account keeps (`scopes`, MC5 step 4;
+ * feat-meta-connect-flow AC5): a Unified Login configuration asks for far fewer, so a longer list
+ * is cut, never refused. One number for the two columns, their CHECKs and every writer.
+ */
+export const META_PERMISSION_NAMES_MAX = 20;
+
 /** The optional permission of the ad picker (MC13); `has_ads_access` reads it. */
 export const META_ADS_PERMISSION = 'ads_read';
 

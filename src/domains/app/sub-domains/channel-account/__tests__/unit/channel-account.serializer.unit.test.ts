@@ -26,6 +26,8 @@ function row(overrides: Partial<ChannelAccountRow> = {}): ChannelAccountRow {
     connected_by_user_id: 3,
     connected_at: CONNECTED_AT,
     disconnected_at: null,
+    scopes: null,
+    scopes_read_at: null,
     created_at: CONNECTED_AT,
     updated_at: CONNECTED_AT,
     ...overrides,

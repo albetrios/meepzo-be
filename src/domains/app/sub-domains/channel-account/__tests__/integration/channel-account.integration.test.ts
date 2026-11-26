@@ -334,6 +334,23 @@ describe('Channel account routes', () => {
     });
   });
 
+  describe('per-account permissions (connect flow R2, AC5)', () => {
+    it('starts with no account scopes (the connection stands) and refuses more than 20 names', async () => {
+      const { ids } = await connect([nextAccount()]);
+      const publicId = ids[0] ?? '';
+      const [row] = await operatorQuery<Array<{ scopes: string[] | null; read_at: Date | null }>>`
+        SELECT scopes, scopes_read_at AS read_at FROM app.channel_accounts WHERE public_id = ${publicId}`;
+      expect(row).toEqual({ scopes: null, read_at: null });
+      const tooMany = Array.from({ length: 21 }, (_, index) => `permission_${String(index)}`);
+      const error = await operatorQuery`
+        UPDATE app.channel_accounts SET scopes = ${tooMany} WHERE public_id = ${publicId}`.then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      expect(getPostgresConstraintName(error)).toBe('chk_channel_accounts_scopes');
+    });
+  });
+
   describe('DELETE /app/social/channel-accounts/{channel_account_id} (route 8)', () => {
     it('keeps the token while another account uses the connection and erases it with the last (AC-2.4, AC-2.11)', async () => {
       await useCreatorPlan();

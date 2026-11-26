@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { META_PERMISSION_NAMES_MAX } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
@@ -117,7 +118,10 @@ export const channel_connections = appSchema
         'chk_channel_connections_provider_user_id',
         sql`${table.provider_user_id} IS NULL OR ${table.provider_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
-      check('chk_channel_connections_scopes', sql`cardinality(${table.scopes}) <= 20`),
+      check(
+        'chk_channel_connections_scopes',
+        sql`cardinality(${table.scopes}) <= ${sqlLiteral(META_PERMISSION_NAMES_MAX)}`,
+      ),
       check('chk_channel_connections_updated', sql`${table.updated_at} >= ${table.created_at}`),
       pgPolicy('channel_connections_tenant_isolation', {
         as: 'permissive',

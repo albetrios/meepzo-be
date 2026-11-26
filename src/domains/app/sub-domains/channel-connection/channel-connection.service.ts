@@ -44,6 +44,7 @@ import {
   CHANNEL_CONNECTION_AD_ACCESS,
   CHANNEL_CONNECTION_STATUS,
   META_ADS_PERMISSION,
+  META_PERMISSION_NAMES_MAX,
   META_REQUIRED_PERMISSIONS,
 } from './channel-connection.constants.js';
 import {
@@ -393,7 +394,7 @@ export class ChannelConnectionService {
           providerUserId: login.providerUserId,
           // P356: the configuration the login address carried, kept in its one-use state.
           configId: payload.config_id,
-          scopes: [...new Set(login.grantedPermissions)].slice(0, 20),
+          scopes: [...new Set(login.grantedPermissions)].slice(0, META_PERMISSION_NAMES_MAX),
           connectedByUserId: caller.userId,
         });
         const channelConnection = {

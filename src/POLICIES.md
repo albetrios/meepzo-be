@@ -657,7 +657,7 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
 
 - **Value**: 7 days
 - **Source**: [src/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.ts](src/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.ts)
-- **Rationale**: A Meta login nobody picked an account from (feat-meta-connect-flow CN9, C-D3) is revoked by the daily token check, and its token deleted, once its last login is this old and it still has no account that is not revoked — one guarded statement, so a pick racing it wins or finds it revoked. A week lets an owner come back to the picker (route 151) without logging in again.
+- **Rationale**: A Meta login nobody picked an account from (feat-meta-connect-flow CN9, C-D3) is revoked by the daily token check, and its token deleted, once its last login that shared an account (a login sharing nothing keeps the clock, C-D21) is this old and it still has no account that is not revoked — one guarded statement, so a pick racing it wins or finds it revoked. A week lets an owner come back to the picker (route 151) without logging in again.
 - **Consequences of change**:
   - Decreasing → an owner who left the picker for a few days logs in again.
   - Increasing → unused Meta tokens stay live longer.

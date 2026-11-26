@@ -60,6 +60,11 @@ export interface ChannelConnectionConnectValues {
   scopes: readonly string[];
   /** `auth.users.id` of the connecting user; `null` when the caller has none. */
   connectedByUserId: number | null;
+  /**
+   * A login that shares no account (feat-meta-connect-flow C-D21): a `connected` row keeps its
+   * `connected_at`, so the 7-day unpicked clean-up still counts from the last login that shared one.
+   */
+  isNothingShared?: boolean;
 }
 
 /** The result of {@link ChannelConnectionRepository.upsertConnected}. */
@@ -192,6 +197,11 @@ export class ChannelConnectionRepository {
               ...connectedColumns,
               // A reconnect whose `/me` named no system user keeps the one already known (F3).
               provider_user_id: sql`COALESCE(EXCLUDED.provider_user_id, ${channel_connections.provider_user_id})`,
+              ...(values.isNothingShared === true
+                ? {
+                    connected_at: sql`CASE WHEN ${channel_connections.status} = 'connected' THEN ${channel_connections.connected_at} ELSE now() END`,
+                  }
+                : {}),
               status_changed_at: sql`CASE WHEN ${channel_connections.status} = 'connected' THEN ${channel_connections.status_changed_at} ELSE now() END`,
               updated_at: connectionUpdatedAtTimestamp,
             },

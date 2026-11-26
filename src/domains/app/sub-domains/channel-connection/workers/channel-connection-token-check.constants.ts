@@ -51,7 +51,8 @@ export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME =
 export const CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS = 7;
 
 /**
- * A `connected` connection whose last login is older than this many days and that still has no
+ * A `connected` connection whose last login that shared an account (a login sharing nothing keeps
+ * `connected_at`, C-D21) is older than this many days and that still has no
  * account that is not revoked is revoked by the daily token check and its token deleted
  * (feat-meta-connect-flow CN9, C-D3) — a login nobody picked from stops holding a live token.
  *

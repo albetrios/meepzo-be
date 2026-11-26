@@ -22,8 +22,8 @@ Each part builds on the ones above it.
 | 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **final (rev 1, confirmed 2026-11-26)** |
 | 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **final (rev 1, confirmed 2026-11-26)** |
-| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | **rev 1 — awaiting your OK** |
-| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | draft |
+| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | **final (rev 1, confirmed 2026-11-26)** |
+| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | **rev 1 — awaiting your OK** |
 | 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | draft |
 
 Total: **0 routes added or removed.** 1 route changes its output (the entitlements read gains a source per
@@ -372,7 +372,7 @@ None.
 
 ---
 
-## 4. App gate users — rev 1 (2026-11-26) — seven sub-domains, no new nested ones; awaiting your OK
+## 4. App gate users — final (rev 1, confirmed 2026-11-26) — seven sub-domains, no new nested ones
 
 Code: the app sub-domains that read plan access today: `automation/` (with the run engine and past-comments
 read), `broadcast/` with `broadcast-segment/`, `channel-account/` (with its plan-stop service),
@@ -461,6 +461,78 @@ None added.
 
 ---
 
-## 5. Seats — draft
+## 5. Seats — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+
+Code: `tenancy/sub-domains/membership/` (the add-member seat check) and the late-wired seat port it calls,
+satisfied today by billing's subscription service.
+
+5.1 Decisions · 5.2 Open questions · 5.3 Tables and relations · 5.4 Permissions · 5.5 Common to every route ·
+5.6 Objects returned · 5.7 Routes · 5.8 Request details · 5.9 Errors · 5.10 Rules worth knowing ·
+5.11 Code changes · 5.12 Nested sub-domains.
+
+Seats become a declared limit (P18) answered by the entitlement module, while the locked check that makes two
+concurrent adds safe stays exactly as it is. Every plan has unlimited seats today (P26), so nothing refuses
+until a plan sets a ceiling.
+
+### 5.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| SE1 | **The locked ceiling read stays; tenancy asks the module for it.** Today membership takes a per-organization advisory lock, then calls the seat port's `reserveSeatCeilingForMemberAdd`, which billing's subscription service answers by locking the subscription row (`FOR UPDATE`) and resolving the ceiling (plan included seats, else Free's), then counts and compares. A snapshot read would sit outside that lock, so a plan change could slip between the read and the insert. After: the entitlement module satisfies the seat port's ceiling method by **delegating** to subscription's locked read, unchanged; the port's Stripe seat-sync method stays with subscription. Tenancy no longer reaches billing's plan state except through the module (K3). |
+| SE2 | **The refusal comes from the builder.** Today membership builds its own `409 seat_limit_reached` with `limit`, `used`, `upgrade_required`. After: the same body from `buildPlanRefusal`. |
+| SE3 | **`seats` in the registry**: kind `cap`, product `core`, default unlimited, **not** overridable (P18). Its value in the snapshot is read-only information for the entitlements read (`limits.seats`, as today); enforcement is SE1's locked path, not the snapshot. |
+
+### 5.2 Open questions
+
+None.
+
+### 5.3 Tables and relations
+
+No change. Read under lock for context: `billing.subscriptions` (the row lock), `billing.plans` (included seats), `tenancy.memberships` (the count).
+
+### 5.4 Permissions
+
+None change.
+
+### 5.5 Common to every route
+
+As the membership routes have it today; the declarations are part 3's (`limit:seats`).
+
+### 5.6 Objects returned
+
+None change shape. The seat refusal body is the same, now from the builder.
+
+### 5.7 Routes
+
+Part 3's routes 14–16: add a member, change a membership, restore a membership. No route changes.
+
+### 5.8 Request details
+
+None change.
+
+### 5.9 Errors
+
+`409 seat_limit_reached` (`limit`, `used`, `upgrade_required`): unchanged, now from the builder. It can't occur
+today because no plan sets a ceiling (P26).
+
+### 5.10 Rules worth knowing
+
+- Two concurrent adds can't both pass the ceiling: the advisory lock and the subscription row lock stay (SE1).
+- A super-admin can't override seats (P18); a seat ceiling is plan data.
+
+### 5.11 Code changes
+
+| # | Change |
+| --- | --- |
+| SEC1 | SE1: the entitlement module satisfies the seat port's ceiling method by delegating to subscription's locked read; the composition root wires the port's ceiling to the module and its Stripe sync to subscription |
+| SEC2 | SE2: membership refuses through `buildPlanRefusal` |
+| SEC3 | SE3: `seats` in the registry (part 1, ENC1) |
+| SEC4 | Tests: the seat-race and per-organization row-cap tests (`src/tests/unit/per-organization-row-caps.unit.test.ts` pins the lock-then-ceiling order) pass unchanged; a body-shape assertion on the seat refusal |
+
+### 5.12 Nested sub-domains
+
+None.
+
+---
 
 ## 6. Paid-job declarations — draft

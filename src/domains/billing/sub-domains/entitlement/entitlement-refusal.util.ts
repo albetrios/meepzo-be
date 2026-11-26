@@ -38,7 +38,8 @@ export type PlanRefusalInput =
  *   - `plan_lacks_feature` → `403` `errors:planLacksFeature` + `feature`, `upgrade_required: true`
  *     (as the channel account's feature check and the automation's PRO-part check);
  *   - `plan_account_limit` → `409` `errors:planAccountLimit` + `limit`, `used`,
- *     `upgrade_required: true` (as the channel connection's pick and the account activate);
+ *     `upgrade_required: true` and `plan_room` (`accounts_max`, `accounts_used`, `accounts_free` —
+ *     feat-meta-connect-flow CN6) (as the channel connection's pick and the account activate);
  *   - `seat_limit_reached` → `409` `errors:seatLimitReached` (interpolating `used`, `limit`) +
  *     `limit`, `used`, `upgrade_required: true` (as the membership seat check);
  *   - `message_month_limit_reached` → `409` `errors:messageMonthLimitReached` + `limit`, `used`,
@@ -60,9 +61,17 @@ export function buildPlanRefusal(input: PlanRefusalInput): ForbiddenError | Conf
         .withReason(input.reason)
         .withFields({ feature: input.feature, upgrade_required: true });
     case 'plan_account_limit':
-      return new ConflictError('errors:planAccountLimit')
-        .withReason(input.reason)
-        .withFields({ limit: input.limit, used: input.used, upgrade_required: true });
+      return new ConflictError('errors:planAccountLimit').withReason(input.reason).withFields({
+        limit: input.limit,
+        used: input.used,
+        upgrade_required: true,
+        // feat-meta-connect-flow CN6: the same room the successful connect and pick answers carry.
+        plan_room: {
+          accounts_max: input.limit,
+          accounts_used: input.used,
+          accounts_free: Math.max(0, input.limit - input.used),
+        },
+      });
     case 'seat_limit_reached':
       return new ConflictError('errors:seatLimitReached', {
         used: input.used,

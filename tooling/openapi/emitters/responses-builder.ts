@@ -124,6 +124,32 @@ const errorResponseSchema = {
           description:
             "When the month's DM count starts again — the 1st of next month (`YYYY-MM-DD`), on `message_month_limit_reached`. Absent otherwise.",
         },
+        missing_permissions: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The Meta permissions a channel connection login did not grant — on `provider_permissions_missing` (feat-meta-connect-flow CN3). Absent otherwise.',
+        },
+        expected_client_business_id: {
+          type: 'string',
+          description:
+            'The business portfolio a reconnect expected — on `channel_connection_business_mismatch` (feat-meta-connect-flow CN3). Absent otherwise.',
+        },
+        plan_room: {
+          type: 'object',
+          properties: {
+            accounts_max: { type: 'integer' },
+            accounts_used: { type: 'integer' },
+            accounts_free: { type: 'integer' },
+          },
+          description:
+            "The plan's room for channel accounts — beside `limit` / `used` on `plan_account_limit` (feat-meta-connect-flow CN6). Absent otherwise.",
+        },
+        permission: {
+          type: 'string',
+          description:
+            'The Meta permission a feature needs and the connection lacks — beside `feature` on `permission_not_granted`, so the screen asks for exactly that one (feat-meta-connect-flow AC4). Absent otherwise.',
+        },
         documentation_url: {
           type: 'string',
           description: 'Link to the documentation page for this error code',

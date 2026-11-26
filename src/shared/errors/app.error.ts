@@ -56,6 +56,10 @@ export const APP_ERROR_FIELD_KINDS = {
   grace_ends_at: 'timestamp_or_null',
   upgrade_required: 'boolean',
   resets_on: 'date',
+  missing_permissions: 'string_list',
+  expected_client_business_id: 'string',
+  plan_room: 'plan_room',
+  permission: 'string',
 } as const;
 
 /** The names of {@link APP_ERROR_FIELD_KINDS}, in their order. */
@@ -70,6 +74,10 @@ interface AppErrorFieldValueByKind {
   timestamp_or_null: string | null;
   boolean: boolean;
   date: string;
+  /** A non-empty list of non-empty strings (feat-meta-connect-flow CN3: `missing_permissions`). */
+  string_list: string[];
+  /** The plan's room for channel accounts (feat-meta-connect-flow CN6), as the success answers carry it. */
+  plan_room: { accounts_max: number; accounts_used: number; accounts_free: number };
 }
 
 /** The extra error-body fields set with {@link AppError.withFields} — see {@link APP_ERROR_FIELD_KINDS}. */

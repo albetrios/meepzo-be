@@ -239,6 +239,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
     channelAccountPickDto,
   // ── App: channel account ──
   'POST /api/v1/app/social/channel-accounts/{channel_account_id}/pause': emptyChannelAccountBodyDto,
+  'POST /api/v1/app/social/instagram/accounts/{channel_account_id}/message-access-checks':
+    emptyChannelAccountBodyDto,
   'POST /api/v1/app/social/channel-accounts/{channel_account_id}/resume':
     emptyChannelAccountBodyDto,
   'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate':

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  META_ASSIGNED_ACCOUNTS_MAX_PAGES,
+  META_GRAPH_BASE_URL,
+  META_GRAPH_VERSION,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   getBullMQConnectionOptions,
@@ -14,6 +19,7 @@ import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/p
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -260,10 +266,22 @@ describe('Channel connection routes', () => {
           expiresInSeconds: 60 * 24 * 60 * 60,
         });
         const before = Date.now();
+        const warnings = vi.spyOn(logger, 'warn');
         const response = await callback({ state });
         expect(response.statusCode, response.body).toBe(200);
         const [row] = await readChannelConnectionRows(team.organization.id);
         expect(row?.config_id).toBe(configAtStart);
+        // F4 (AF-8): a dated token is flagged at connect, with the configuration and no token.
+        const dated = warnings.mock.calls.filter(
+          ([, message]) => message === 'app.channel_connection.token_dated',
+        );
+        expect(dated).toHaveLength(1);
+        expect(dated[0]?.[0]).toMatchObject({
+          configId: configAtStart,
+          channelConnectionPublicId: row?.public_id,
+        });
+        expect(JSON.stringify(dated[0]?.[0])).not.toContain(TEST_META_SYSTEM_USER_TOKEN);
+        warnings.mockRestore();
         const [expiresAt] = await readChannelConnectionTokenExpiries(team.organization.id);
         expect(expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 60 * 24 * 60 * 60 * 1000);
         expect(expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 60 * 24 * 60 * 60 * 1000);
@@ -273,14 +291,45 @@ describe('Channel connection routes', () => {
       }
     });
 
+    it("stores the token's Meta system user on connect, updates it on reconnect, and never answers it (F3, AF-6)", async () => {
+      const clientBusinessId = nextClientBusinessId();
+      const account = nextAccount();
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: '20001' });
+      const first = await callback({ state: await start() });
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.body).not.toContain('provider_user_id');
+      expect(first.body).not.toContain('20001');
+      const [connected] = await readChannelConnectionRows(team.organization.id);
+      expect(connected?.provider_user_id).toBe('20001');
+
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: '20002' });
+      const again = await callback({ state: await start() });
+      expect(again.statusCode, again.body).toBe(200);
+      const rows = await readChannelConnectionRows(team.organization.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.provider_user_id).toBe('20002');
+
+      // A reconnect whose `/me` names no system user keeps the known one (review 2).
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: null });
+      expect((await callback({ state: await start() })).statusCode).toBe(200);
+      const [kept] = await readChannelConnectionRows(team.organization.id);
+      expect(kept?.provider_user_id).toBe('20002');
+    });
+
     it('keeps no end for a token Meta names none for (a configuration whose token never ends)', async () => {
       const state = await start();
       mockMetaLogin({
         clientBusinessId: nextClientBusinessId(),
         assignedAccounts: [nextAccount()],
       });
+      const warnings = vi.spyOn(logger, 'warn');
       expect((await callback({ state })).statusCode).toBe(200);
       expect(await readChannelConnectionTokenExpiries(team.organization.id)).toEqual([null]);
+      // F4 (AF-8): a never-ending token is not flagged.
+      expect(
+        warnings.mock.calls.some(([, message]) => message === 'app.channel_connection.token_dated'),
+      ).toBe(false);
+      warnings.mockRestore();
     });
 
     it('refuses a used, foreign or unknown state with 400 channel_connect_state_invalid and saves nothing (AC-1.1)', async () => {
@@ -314,6 +363,12 @@ describe('Channel connection routes', () => {
       const response = await callback({ state });
       expect(response.statusCode).toBe(422);
       expect(reasonOf(response)).toBe('provider_permissions_missing');
+      // CN3: the answer names exactly the missing ones.
+      expect((response.json() as { error: { missing_permissions: string[] } }).error).toMatchObject(
+        {
+          missing_permissions: ['instagram_manage_messages', 'instagram_manage_comments'],
+        },
+      );
       expect(await readChannelConnectionRows(team.organization.id)).toHaveLength(0);
     });
 
@@ -434,6 +489,8 @@ describe('Channel connection routes', () => {
         limit: 1,
         used: 0,
         upgrade_required: true,
+        // CN6: the same room the successful answers carry.
+        plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
       });
       // change-plan-gates AP4: the entitlement module's refusal builder answers the body the pick
       // built itself before — every field, its value and its order.
@@ -447,6 +504,7 @@ describe('Channel connection routes', () => {
         limit: 1,
         used: 0,
         upgrade_required: true,
+        plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
         documentation_url: expect.stringMatching(/\/errors\/conflict$/),
       });
       expect(Object.keys(refusal)).toEqual([
@@ -457,6 +515,7 @@ describe('Channel connection routes', () => {
         'limit',
         'used',
         'upgrade_required',
+        'plan_room',
         'documentation_url',
       ]);
       expect(await readInstagramAccountRows(team.organization.id)).toHaveLength(0);
@@ -592,6 +651,299 @@ describe('Channel connection routes', () => {
     });
   });
 
+  describe('every connect outcome (feat-meta-connect-flow R3)', () => {
+    /** Route 2 with Meta's cancel instead of a code. */
+    function cancel(state: string): Promise<InjectHttpResult> {
+      return injectAuthenticated(app, {
+        method: 'POST',
+        url: channelConnectCallbackPath(),
+        token: team.ownerToken,
+        payload: { state, error: 'access_denied', error_reason: 'user_denied' },
+        headers: { 'x-idempotency-key': `channel-connect:${state}` },
+      });
+    }
+
+    /** Route 151. */
+    function sharedAssets(channelConnectionPublicId: string, token = team.ownerToken) {
+      return injectAuthenticated(app, {
+        method: 'GET',
+        url: `${channelConnectionPath(channelConnectionPublicId)}/shared-assets`,
+        token,
+      });
+    }
+
+    /** Meta's assigned list for route 151 (one page). */
+    function mockAssignedList(accounts: readonly { id: string; username: string }[]) {
+      return nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(200, { data: accounts });
+    }
+
+    it("answers Meta's cancel with outcome cancelled, spends the state and saves nothing (CN1, AC-1.1)", async () => {
+      const state = await start();
+      const response = await cancel(state);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(dataOf<{ outcome: string }>(response)).toEqual({ outcome: 'cancelled' });
+      expect((response.json() as { meta: { error_reason: string } }).meta.error_reason).toBe(
+        'user_denied',
+      );
+      expect(await readChannelConnectionRows(team.organization.id)).toHaveLength(0);
+      mockMetaLogin({
+        clientBusinessId: nextClientBusinessId(),
+        assignedAccounts: [nextAccount()],
+      });
+      const reused = await callback({ state, idempotencyKey: `again-${randomUUID()}` });
+      expect(reasonOf(reused)).toBe('channel_connect_state_invalid');
+      nock.cleanAll();
+    });
+
+    it('replays a repeated cancel under its key, and refuses a cancel without a key (CN1, idempotency)', async () => {
+      const state = await start();
+      const first = await cancel(state);
+      const again = await cancel(state);
+      expect(again.statusCode, again.body).toBe(200);
+      expect(dataOf<{ outcome: string }>(again)).toEqual({ outcome: 'cancelled' });
+      expect(again.headers['x-idempotency-replay']).toBeDefined();
+      expect(dataOf(again)).toEqual(dataOf(first));
+
+      const otherState = await start();
+      const keyless = await injectAuthenticated(app, {
+        method: 'POST',
+        url: channelConnectCallbackPath(),
+        token: team.ownerToken,
+        payload: { state: otherState, error: 'access_denied' },
+      });
+      expect(keyless.statusCode).toBe(422);
+    });
+
+    it('refuses a body with both a code and a cancel (CN1)', async () => {
+      const state = await start();
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: channelConnectCallbackPath(),
+        token: team.ownerToken,
+        payload: { state, code: 'AQB', error: 'access_denied' },
+        headers: { 'x-idempotency-key': `channel-connect:${state}` },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('names the outcome of a first connect and of a reconnect (CN2, AC-1.2)', async () => {
+      const clientBusinessId = nextClientBusinessId();
+      const account = nextAccount();
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account] });
+      const first = await callback({ state: await start() });
+      expect(dataOf<{ outcome: string }>(first).outcome).toBe('connected');
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account] });
+      const again = await callback({ state: await start() });
+      expect(dataOf<{ outcome: string }>(again).outcome).toBe('reconnected');
+    });
+
+    it('refuses a first connect that shares no Instagram account and saves nothing (CN4, AC-1.5)', async () => {
+      mockMetaLogin({ clientBusinessId: nextClientBusinessId(), assignedAccounts: [] });
+      const response = await callback({ state: await start() });
+      expect(response.statusCode).toBe(422);
+      expect(reasonOf(response)).toBe('provider_no_accounts_shared');
+      expect(await readChannelConnectionRows(team.organization.id)).toHaveLength(0);
+    });
+
+    it('keeps a reconnect that shares none: token stored, its accounts marked not shared (CN4, CN5, AC-1.5)', async () => {
+      const account = nextAccount();
+      const { clientBusinessId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [account],
+      });
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [] });
+      const response = await callback({ state: await start() });
+      expect(response.statusCode, response.body).toBe(200);
+      const data = dataOf<{ outcome: string; marked_not_shared_account_ids: string[] }>(response);
+      expect(data.outcome).toBe('no_accounts_shared');
+      expect(data.marked_not_shared_account_ids).toHaveLength(1);
+      const [row] = await readInstagramAccountRows(team.organization.id);
+      expect(row?.connection_status).toBe('error');
+      expect(
+        await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
+      ).toHaveLength(1);
+    });
+
+    it('marks only the accounts a complete list no longer shares (CN5, AC-1.6)', async () => {
+      await useCreatorPlan();
+      const [kept, dropped] = [nextAccount(), nextAccount()];
+      const { clientBusinessId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [kept, dropped],
+      });
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [kept] });
+      const response = await callback({ state: await start() });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(
+        dataOf<{ marked_not_shared_account_ids: string[] }>(response).marked_not_shared_account_ids,
+      ).toHaveLength(1);
+      const rows = await readInstagramAccountRows(team.organization.id);
+      expect(rows.find((row) => row.instagram_user_id === kept.id)?.connection_status).toBe(
+        'connected',
+      );
+      expect(rows.find((row) => row.instagram_user_id === dropped.id)?.connection_status).toBe(
+        'error',
+      );
+    });
+
+    it('lists what the login shares now with each pick state, re-read from Meta (CN7, AC-2.1)', async () => {
+      await useCreatorPlan();
+      const [here, gone] = [nextAccount(), nextAccount()];
+      const fresh = nextAccount();
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [here, gone],
+      });
+      mockAssignedList([here, fresh]);
+      const response = await sharedAssets(channelConnectionPublicId, team.viewerToken);
+      expect(response.statusCode, response.body).toBe(200);
+      const assets =
+        dataOf<Array<{ provider_account_id: string; state: string; channel: string }>>(response);
+      const stateOf = (id: string) =>
+        assets.find((asset) => asset.provider_account_id === id)?.state;
+      expect(stateOf(here.id)).toBe('connected_here');
+      expect(stateOf(fresh.id)).toBe('free');
+      expect(stateOf(gone.id)).toBe('not_shared_any_more');
+      expect(assets.every((asset) => asset.channel === 'instagram')).toBe(true);
+      const meta = (response.json() as { meta: { is_complete: boolean; plan_room: object } }).meta;
+      expect(meta).toMatchObject({
+        is_complete: true,
+        plan_room: { accounts_max: 3, accounts_used: 2, accounts_free: 1 },
+      });
+    });
+
+    it('never names an account not shared any more from a list the page cap cut (CN7, P353)', async () => {
+      await useCreatorPlan();
+      const [here, maybeLater] = [nextAccount(), nextAccount()];
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [here, maybeLater],
+      });
+      const nextPage = { next: 'https://graph.facebook.com/next', cursors: { after: 'cursor' } };
+      const scope = nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(200, { data: [here], paging: nextPage })
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .times(META_ASSIGNED_ACCOUNTS_MAX_PAGES - 1)
+        .reply(200, { data: [], paging: nextPage });
+
+      const response = await sharedAssets(channelConnectionPublicId);
+
+      expect(response.statusCode, response.body).toBe(200);
+      expect(scope.isDone()).toBe(true);
+      const assets = dataOf<Array<{ provider_account_id: string; state: string }>>(response);
+      expect(assets.map((asset) => asset.state)).toEqual(['connected_here']);
+      expect((response.json() as { meta: { is_complete: boolean } }).meta.is_complete).toBe(false);
+    });
+
+    it('breaks the connection when Meta refuses its token on the shared-assets read (CN7, AC-2.2)', async () => {
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [nextAccount()],
+      });
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(400, {
+          error: { message: 'Error validating access token', type: 'OAuthException', code: 190 },
+        });
+      const response = await sharedAssets(channelConnectionPublicId);
+      expect(response.statusCode).toBe(409);
+      expect(reasonOf(response)).toBe('channel_connection_not_connected');
+      const [connection] = await readChannelConnectionRows(team.organization.id);
+      expect(connection?.status).toBe('error');
+      const again = await sharedAssets(channelConnectionPublicId);
+      expect(reasonOf(again)).toBe('channel_connection_not_connected');
+    });
+
+    it('refuses a pick whose connection the unpicked clean-up revoked while it read Meta (CN9 race)', async () => {
+      const account = nextAccount();
+      const state = await start();
+      mockMetaLogin({ clientBusinessId: nextClientBusinessId(), assignedAccounts: [account] });
+      const connected = await callback({ state });
+      expect(connected.statusCode, connected.body).toBe(200);
+      const channelConnectionPublicId = dataOf<{ channel_connection: { id: string } }>(connected)
+        .channel_connection.id;
+      // The pick's Meta re-read: meanwhile the token check revokes the unpicked connection.
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(async () => {
+          await operatorQuery`
+            UPDATE app.channel_connections
+            SET status = 'revoked', status_changed_at = now(), disconnected_at = now()
+            WHERE public_id = ${channelConnectionPublicId}`;
+          return [200, { data: [account] }];
+        });
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/${account.id}`)
+        .query(true)
+        .reply(200, { id: account.id, username: account.username });
+
+      const refused = await pick({ channelConnectionPublicId, providerAccountIds: [account.id] });
+
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(reasonOf(refused)).toBe('channel_connection_not_connected');
+      const accounts = await operatorQuery<Array<{ id: string }>>`
+        SELECT id::text FROM app.channel_accounts WHERE organization_id = ${team.organization.id}`;
+      expect(accounts).toHaveLength(0);
+    });
+
+    it('answers the connect options for an owner, a viewer and an unconfigured Meta (CN8, AC-1.8)', async () => {
+      const read = (token: string) =>
+        injectAuthenticated(app, {
+          method: 'GET',
+          url: '/api/v1/app/social/channel-connections/meta/connect-options',
+          token,
+        });
+      const owner = await read(team.ownerToken);
+      expect(owner.statusCode, owner.body).toBe(200);
+      expect(dataOf<object>(owner)).toMatchObject({
+        provider: 'meta',
+        is_configured: true,
+        can_manage: true,
+        plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
+      });
+      expect(dataOf<{ can_manage: boolean }>(await read(team.viewerToken)).can_manage).toBe(false);
+      const savedPageConfig = process.env.META_PAGE_CONFIG_ID;
+      try {
+        process.env.META_PAGE_CONFIG_ID = '1234567890123';
+        resetEnvCacheForTests();
+        const withPage = dataOf<{ is_page_login_offered: boolean }>(await read(team.ownerToken));
+        expect(withPage.is_page_login_offered).toBe(true);
+        delete process.env.META_PAGE_CONFIG_ID;
+        resetEnvCacheForTests();
+        const withoutPage = dataOf<{ is_page_login_offered: boolean }>(await read(team.ownerToken));
+        expect(withoutPage.is_page_login_offered).toBe(false);
+      } finally {
+        if (savedPageConfig === undefined) delete process.env.META_PAGE_CONFIG_ID;
+        else process.env.META_PAGE_CONFIG_ID = savedPageConfig;
+        resetEnvCacheForTests();
+      }
+      const saved = process.env.META_REDIRECT_URI;
+      delete process.env.META_REDIRECT_URI;
+      resetEnvCacheForTests();
+      try {
+        const unconfigured = await read(team.ownerToken);
+        expect(unconfigured.statusCode).toBe(200);
+        expect(dataOf<{ is_configured: boolean }>(unconfigured).is_configured).toBe(false);
+      } finally {
+        process.env.META_REDIRECT_URI = saved;
+        resetEnvCacheForTests();
+      }
+    });
+  });
+
   describe('reconnect (routes 40 and 2)', () => {
     it('puts an error connection back, reconnects its account, and refuses another business (AC-1.8)', async () => {
       const account = nextAccount();
@@ -620,6 +972,10 @@ describe('Channel connection routes', () => {
       const mismatch = await callback({ state: mismatchState });
       expect(mismatch.statusCode).toBe(409);
       expect(reasonOf(mismatch)).toBe('channel_connection_business_mismatch');
+      // CN3: the business the reconnect expected is named.
+      expect((mismatch.json() as { error: object }).error).toMatchObject({
+        expected_client_business_id: clientBusinessId,
+      });
 
       const reconnectStart = await injectAuthenticated(app, {
         method: 'POST',
@@ -860,7 +1216,7 @@ describe('Channel connection routes', () => {
   });
 
   describe("another organization's connection (BOLA)", () => {
-    it('reads, reconnects, picks and disconnects nothing of another organization: 404, the row unchanged', async () => {
+    it('reads, lists shared assets, reconnects, picks and disconnects nothing of another organization: 404, the row unchanged', async () => {
       const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
         app,
         token: team.ownerToken,
@@ -871,6 +1227,11 @@ describe('Channel connection routes', () => {
         injectAuthenticated(app, {
           method: 'GET',
           url: channelConnectionPath(channelConnectionPublicId),
+          token: otherTeam.ownerToken,
+        }),
+        injectAuthenticated(app, {
+          method: 'GET',
+          url: `${channelConnectionPath(channelConnectionPublicId)}/shared-assets`,
           token: otherTeam.ownerToken,
         }),
         injectAuthenticated(app, {

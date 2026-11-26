@@ -7,6 +7,7 @@ import {
   foreignKey,
   index,
   pgPolicy,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -20,6 +21,7 @@ import {
   INSTAGRAM_ID_MAX_LENGTH,
   INSTAGRAM_ID_PATTERN,
 } from '@/shared/constants/instagram.constants.js';
+import { META_PERMISSION_NAMES_MAX } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 
 /**
  * `app.channel_accounts` — one connected inbox of an organization, whatever its channel
@@ -78,6 +80,15 @@ export const channel_accounts = appSchema
       ),
       connected_at: timestamp('connected_at', { withTimezone: true }).notNull().defaultNow(),
       disconnected_at: timestamp('disconnected_at', { withTimezone: true }),
+      /**
+       * This account's own Meta permissions (feat-meta-connect-flow AC5) — read by the daily token
+       * check from `/debug_token`'s `granular_scopes` once owner test O1 confirms them; `null` means
+       * the connection's `scopes` stand for the account (the feature check reads
+       * `account.scopes ?? connection.scopes`). At most {@link META_PERMISSION_NAMES_MAX} names.
+       */
+      scopes: text('scopes').array(),
+      /** When {@link scopes} was last read from Meta; empty while the connection's stand. */
+      scopes_read_at: timestamp('scopes_read_at', { withTimezone: true }),
       created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
       updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
@@ -143,6 +154,10 @@ export const channel_accounts = appSchema
         sql`${table.provider_account_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
       ),
       check('chk_channel_accounts_display_name', sql`length(${table.display_name}) > 0`),
+      check(
+        'chk_channel_accounts_scopes',
+        sql`${table.scopes} IS NULL OR cardinality(${table.scopes}) <= ${sqlLiteral(META_PERMISSION_NAMES_MAX)}`,
+      ),
       check(
         'chk_channel_accounts_plan_stop',
         sql`(${table.plan_stop_reason} IS NULL OR ${table.plan_stop_reason} IN ('plan_limit', 'plan_ended', 'plan_downgrade'))

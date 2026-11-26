@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -54,6 +54,8 @@ export interface ChannelConnectionConnectValues {
   organizationId: number;
   provider: ChannelConnectionProvider;
   clientBusinessId: string;
+  /** The `/me` `id` of the token — its Meta system user (F3); `null` when Meta named none. */
+  providerUserId: string | null;
   configId: string;
   scopes: readonly string[];
   /** `auth.users.id` of the connecting user; `null` when the caller has none. */
@@ -160,6 +162,7 @@ export class ChannelConnectionRepository {
   ): Promise<ChannelConnectionConnectResult> {
     const connectedColumns = {
       config_id: values.configId,
+      provider_user_id: values.providerUserId,
       status: 'connected',
       scopes: [...values.scopes],
       connected_by_user_id: values.connectedByUserId,
@@ -187,6 +190,8 @@ export class ChannelConnectionRepository {
             ],
             set: {
               ...connectedColumns,
+              // A reconnect whose `/me` named no system user keeps the one already known (F3).
+              provider_user_id: sql`COALESCE(EXCLUDED.provider_user_id, ${channel_connections.provider_user_id})`,
               status_changed_at: sql`CASE WHEN ${channel_connections.status} = 'connected' THEN ${channel_connections.status_changed_at} ELSE now() END`,
               updated_at: connectionUpdatedAtTimestamp,
             },
@@ -232,6 +237,45 @@ export class ChannelConnectionRepository {
       )
       .returning();
     return rows[0] ?? null;
+  }
+
+  /**
+   * The token check's clean-up (feat-meta-connect-flow CN9): `revoked` like {@link revoke}, only
+   * while the connection is `connected`, its last login is older than `connectedBefore` and it has
+   * no account that is not revoked. The caller holds {@link lockOrganizationForAccountLimit} first —
+   * the lock every pick commits under — so this statement's snapshot sees any pick that committed,
+   * and a pick waiting on the lock re-reads the connection and finds it revoked. Returns whether it
+   * was revoked.
+   */
+  async revokeUnpicked({
+    organizationId,
+    channelConnectionId,
+    connectedBefore,
+  }: ChannelConnectionKey & { connectedBefore: Date }): Promise<boolean> {
+    const rows = await this.db()
+      .update(channel_connections)
+      .set({
+        status: 'revoked',
+        status_changed_at: databaseNowTimestamp,
+        disconnected_at: databaseNowTimestamp,
+        updated_at: connectionUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(channel_connections.organization_id, organizationId),
+          eq(channel_connections.id, channelConnectionId),
+          eq(channel_connections.status, 'connected'),
+          lt(channel_connections.connected_at, connectedBefore),
+          sql`NOT EXISTS (
+            SELECT 1 FROM app.channel_accounts account
+            WHERE account.organization_id = ${channel_connections.organization_id}
+              AND account.channel_connection_id = ${channel_connections.id}
+              AND account.connection_status <> 'revoked'
+          )`,
+        ),
+      )
+      .returning({ id: channel_connections.id });
+    return rows.length > 0;
   }
 
   /**

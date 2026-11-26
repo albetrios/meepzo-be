@@ -310,6 +310,7 @@ describe('Channel account routes', () => {
           'followers_count',
           'instagram_user_id',
           'is_messages_webhook_missing',
+          'message_access',
           'is_private',
           'is_webhook_subscribed',
           'profile_picture_url',
@@ -331,6 +332,23 @@ describe('Channel account routes', () => {
 
       const malformed = await read('not-an-id');
       expect(malformed.statusCode).toBe(400);
+    });
+  });
+
+  describe('per-account permissions (connect flow R2, AC5)', () => {
+    it('starts with no account scopes (the connection stands) and refuses more than 20 names', async () => {
+      const { ids } = await connect([nextAccount()]);
+      const publicId = ids[0] ?? '';
+      const [row] = await operatorQuery<Array<{ scopes: string[] | null; read_at: Date | null }>>`
+        SELECT scopes, scopes_read_at AS read_at FROM app.channel_accounts WHERE public_id = ${publicId}`;
+      expect(row).toEqual({ scopes: null, read_at: null });
+      const tooMany = Array.from({ length: 21 }, (_, index) => `permission_${String(index)}`);
+      const error = await operatorQuery`
+        UPDATE app.channel_accounts SET scopes = ${tooMany} WHERE public_id = ${publicId}`.then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      expect(getPostgresConstraintName(error)).toBe('chk_channel_accounts_scopes');
     });
   });
 
@@ -662,6 +680,8 @@ describe('Channel account routes', () => {
         limit: 1,
         used: 1,
         upgrade_required: true,
+        // feat-meta-connect-flow CN6: the one builder carries the plan room on every account limit.
+        plan_room: { accounts_max: 1, accounts_used: 1, accounts_free: 0 },
         documentation_url: expect.stringMatching(/\/errors\/conflict$/),
       });
       expect(Object.keys(errorOf(refused))).toEqual([
@@ -672,6 +692,7 @@ describe('Channel account routes', () => {
         'limit',
         'used',
         'upgrade_required',
+        'plan_room',
         'documentation_url',
       ]);
 

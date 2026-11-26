@@ -16,10 +16,10 @@ import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement
 /**
  * Returns the Fastify plugin that registers the channel account routes (routes-final § 1B.7),
  * mounted under `/api/v1/app` at `/social/channel-accounts/…`: list (6), one (7), disconnect (8),
- * pause (9), resume (10) and choose active accounts (11).
+ * pause (9), resume (10), choose active accounts (11) and what one can do (153, feat-meta-connect-flow).
  *
  * @remarks
- * Gates (P59): `channel-account:read` on 6, 7; `channel-account:manage` on 8–11. Route 11 requires
+ * Gates (P59): `channel-account:read` on 6, 7, 153; `channel-account:manage` on 8–11. Route 11 requires
  * `X-Idempotency-Key` — merged into its `config`, never a top-level preset spread, which would drop
  * the flag; 8–10 take none (a repeat lands in the same state, CA7). The route schemas validate the
  * path, query and body first (`400`); the controller's validators then check the public-id shapes.
@@ -58,6 +58,21 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
         },
       },
       controller.getChannelAccount,
+    );
+    zodApplication.get<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id/capabilities',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: 'List what a channel account can do',
+          description:
+            "Returns what this account can do and why not: every feature of its channel through the same feature check every feature use runs — is_allowed, else the first refusal (channel_lacks_feature, permission_not_granted with the Meta permission, plan_lacks_feature with the plan switch, feature_not_offered) and its fix (reconnect, upgrade, none) — and the blockers that stop its sending whatever the feature, read from what is stored: connection_error, the lane stop (login_expired, account_not_shared, wrong_permission, access_off, …), the plan stop, messages_webhook_missing, paused — each with since and its fix (reconnect, reconnect_with_page, turn_on_message_access, share_account_in_meta, upgrade, resume, none). scopes_source says whether the account's own Meta permissions or its connection's stand. Reads the database only, never Meta. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: ['Channel account'],
+          params: channelAccountIdParamsDto,
+        },
+      },
+      controller.listChannelAccountCapabilities,
     );
     zodApplication.delete<{ Params: { channel_account_id: string } }>(
       '/social/channel-accounts/:channel_account_id',

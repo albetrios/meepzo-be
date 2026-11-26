@@ -63,7 +63,7 @@ import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-no
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
 import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
 import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
-import { stopDurationOf } from '@/domains/app/sub-domains/instagram-sending/instagram-send-error.util.js';
+import { messageAccessOffStopUntil } from '@/domains/app/sub-domains/instagram-account/instagram-account-message-access.service.js';
 import type { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 
 /**
@@ -125,6 +125,7 @@ export interface InstagramAccountTaskServices {
     | 'recordWebhookSubscriptionLost'
     | 'recordStarterQuestionsSet'
     | 'recordMessagesWebhookMissing'
+    | 'recordMessageAccess'
   >;
   starterQuestionSource: InstagramStarterQuestionSource;
   /**
@@ -343,8 +344,6 @@ async function startMessageAccessOffStop({
 }): Promise<void> {
   const laneService = services.sendLaneService;
   if (laneService === undefined) return;
-  const durationMilliseconds =
-    stopDurationOf({ reason: 'access_off', stopCount: 0, lane: 'slow' }) ?? 0;
   await context.runInDatabaseSlot(() =>
     laneService.startLaneStop({
       scope: target.scope,
@@ -352,7 +351,7 @@ async function startMessageAccessOffStop({
       channelAccountId: target.account.channel_account_id,
       lanes: 'all',
       reason: 'access_off',
-      stopUntil: new Date(Date.now() + durationMilliseconds),
+      stopUntil: messageAccessOffStopUntil(),
     }),
   );
 }
@@ -667,8 +666,9 @@ async function writeStarterQuestions({
  *   connection's token. (2) `subscribed_apps` → `webhook_subscribed_at` through the extension service.
  *   (3) Live starter questions → `messenger_profile` → `starter_questions_set_at`; their failure
  *   starts the sync's own chain (a retry after 1 minute) and the set-up goes on. (4) The read-only
- *   message-access probe; `off` is logged (`app.instagram_account.setup.message_access_off`) and
- *   starts the account's `access_off` stop on every lane (P354 — the owner's problem email).
+ *   message-access probe, its answer stored (`message_access`, feat-meta-connect-flow IG1); `off` is
+ *   logged (`app.instagram_account.setup.message_access_off`) and starts the account's `access_off`
+ *   stop on every lane (P354 — the owner's problem email).
  * - **Failure modes:** a refused token (code 190) → the guarded break (reconnect notice); another
  *   permission refusal (codes 10, 200–299) → the same break with the `wrong_permission` stop
  *   (P354); any other Meta failure at step 2 → the next try on the ladder (1, 5, 15, 60 minutes, then hourly) and, after the last
@@ -756,6 +756,17 @@ export async function processInstagramAccountSetupTask({
   } catch (error) {
     return breakAccount({ target, error, services, context });
   }
+  // feat-meta-connect-flow IG1: the answer is stored, whatever it is (route 7 shows it).
+  await context.runInDatabaseSlot(() =>
+    services.extensionService.recordMessageAccess({
+      scope: target.scope,
+      channelAccount: {
+        organizationId: target.account.organization_id,
+        channelAccountId: target.account.channel_account_id,
+      },
+      status: messageAccess,
+    }),
+  );
   if (messageAccess === 'off') {
     logger.warn(
       { organizationPublicId, channelAccountPublicId: input.channelAccountPublicId },

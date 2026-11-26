@@ -48,7 +48,7 @@ describe('buildPlanRefusal (EN5)', () => {
     });
   });
 
-  it('plan_account_limit: 409 with limit, used and upgrade_required', () => {
+  it('plan_account_limit: 409 with limit, used, upgrade_required and the plan room', () => {
     const error = buildPlanRefusal({ reason: 'plan_account_limit', limit: 3, used: 3 });
     expect(error).toBeInstanceOf(ConflictError);
     expect(body(error)).toEqual({
@@ -56,7 +56,21 @@ describe('buildPlanRefusal (EN5)', () => {
       messageKey: 'errors:planAccountLimit',
       messageParams: undefined,
       reason: 'plan_account_limit',
-      fields: { limit: 3, used: 3, upgrade_required: true },
+      fields: {
+        limit: 3,
+        used: 3,
+        upgrade_required: true,
+        plan_room: { accounts_max: 3, accounts_used: 3, accounts_free: 0 },
+      },
+    });
+  });
+
+  it('plan_account_limit: the plan room never shows negative free room', () => {
+    const error = buildPlanRefusal({ reason: 'plan_account_limit', limit: 1, used: 3 });
+    expect(body(error).fields?.plan_room).toEqual({
+      accounts_max: 1,
+      accounts_used: 3,
+      accounts_free: 0,
     });
   });
 

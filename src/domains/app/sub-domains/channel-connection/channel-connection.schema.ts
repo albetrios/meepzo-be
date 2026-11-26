@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { META_PERMISSION_NAMES_MAX } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
@@ -45,6 +46,12 @@ export const channel_connections = appSchema
       client_business_id: varchar('client_business_id', {
         length: INSTAGRAM_ID_MAX_LENGTH,
       }).notNull(),
+      /**
+       * The Meta system user the token belongs to — the `/me` `id` of the latest connect or
+       * reconnect (fix-meta-unified-login F3); digits; `null` for rows connected before it, or when
+       * Meta named none. Internal: never serialized.
+       */
+      provider_user_id: varchar('provider_user_id', { length: INSTAGRAM_ID_MAX_LENGTH }),
       /** The login configuration used (`META_CONFIG_ID` at the time); not secret. */
       config_id: varchar('config_id', { length: 64 }).notNull(),
       /** `unified` only (one Meta login for Instagram, Facebook and ads, D27). */
@@ -107,7 +114,14 @@ export const channel_connections = appSchema
         'chk_channel_connections_disconnected',
         sql`(${table.status} = 'revoked') = (${table.disconnected_at} IS NOT NULL)`,
       ),
-      check('chk_channel_connections_scopes', sql`cardinality(${table.scopes}) <= 20`),
+      check(
+        'chk_channel_connections_provider_user_id',
+        sql`${table.provider_user_id} IS NULL OR ${table.provider_user_id} ~ ${sqlLiteral(INSTAGRAM_ID_PATTERN)}`,
+      ),
+      check(
+        'chk_channel_connections_scopes',
+        sql`cardinality(${table.scopes}) <= ${sqlLiteral(META_PERMISSION_NAMES_MAX)}`,
+      ),
       check('chk_channel_connections_updated', sql`${table.updated_at} >= ${table.created_at}`),
       pgPolicy('channel_connections_tenant_isolation', {
         as: 'permissive',

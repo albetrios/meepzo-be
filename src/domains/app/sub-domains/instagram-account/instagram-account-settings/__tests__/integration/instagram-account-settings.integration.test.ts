@@ -561,6 +561,10 @@ describe('Instagram account settings route (route 12)', () => {
 
       expect(refused.statusCode).toBe(409);
       expect(errorOf(refused).reason).toBe('permission_not_granted');
+      // feat-meta-connect-flow AC4: the refusal names Meta's permission beside the plan feature.
+      expect(
+        (refused.json() as { error: { feature?: string; permission?: string } }).error,
+      ).toMatchObject({ feature: 'mark_seen', permission: 'instagram_manage_messages' });
     });
   });
 

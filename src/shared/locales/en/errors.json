@@ -224,6 +224,7 @@
   "channelConnectStateInvalid": "The connection could not be finished. Start connecting again.",
   "providerCodeInvalid": "Meta did not accept this login code. It may have expired or been used already; connect again.",
   "providerPermissionsMissing": "Some permissions Instagram needs were not granted. Connect again and allow every permission.",
+  "providerNoAccountsShared": "Your Meta login did not share any Instagram account. In your business portfolio settings, share an Instagram professional account with this app, then connect again.",
   "channelConnectionBusinessMismatch": "You logged in to a different business than the one you are reconnecting. Nothing changed.",
   "channelConnectionNotConnected": "This business connection needs a reconnect before you can add accounts.",
   "planAccountLimit": "Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.",

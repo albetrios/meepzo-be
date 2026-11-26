@@ -23,6 +23,7 @@ import {
   databaseUpdatedAtTimestamp,
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import type { InstagramMessageAccessState } from '@/shared/constants/instagram.constants.js';
 import { instagram_accounts } from './instagram-account.schema.js';
 
 /** `updated_at` for every change of an account — never before the row's `created_at`. */
@@ -495,6 +496,41 @@ export class InstagramAccountRepository {
       )
       .returning({ id: instagram_accounts.id });
     return rows.length > 0;
+  }
+
+  /**
+   * The last "Allow access to messages" probe's answer (feat-meta-connect-flow IG1): `message_access`
+   * and `message_access_checked_at` now, by the account's channel account — only while it is not
+   * revoked. Returns the stored pair, or `null` when no row was written.
+   */
+  async recordMessageAccess({
+    organizationId,
+    channelAccountId,
+    status,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    status: InstagramMessageAccessState;
+  }): Promise<{ status: InstagramMessageAccessState; checkedAt: Date } | null> {
+    const rows = await this.db()
+      .update(instagram_accounts)
+      .set({
+        message_access: status,
+        message_access_checked_at: databaseNowTimestamp,
+        updated_at: accountUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          channelAccountJoin,
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(instagram_accounts.channel_account_id, channelAccountId),
+          isChannelAccountLive,
+        ),
+      )
+      .returning({ checkedAt: instagram_accounts.message_access_checked_at });
+    const checkedAt = rows[0]?.checkedAt;
+    return checkedAt == null ? null : { status, checkedAt };
   }
 
   /**

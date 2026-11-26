@@ -74,7 +74,7 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
         schema: {
           summary: 'Finish a channel connection',
           description:
-            "Finishes the login started by start or reconnect: spends the one-use state (400 channel_connect_state_invalid when it is missing, used, expired, or another person's, organization's or provider's), exchanges the code on the server, reads the business portfolio, its assigned Instagram accounts and the granted permissions, then stores one connection per business — connected, with its permissions and its encrypted token (never returned) — and reconnects every account of this organization the business still assigns (a moved account moves to this connection). Answers the connection, each assigned account marked free, connected here or connected elsewhere, the reconnected accounts and the plan's room. 422 provider_code_invalid when Meta refuses the code; 422 provider_permissions_missing without instagram_basic, instagram_manage_messages or instagram_manage_comments; 409 channel_connection_business_mismatch when a reconnect came back from another business; 409 instagram_connect_restart_required when Meta failed after the code was spent; 503 instagram_unavailable (Retry-After) before. Nothing is saved on a refusal. Team organizations only. Requires X-Idempotency-Key (the frontend sends channel-connect:<state>) and CHANNEL_ACCOUNT_MANAGE permission.",
+            "Finishes the login started by start or reconnect: spends the one-use state (400 channel_connect_state_invalid when it is missing, used, expired, or another person's, organization's or provider's), exchanges the code on the server, reads the business portfolio, its assigned Instagram accounts and the granted permissions, then stores one connection per business — connected, with its permissions and its encrypted token (never returned) — and reconnects every account of this organization the business still assigns (a moved account moves to this connection). Answers the outcome (connected, reconnected, or no_accounts_shared for a reconnect whose login shares no Instagram account), the connection, each assigned account marked free, connected here or connected elsewhere, the reconnected accounts, the accounts of this connection it marked not shared (only when Meta's whole list was read) and the plan's room. Instead of a code the body may carry Meta's cancel — error, error_reason, error_description: the state is spent, nothing is saved, and the answer is outcome cancelled (feat-meta-connect-flow CN1). 422 provider_code_invalid when Meta refuses the code; 422 provider_permissions_missing (with missing_permissions) without instagram_basic, instagram_manage_messages or instagram_manage_comments; 422 provider_no_accounts_shared when a first connect shares no Instagram account; 409 channel_connection_business_mismatch (with expected_client_business_id) when a reconnect came back from another business; 409 instagram_connect_restart_required when Meta failed after the code was spent; 503 instagram_unavailable (Retry-After) before. Nothing is saved on a refusal. Team organizations only. Requires X-Idempotency-Key (the frontend sends channel-connect:<state>) and CHANNEL_ACCOUNT_MANAGE permission.",
           tags: ['Channel connection'],
           params: channelConnectionProviderParamsDto,
           body: channelConnectCallbackDto,
@@ -152,6 +152,36 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
         },
       },
       controller.getChannelConnection,
+    );
+    zodApplication.get<{ Params: { provider: string } }>(
+      '/social/channel-connections/:provider/connect-options',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: 'Read the connect options',
+          description:
+            "Says, before connecting, whether connecting is possible and how (feat-meta-connect-flow route 152): is_configured (every Meta app setting is set — else start answers 503 instagram_not_configured), is_page_login_offered (the Page login configuration is set, so with_page: true is offered), can_manage (the caller holds CHANNEL_ACCOUNT_MANAGE and can start, finish, pick or reconnect; a viewer sees false and the screen says ask an admin) and the plan's room for accounts. Never a 503: an unconfigured Meta answers is_configured false. 400 provider for a provider other than meta. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: ['Channel connection'],
+          params: channelConnectionProviderParamsDto,
+        },
+      },
+      controller.getChannelConnectOptions,
+    );
+    zodApplication.get<{ Params: { channel_connection_id: string } }>(
+      '/social/channel-connections/:channel_connection_id/shared-assets',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: "List a channel connection's shared assets",
+          description:
+            "Re-reads from Meta what the connection's login shares now, so the account picker can be reopened without a new Meta login (feat-meta-connect-flow route 151). Each asset carries its channel (instagram), provider_account_id, username, profile picture when connected here, and state: free (can be picked), connected_here (with its channel_account_id), connected_elsewhere (live in another organization — cannot be picked) or not_shared_any_more (an account of this connection Meta no longer lists; only when Meta's whole list was read). meta.is_complete is false when the read stopped at its page cap (no account is then reported not shared); meta.plan_room is the plan's room for accounts. Never cached. 404 channel_connection_not_found when it is not this organization's; 409 channel_connection_not_connected when the connection is not connected or Meta refuses its token (a refused token also moves the connection and its accounts to error); 503 instagram_unavailable (with Retry-After) when Meta is down or throttling. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: ['Channel connection'],
+          params: channelConnectionIdParamsDto,
+        },
+      },
+      controller.listChannelConnectionSharedAssets,
     );
     zodApplication.get<{ Params: { channel_connection_id: string } }>(
       '/social/channel-connections/:channel_connection_id/ad-accounts',

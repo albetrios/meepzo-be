@@ -22,6 +22,23 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapSuccess(schemas.channelConnectResultSchema, schemas.channelConnectResultExample),
     example: null,
   },
+  'GET /api/v1/app/social/channel-connections/{provider}/connect-options': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectOptionsSchema, schemas.channelConnectOptionsExample),
+    example: null,
+  },
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/shared-assets': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      { type: 'array', items: schemas.channelSharedAssetSchema },
+      [schemas.channelSharedAssetExample],
+      {
+        is_complete: { type: 'boolean' },
+        plan_room: schemas.channelAccountPlanRoomSchema,
+      },
+    ),
+    example: null,
+  },
   'POST /api/v1/app/social/channel-connections/{channel_connection_id}/reconnect': {
     statusCode: 200,
     schema: wrapSuccess(schemas.channelConnectStartSchema, schemas.channelConnectStartExample),
@@ -82,6 +99,22 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
   'GET /api/v1/app/social/channel-accounts/{channel_account_id}': {
     statusCode: 200,
     schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/instagram/accounts/{channel_account_id}/message-access-checks': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.instagramMessageAccessCheckSchema,
+      schemas.instagramMessageAccessCheckExample,
+    ),
+    example: null,
+  },
+  'GET /api/v1/app/social/channel-accounts/{channel_account_id}/capabilities': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.channelAccountCapabilitiesSchema,
+      schemas.channelAccountCapabilitiesExample,
+    ),
     example: null,
   },
   'DELETE /api/v1/app/social/channel-accounts/{channel_account_id}': {

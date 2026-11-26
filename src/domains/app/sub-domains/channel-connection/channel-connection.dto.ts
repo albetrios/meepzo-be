@@ -26,18 +26,41 @@ export const channelConnectionIdParamsDto = z
   .object({ channel_connection_id: trimmedStringMinMax({ min: 1, max: 28 }) })
   .strict();
 
+/** Longest `error` / `error_reason` of Meta's cancel redirect a callback accepts (connect flow CN1). */
+const CHANNEL_CONNECT_ERROR_MAX_LENGTH = 100;
+/** Longest `error_description` of Meta's cancel redirect a callback accepts (connect flow CN1). */
+const CHANNEL_CONNECT_ERROR_DESCRIPTION_MAX_LENGTH = 500;
+
 /**
- * Body of `POST /app/social/channel-connections/{provider}/callback` (route 2, 1.8): the code Meta
- * sent to the frontend's return page (its trailing `#_` stripped by the validator — a transform has
- * no JSON Schema) and the state route 1 or 40 minted.
- * Strict: an unknown field is a `400`.
+ * Body of `POST /app/social/channel-connections/{provider}/callback` (route 2, 1.8) — one of two
+ * shapes, strict (an unknown field, or both / neither of `code` and `error`, is a `400`):
+ * - the code Meta sent to the frontend's return page (its trailing `#_` stripped by the validator — a
+ *   transform has no JSON Schema) and the state route 1 or 40 minted;
+ * - Meta's cancel (feat-meta-connect-flow CN1): the state and the redirect's `error`,
+ *   `error_reason`, `error_description` (the person closed or cancelled the Meta dialog).
  */
-export const channelConnectCallbackDto = z
-  .object({
-    code: trimmedStringMinMax({ min: 1, max: CHANNEL_CONNECT_CODE_MAX_LENGTH }),
-    state: z.string().regex(CHANNEL_CONNECT_STATE_PATTERN),
-  })
-  .strict();
+export const channelConnectCallbackDto = z.union([
+  z
+    .object({
+      code: trimmedStringMinMax({ min: 1, max: CHANNEL_CONNECT_CODE_MAX_LENGTH }),
+      state: z.string().regex(CHANNEL_CONNECT_STATE_PATTERN),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.string().regex(CHANNEL_CONNECT_STATE_PATTERN),
+      error: trimmedStringMinMax({ min: 1, max: CHANNEL_CONNECT_ERROR_MAX_LENGTH }),
+      error_reason: trimmedStringMinMax({
+        min: 1,
+        max: CHANNEL_CONNECT_ERROR_MAX_LENGTH,
+      }).optional(),
+      error_description: trimmedStringMinMax({
+        min: 1,
+        max: CHANNEL_CONNECT_ERROR_DESCRIPTION_MAX_LENGTH,
+      }).optional(),
+    })
+    .strict(),
+]);
 
 /**
  * Body of `POST /app/social/channel-connections/{channel_connection_id}/accounts` (route 3, 1.8):

@@ -565,6 +565,33 @@ describe('InstagramSendCoreService (database)', () => {
     });
   });
 
+  it("a send's own access_off answer stops every lane and stores message access off (feat-meta-connect-flow 3.10)", async () => {
+    const stored: unknown[] = [];
+    core = buildCore({
+      messageAccessPort: {
+        recordMessageAccess: async (input) => {
+          stored.push(input);
+          return { status: input.status, checkedAt: new Date() };
+        },
+      },
+    });
+    await waitingOpeningMessage();
+    metaAnswers(400, { error: { code: 10, error_subcode: 2_534_077 } });
+    await turn('slow');
+    for (const lane of ['slow', 'reply', 'fast', 'broadcast'] as const) {
+      expect((await laneRow(account, lane)).stop_reason).toBe('access_off');
+    }
+    expect(stored).toEqual([
+      expect.objectContaining({
+        channelAccount: {
+          organizationId: organization.id,
+          channelAccountId: account.channel_account_id,
+        },
+        status: 'off',
+      }),
+    ]);
+  });
+
   it('too fast stops only that lane; code 4 with a subcode only that lane; code 4 alone from 2 accounts stops every account (AC-17.11)', async () => {
     await waitingOpeningMessage();
     metaAnswers(400, { error: { code: 613 } });

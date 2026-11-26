@@ -1,3 +1,4 @@
+import { META_PERMISSION_NAMES_MAX } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import {
   type OrganizationPrincipalDatabaseScope,
   PRINCIPAL_SCOPE,
@@ -42,6 +43,7 @@ import {
   CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_MAX_PAGES,
   CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_PAGE_SIZE,
   CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS,
+  CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS,
 } from './channel-connection-token-check.constants.js';
 
 /**
@@ -120,6 +122,9 @@ export interface ChannelConnectionTokenCheckServices {
  *
  * @remarks
  * - **Algorithm:** `skipped` — the connection is not `connected` any more (or has no token);
+ *   `revoked_unpicked` — no account was picked from it within
+ *   {@link CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS} days of its last login, so it was revoked and its
+ *   token deleted (feat-meta-connect-flow CN9);
  *   `deferred` — Meta was down or busy, nothing changed; `broken` — Meta refused the token at
  *   `step` and the connection was broken (`isWinner` false when another caller broke it first);
  *   `refused` — Meta refused the account-list read, its codes kept as `last_check_error`;
@@ -135,6 +140,7 @@ export interface ChannelConnectionTokenCheckServices {
  */
 export type ChannelConnectionTokenCheckResult =
   | { outcome: 'skipped'; reason: 'not_connected' | 'token_missing' }
+  | { outcome: 'revoked_unpicked' }
   | { outcome: 'deferred'; step: 'assigned_accounts' | 'profile'; reencrypted: boolean }
   | {
       outcome: 'broken';
@@ -180,6 +186,7 @@ async function readTarget({
   services: ChannelConnectionTokenCheckServices;
 }): Promise<
   | { outcome: 'skipped'; reason: 'not_connected' | 'token_missing' }
+  | { outcome: 'revoked_unpicked' }
   | Omit<TokenCheckTarget, 'services' | 'recordUsage' | 'requestId'>
 > {
   const { organizationPublicId, channelConnectionPublicId } = jobData;
@@ -197,6 +204,23 @@ async function readTarget({
         channelConnectionId: connection.id,
       };
       const tokenRepository = createWorkerChannelConnectionTokenRepository(databaseHandle);
+      // CN9: a login nobody picked from within the keep days is revoked, its token deleted.
+      const unpickedBefore = new Date(
+        Date.now() - CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS * MILLISECONDS_PER_DAY,
+      );
+      if (connection.connected_at < unpickedBefore) {
+        const connectionRepository = createWorkerChannelConnectionRepository(databaseHandle);
+        // The pick's organization lock first, so a pick in flight commits before the guarded revoke.
+        await connectionRepository.lockOrganizationForAccountLimit(connection.organization_id);
+        const isRevoked = await connectionRepository.revokeUnpicked({
+          ...key,
+          connectedBefore: unpickedBefore,
+        });
+        if (isRevoked) {
+          await tokenRepository.deleteByConnection(key);
+          return { outcome: 'revoked_unpicked' as const };
+        }
+      }
       const token = await tokenRepository.findByConnection(key);
       if (token === null) return { outcome: 'skipped' as const, reason: 'token_missing' as const };
       // S26: a token still on an old key version moves to the current one; the plain token never
@@ -306,7 +330,7 @@ async function recordPermissionMissing({
       requestId: target.requestId,
       recordUsage: target.recordUsage,
     });
-    scopes = [...new Set(granted)].slice(0, 20);
+    scopes = [...new Set(granted)].slice(0, META_PERMISSION_NAMES_MAX);
   } catch (permissionError) {
     logger.warn(
       {
@@ -510,7 +534,10 @@ async function checkAccounts({
  * @remarks
  * - **Algorithm:** every database step runs in the organization's job scope
  *   (`runOrganizationScopedWorkerJob`, K8) and every Meta call outside any database context.
- *   (1) Read the connection by its public id — not `connected` → skipped — its token (none →
+ *   (1) Read the connection by its public id — not `connected` → skipped; last login older than
+ *   {@link CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS} days with no account that is not revoked → revoked
+ *   and its token deleted, nothing else (feat-meta-connect-flow CN9, one guarded statement) — its
+ *   token (none →
  *   skipped, logged) and its not-revoked accounts; a token on an old key version is re-encrypted
  *   onto the current one in the same unit (S26). (2) `GET /me/assigned_instagram_accounts`, every
  *   page (P353). (3) Each `connected` Instagram account: missing from a list read in full → that
@@ -553,6 +580,13 @@ export async function processChannelConnectionTokenCheckJob({
 }): Promise<ChannelConnectionTokenCheckResult> {
   const { organizationPublicId, channelConnectionPublicId } = jobData;
   const snapshot = await readTarget({ jobData, services });
+  if ('outcome' in snapshot && snapshot.outcome === 'revoked_unpicked') {
+    logger.info(
+      { organizationPublicId, channelConnectionPublicId },
+      'app.channel_connection.token_check.revoked_unpicked',
+    );
+    return snapshot;
+  }
   if ('outcome' in snapshot) {
     if (snapshot.reason === 'token_missing') {
       // A connected connection keeps its token until it is revoked (MC8).

@@ -60,11 +60,18 @@ export function channelConnectionNotConnectedError(): ConflictError {
   );
 }
 
-/** `409 channel_connection_business_mismatch` — a reconnect came back from another business (MC17). */
-export function channelConnectionBusinessMismatchError(): ConflictError {
-  return new ConflictError('errors:channelConnectionBusinessMismatch').withReason(
-    'channel_connection_business_mismatch',
-  );
+/**
+ * `409 channel_connection_business_mismatch` — a reconnect came back from another business (MC17),
+ * naming the business it expected (`expected_client_business_id`, feat-meta-connect-flow CN3).
+ */
+export function channelConnectionBusinessMismatchError({
+  expectedClientBusinessId,
+}: {
+  expectedClientBusinessId: string;
+}): ConflictError {
+  return new ConflictError('errors:channelConnectionBusinessMismatch')
+    .withReason('channel_connection_business_mismatch')
+    .withFields({ expected_client_business_id: expectedClientBusinessId });
 }
 
 /** `409 instagram_account_connected_elsewhere` — a pick raced another organization's (MC7). */
@@ -74,10 +81,27 @@ export function channelAccountConnectedElsewhereError(): ConflictError {
   );
 }
 
-/** `422 provider_permissions_missing` — a required Meta permission was not granted (MC5 step 4). */
-export function providerPermissionsMissingError(): UnprocessableEntityError {
-  return new UnprocessableEntityError('errors:providerPermissionsMissing').withReason(
-    'provider_permissions_missing',
+/**
+ * `422 provider_permissions_missing` — a required Meta permission was not granted (MC5 step 4),
+ * naming the missing ones (`missing_permissions`, feat-meta-connect-flow CN3).
+ */
+export function providerPermissionsMissingError({
+  missingPermissions,
+}: {
+  missingPermissions: readonly string[];
+}): UnprocessableEntityError {
+  return new UnprocessableEntityError('errors:providerPermissionsMissing')
+    .withReason('provider_permissions_missing')
+    .withFields({ missing_permissions: [...missingPermissions] });
+}
+
+/**
+ * `422 provider_no_accounts_shared` — a first connect whose login shares no Instagram account
+ * (feat-meta-connect-flow CN4): nothing is saved.
+ */
+export function providerNoAccountsSharedError(): UnprocessableEntityError {
+  return new UnprocessableEntityError('errors:providerNoAccountsShared').withReason(
+    'provider_no_accounts_shared',
   );
 }
 

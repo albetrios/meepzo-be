@@ -240,6 +240,7 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── channel-account.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-account-capabilities.integration.test.ts
     │   │   │   │   │   └── channel-account.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
@@ -405,6 +406,7 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── instagram-account.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-account-message-access.integration.test.ts
     │   │   │   │   │   ├── instagram-account-organization-delete.integration.test.ts
     │   │   │   │   │   ├── instagram-account.integration.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.integration.test.ts
@@ -487,9 +489,12 @@ src/
     │   │   │   ├── instagram-account-erasure.service.ts
     │   │   │   ├── instagram-account-error.util.ts
     │   │   │   ├── instagram-account-extension.service.ts
+    │   │   │   ├── instagram-account-message-access.service.ts
     │   │   │   ├── instagram-account.constants.ts
+    │   │   │   ├── instagram-account.controller.ts
     │   │   │   ├── instagram-account.overview.md
     │   │   │   ├── instagram-account.repository.ts
+    │   │   │   ├── instagram-account.routes.ts
     │   │   │   ├── instagram-account.schema.ts
     │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
@@ -2678,6 +2683,7 @@ src/
     │   │   │   ├── assigned-instagram-accounts.success.response.json
     │   │   │   ├── comment-replies.success.response.json
     │   │   │   ├── conversations.success.response.json
+    │   │   │   ├── debug-token.success.response.json
     │   │   │   ├── graph-error.application-throttled.response.json
     │   │   │   ├── graph-error.business-throttled.response.json
     │   │   │   ├── graph-error.outside-messaging-window.response.json

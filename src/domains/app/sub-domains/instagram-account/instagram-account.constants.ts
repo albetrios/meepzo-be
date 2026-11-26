@@ -23,3 +23,10 @@ export const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
  * reconnect notice (IA9), joined to `FRONTEND_URL` so the email's button works too.
  */
 export const INSTAGRAM_ACCOUNT_FRONTEND_PATH = '/instagram';
+
+/**
+ * The fewest seconds between two Meta probes of one account's "Allow access to messages" on the
+ * owner's re-check (route 154, feat-meta-connect-flow IG2): a re-check sooner answers the stored
+ * result without calling Meta, so Meta's usage is spent once a minute at most per account.
+ */
+export const MESSAGE_ACCESS_RECHECK_MIN_SECONDS = 60;

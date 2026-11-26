@@ -137,6 +137,7 @@ const extensionService = {
   recordWebhookSubscriptionLost: vi.fn(),
   recordStarterQuestionsSet: vi.fn(),
   recordMessagesWebhookMissing: vi.fn(),
+  recordMessageAccess: vi.fn(),
 };
 const listLiveStarterQuestions = vi.fn();
 const lookForMissedComments = vi.fn();
@@ -240,6 +241,12 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
       expect.objectContaining({ isSet: true }),
     );
     expect(instagramClient.probeInstagramMessageAccess).toHaveBeenCalledTimes(1);
+    // feat-meta-connect-flow IG1: the probe's answer is stored.
+    expect(extensionService.recordMessageAccess).toHaveBeenCalledWith({
+      scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
+      channelAccount: { organizationId: 7, channelAccountId: 9 },
+      status: 'on',
+    });
   });
 
   it('leaves the starter questions alone when none is live, and logs message access off', async () => {
@@ -260,6 +267,9 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
     );
     const [stopInput] = startLaneStop.mock.calls[0] as [{ stopUntil: Date }];
     expect(stopInput.stopUntil.getTime()).toBeGreaterThanOrEqual(before + 60 * MINUTE);
+    expect(extensionService.recordMessageAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'off' }),
+    );
     expect(instagramClient.setInstagramIceBreakers).not.toHaveBeenCalled();
     expect(instagramClient.deleteInstagramIceBreakers).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(

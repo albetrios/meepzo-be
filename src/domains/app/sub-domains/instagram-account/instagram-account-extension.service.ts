@@ -9,6 +9,7 @@ import type {
   InstagramAccountRepository,
   InstagramAccountRow,
 } from './instagram-account.repository.js';
+import type { InstagramMessageAccessState } from '@/shared/constants/instagram.constants.js';
 
 /**
  * The one writer of the Instagram extension of a channel account (feat-instagram-dm-sending
@@ -215,6 +216,30 @@ export class InstagramAccountExtensionService {
     return withAppDatabaseContext({
       scope,
       callback: () => this.accountRepository.recordMessagesWebhookSeen(instagramAccount),
+    });
+  }
+
+  /**
+   * Stores the last "Allow access to messages" answer (feat-meta-connect-flow IG1) — the set-up
+   * probe's, route 154's, or a send's own `access_off` (`off`). One writer per answer (3.10).
+   *
+   * @remarks
+   * Algorithm: one guarded update by the channel account (not revoked) in the caller's scope,
+   * joining the caller's unit when one is open. Failure modes: none — `null` when the account is
+   * gone or revoked. Side effects: at most one row written.
+   */
+  async recordMessageAccess({
+    scope,
+    channelAccount,
+    status,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccount: { organizationId: number; channelAccountId: number };
+    status: InstagramMessageAccessState;
+  }): Promise<{ status: InstagramMessageAccessState; checkedAt: Date } | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.accountRepository.recordMessageAccess({ ...channelAccount, status }),
     });
   }
 

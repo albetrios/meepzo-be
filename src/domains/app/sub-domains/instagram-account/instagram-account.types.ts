@@ -1,6 +1,7 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
+import type { InstagramMessageAccessState } from '@/shared/constants/instagram.constants.js';
 import type { InstagramAccountConnectionStatus } from './instagram-account.constants.js';
 import type { InstagramAccountKey, InstagramAccountRow } from './instagram-account.repository.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
@@ -44,6 +45,11 @@ export interface InstagramAccountExtensionOutput {
    * `with_page: true` (route 40). Back to `false` with the next message that arrives.
    */
   is_messages_webhook_missing: boolean;
+  /**
+   * The last "Allow access to messages" answer (feat-meta-connect-flow IG4) — the probe's; the
+   * stop is what blocks sending, and the two agree after any probe.
+   */
+  message_access: InstagramMessageAccessOutput;
   profile_synced_at: string | null;
   /** The account's settings (2.B.6). */
   settings: InstagramAccountSettingsOutput;
@@ -267,4 +273,11 @@ export interface InstagramAutomationAccountAccess {
   encryptedAccessToken: string | null;
   /** The account's settings row (reply safety, AU20); `null` when it has none (the defaults apply). */
   settings: InstagramAccountSettingsRow | null;
+}
+
+/** The last "Allow access to messages" answer on the account (feat-meta-connect-flow IG4). */
+export interface InstagramMessageAccessOutput {
+  status: InstagramMessageAccessState;
+  /** When it was read; `null` until the first probe. */
+  checked_at: string | null;
 }

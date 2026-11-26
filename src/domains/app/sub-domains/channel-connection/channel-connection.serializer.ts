@@ -13,6 +13,7 @@ import type {
   ChannelConnectionAccount,
   ChannelConnectionAccountOutput,
   ChannelConnectionOutput,
+  ChannelSharedAssetOutput,
   MetaAdAccountOutput,
   MetaAdOutput,
 } from './channel-connection.types.js';
@@ -32,6 +33,25 @@ export function serializeChannelConnectionAccount(
     display_name: account.displayName,
     profile_picture_url: account.profilePictureUrl,
     connection_status: account.connectionStatus,
+  };
+}
+
+/**
+ * One of this connection's accounts Meta no longer lists, as route 151 answers it
+ * (feat-meta-connect-flow CN7): `not_shared_any_more`, with the account's own name and id.
+ */
+export function serializeNotSharedAnyMoreAsset(
+  account: ChannelConnectionAccount,
+): ChannelSharedAssetOutput {
+  return {
+    channel: account.channel,
+    provider_account_id: account.providerAccountId,
+    username: account.displayName.startsWith('@')
+      ? account.displayName.slice(1)
+      : account.displayName,
+    profile_picture_url: account.profilePictureUrl,
+    state: 'not_shared_any_more',
+    channel_account_id: account.publicId,
   };
 }
 

@@ -178,20 +178,14 @@ describe('composeInstagramMessage', () => {
     });
   });
 
-  it("asks for the phone with Instagram's button and keeps a plain-text fallback; email falls back to the default text", () => {
-    const phone = compose({ message_type: 'phone_question' });
-    expect(built(phone)).toEqual({
-      text: 'Your number, Riya?',
-      quick_replies: [{ content_type: 'user_phone_number' }],
-    });
-    expect(phone.kind === 'send' && phone.plainTextFallback).toEqual({
+  it('asks for the phone and the email as plain text — no Instagram email / phone button (AF-4)', () => {
+    expect(built(compose({ message_type: 'phone_question' }))).toEqual({
       text: 'Your number, Riya?',
     });
     expect(built(compose({ message_type: 'email_question' }))).toEqual({
       text: 't:common:automationMessages.emailQuestion',
-      quick_replies: [{ content_type: 'user_email' }],
     });
-    expect(built(compose({ message_type: 'invalid_email' }))).toMatchObject({
+    expect(built(compose({ message_type: 'invalid_email' }))).toEqual({
       text: 't:common:automationMessages.invalidEmail',
     });
   });

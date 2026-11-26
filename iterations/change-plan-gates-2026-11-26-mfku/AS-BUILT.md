@@ -50,6 +50,10 @@ None yet.
   - The registry default also applies in the plan listing (P37).
   - A `date` error-field kind for `resets_on` (row 2).
   - The outcome-eval fixtures brought in line with the current skill chains (P42).
+- **Merged with the branch's other work at Close** (feat-meta-connect-flow, fix-meta-unified-login):
+  - The Free plan migration moved from `20261126140000` to `20261126150200`: a connect-flow migration took the same prefix (`01d2445`).
+  - `plan_room` (feat-meta-connect-flow CN6) moved into `buildPlanRefusal`'s `plan_account_limit` case, so the account limit keeps one refusal shape. Route 11's refusal now carries it too.
+  - The connect flow's reads went onto the module: account permissions with `can()` in the feature check, and the account limit through `limit()`. Its new `message-access-checks` route declares `open`.
 - **Follow-ups for the next iteration:**
   - meepzo-fe: read `sources` from `GET /billing/entitlements`, the month refusal's `limit` / `used` / `resets_on`, and Free's segments and broadcasts (`plans/frontend-route-map.md` § 1).
   - Deploy: `LAPSED_PLAN_READ_ONLY_ENABLED` now defaults to `false`. A hosted environment that relied on the omitted default stops refusing go-live and broadcast send for lapsed paid organizations at the next deploy; turn it on with an explicit `true` per environment when wanted (production-hardening review).

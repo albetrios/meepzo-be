@@ -13,7 +13,7 @@ import {
   readInstagramLatestConversationTime,
   readInstagramMediaItem,
   readInstagramUserProfile,
-  readMetaClientBusinessId,
+  readMetaBusinessIdentity,
   readMetaGrantedPermissions,
   replyToInstagramComment,
   sendInstagramMessage,
@@ -59,6 +59,9 @@ import conversationsSuccessFixture from './fixtures/meta-graph/conversations.suc
   type: 'json',
 };
 import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
+  type: 'json',
+};
+import debugTokenSuccessFixture from './fixtures/meta-graph/debug-token.success.response.json' with {
   type: 'json',
 };
 import graphErrorApplicationThrottledFixture from './fixtures/meta-graph/graph-error.application-throttled.response.json' with {
@@ -146,6 +149,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `me-client-business.success` | `GET /me?fields=client_business_id` of a business-integration system user token — docs/facebook-login/facebook-login-for-business (Business Integration System User access tokens) |
  * | `assigned-instagram-accounts.success` | the system user's `assigned_instagram_accounts` edge (`id`, `username`, cursor paging) — docs/marketing-api/reference/system-user |
  * | `permissions.success` | `GET /me/permissions` (`permission`, `status` granted / declined) — docs/graph-api/reference/user/permissions |
+ * | `debug-token.success` | `GET /debug_token?input_token&access_token=<app token>` → `data` with `type`, `is_valid`, `scopes`, `granular_scopes` (`scope`, `target_ids`) — docs/graph-api/reference/debug_token; the fallback when `/me/permissions` names nothing (fix-meta-unified-login F1) — which of the two answers for a system-user token is still owner test O1 |
  * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
  * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
@@ -155,7 +159,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `message-attachments.success` | the Attachment Upload API → `{ attachment_id }` for a reusable file (`platform: instagram`, `payload.url`, `is_reusable: true`) — docs/messenger-platform/reference/attachment-upload-api, docs/instagram-platform/instagram-api-with-facebook-login/messaging-api (send a media message by `attachment_id`) |
  * | `comment-replies.success` | IG Comment `/replies` → `{ id }` — docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies |
  * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/messenger-platform/instagram/features/user-profile |
- * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
+ * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the email / phone quick reply refused — kept as a plain refusal; Meta disabled those buttons on 5 Oct 2026, fix-meta-unified-login F2) — the intake's schema-routes § 6.5, no Meta page names it |
  */
 describe('Meta outbound contract (`meta-graph.client`)', () => {
   /** The connection's token in plain text — the value that must never reach a URL or a log. */
@@ -315,6 +319,36 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       expect(readLoggedText()).not.toContain(String(environment.META_APP_SECRET));
     });
 
+    test('the permission read falls back to /debug_token with the app token; both tokens ride the query, every logged URL is redacted (F1)', async () => {
+      const environment = getEnv();
+      const appAccessToken = `${environment.META_APP_ID}|${environment.META_APP_SECRET}`;
+      let interceptedUrl = '';
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me/permissions`)
+        .query(appSecretProofQuery())
+        .reply(200, { data: [] });
+      nock(META_GRAPH_BASE_URL)
+        .get(`${GRAPH_VERSION_PATH}/debug_token`)
+        .query({ input_token: ACCOUNT_ACCESS_TOKEN, access_token: appAccessToken })
+        .reply(200, (interceptedUri: string) => {
+          interceptedUrl = readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL });
+          // Meta answers for the asking app: the fixture's `app_id` is this environment's.
+          return {
+            ...debugTokenSuccessFixture,
+            data: { ...debugTokenSuccessFixture.data, app_id: String(environment.META_APP_ID) },
+          };
+        });
+      const readLoggedText = recordLoggedText();
+
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual(debugTokenSuccessFixture.data.scopes);
+      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(ACCOUNT_ACCESS_TOKEN);
+      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(String(environment.META_APP_SECRET));
+      expect(readLoggedText()).not.toContain(ACCOUNT_ACCESS_TOKEN);
+      expect(readLoggedText()).not.toContain(String(environment.META_APP_SECRET));
+    });
+
     test('a used code is refused — never an outage, never a circuit failure', async () => {
       GraphErrorEnvelopeContractSchema.parse(oauthAccessTokenErrorFixture);
       nock(META_GRAPH_BASE_URL)
@@ -348,8 +382,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(200, record(permissionsSuccessFixture));
 
       await expect(
-        readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountAccessToken }),
-      ).resolves.toBe(meClientBusinessSuccessFixture.client_business_id);
+        readMetaBusinessIdentity({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual({
+        clientBusinessId: meClientBusinessSuccessFixture.client_business_id,
+        providerUserId: meClientBusinessSuccessFixture.id,
+      });
       await expect(
         listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountAccessToken }),
       ).resolves.toEqual({
@@ -705,8 +742,8 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       const directMessage = {
         recipient: { id: messagesSuccessFixture.recipient_id },
         message: {
-          text: 'Please share your email to continue!',
-          quick_replies: [{ content_type: 'user_email' as const }],
+          text: 'Pick one to continue!',
+          quick_replies: [{ content_type: 'text' as const, title: 'Prices', payload: 'prices' }],
         },
       };
       const privateReply = {
@@ -855,7 +892,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(400, graphErrorTokenInvalidatedFixture);
       const readLoggedText = recordLoggedText();
 
-      const rejection = await readMetaClientBusinessId({
+      const rejection = await readMetaBusinessIdentity({
         encryptedAccessToken: encryptedAccountAccessToken,
       }).catch((error: unknown) => error);
 
@@ -957,7 +994,6 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         status: 400,
         instagramErrorCode: 100,
         instagramErrorSubcode: 2534014,
-        isQuickReplyRefused: false,
         countsAsCircuitFailure: false,
       });
     });
@@ -983,12 +1019,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         status: 400,
         instagramErrorCode: 10,
         instagramErrorSubcode: INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
-        isQuickReplyRefused: false,
         countsAsCircuitFailure: false,
       });
     });
 
-    test('the quick-reply refusal (100 / 2534015) is flagged so the question can go again as plain text', async () => {
+    test('the old email / phone quick-reply refusal (100 / 2534015) is a plain refusal — those buttons are no longer sent (fix F2)', async () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorQuickReplyRefusedFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
@@ -999,17 +1034,14 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         encryptedAccessToken: encryptedAccountAccessToken,
         instagramUserId: APP_USER_ID,
         recipient: { id: messagesSuccessFixture.recipient_id },
-        message: {
-          text: 'Please share your phone number to continue!',
-          quick_replies: [{ content_type: 'user_phone_number' }],
-        },
+        message: { text: 'Please share your phone number to continue!' },
       }).catch((error: unknown) => error);
 
       expect(rejection).toMatchObject({
         errorClass: 'refused',
         instagramErrorCode: 100,
         instagramErrorSubcode: 2534015,
-        isQuickReplyRefused: true,
+        countsAsCircuitFailure: false,
       });
     });
 

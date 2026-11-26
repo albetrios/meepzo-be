@@ -49,9 +49,18 @@ stays here (`InstagramAccountErasureService`).
 - `instagram-messages-webhook-watch.util.ts` — the messaging-webhook watch's pure rules (P358): when the
   subscription check reads Meta's conversations (subscribed over 24 hours, no messaging item since, the hour's
   first window), when it flags, when the webhook store writes the seen mark (at most hourly)
-- `instagram-account.serializer.ts` — the `instagram` object of the channel account (2.A.6)
+- `instagram-account.serializer.ts` — the `instagram` object of the channel account (2.A.6), with the
+  last "Allow access to messages" answer `message_access` (feat-meta-connect-flow IG4)
+- `instagram-account-message-access.service.ts`, `instagram-account.controller.ts`,
+  `instagram-account.routes.ts` — route 154 of feat-meta-connect-flow,
+  `POST /api/v1/app/social/instagram/accounts/{channel_account_id}/message-access-checks`
+  (`instagram-account:manage`): the set-up's probe now, its answer stored (`message_access`,
+  `message_access_checked_at` — also written by the set-up job and by a send's own `access_off`
+  answer), the `access_off` stop ended on `on` and started on `off`; a re-check within
+  `MESSAGE_ACCESS_RECHECK_MIN_SECONDS` answers the stored result
 - `instagram-account.constants.ts` — the status type (the channel account's) and the broken statuses a
-  Meta error classifies, the audit resource type (shared with route 3), the frontend's Instagram page
+  Meta error classifies, the audit resource type (shared with route 3), the frontend's Instagram page,
+  the re-check's 60 seconds
 - `queues/` — `instagram-reconnect-notice` (one notice per account and break), with its job
   schema (`organizationPublicId` in every payload, K8); `instagram-account-tasks.queue.ts` — the
   account jobs' producers on `instagram-tasks` (feat-instagram-dm-sending IA6, ROUTE row R40): job
@@ -179,7 +188,7 @@ the sending gate first:
 
 - **Set-up** (`instagram-account-setup`, WC-30) — after a pick's or a reconnect's commit, and when the
   subscription check finds a field off: the six webhook fields → `webhook_subscribed_at`; the live
-  starter questions → `starter_questions_set_at`; one read-only message-access probe (`off` logged).
+  starter questions → `starter_questions_set_at`; one read-only message-access probe (`off` logged; its answer is stored in `message_access` + `message_access_checked_at` from connect-flow R5 — the columns land in R1).
   A failed try books the next after 1, 5, 15, 60 minutes, then hourly; after the 60-minute try the
   `instagram-account:manage` holders get one notification and email (type
   `instagram.reconnect_required`, its own text). Meta refusing the token breaks the account.

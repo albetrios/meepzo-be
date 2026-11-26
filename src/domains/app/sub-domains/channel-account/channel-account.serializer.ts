@@ -1,4 +1,7 @@
-import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import type {
+  InstagramAccountExtensionOutput,
+  InstagramMessageAccessOutput,
+} from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { ChannelAccountRow } from './channel-account.repository.js';
 import {
@@ -38,11 +41,14 @@ export function serializeChannelAccountSummary({
   channel_connection_public_id,
   profile_picture_url,
   has_lane_stop,
+  instagram_message_access = null,
 }: {
   account: ChannelAccountRow;
   channel_connection_public_id: string;
   /** From the Instagram extension, `null` when it has none. */
   profile_picture_url: string | null;
+  /** The Instagram extension's last message-access answer (feat-meta-connect-flow IG4), or `null`. */
+  instagram_message_access?: InstagramMessageAccessOutput | null;
   /** A lane stop holds the account (sub-domain 6) — `false` until the lanes exist (R18). */
   has_lane_stop: boolean;
 }): ChannelAccountSummaryOutput {
@@ -63,6 +69,8 @@ export function serializeChannelAccountSummary({
       account.plan_stop_reason !== null ||
       has_lane_stop,
     connected_at: account.connected_at.toISOString(),
+    instagram:
+      instagram_message_access === null ? null : { message_access: instagram_message_access },
   };
 }
 

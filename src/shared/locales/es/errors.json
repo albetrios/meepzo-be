@@ -224,6 +224,7 @@
   "channelConnectStateInvalid": "No se pudo terminar la conexión. Vuelve a empezar a conectar.",
   "providerCodeInvalid": "Meta no aceptó este código de inicio de sesión. Puede haber caducado o ya se usó; conéctate de nuevo.",
   "providerPermissionsMissing": "No se concedieron algunos permisos que Instagram necesita. Conéctate de nuevo y permite todos los permisos.",
+  "providerNoAccountsShared": "Tu inicio de sesión de Meta no compartió ninguna cuenta de Instagram. En la configuración de tu portafolio comercial, comparte una cuenta profesional de Instagram con esta app y vuelve a conectar.",
   "channelConnectionBusinessMismatch": "Iniciaste sesión en un negocio distinto del que estás reconectando. No cambió nada.",
   "channelConnectionNotConnected": "Esta conexión de negocio necesita reconectarse antes de que puedas añadir cuentas.",
   "planAccountLimit": "Tu plan no tiene espacio para estas cuentas. Elige menos cuentas o mejora tu plan.",

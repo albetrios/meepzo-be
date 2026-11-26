@@ -46,9 +46,11 @@ export function stopChannelAccountInvalidError(): ValidationError {
  * @remarks
  * Every refusal carries `error.feature` — the plan feature key the feature reads (its
  * `CHANNEL_FEATURES` plan switch) — and `plan_lacks_feature` also `error.upgrade_required: true`
- * (the plan refusal contract, P269), so a client shows the upgrade without parsing `detail`. The
- * plan refusal is the entitlement module's (`buildPlanRefusal`, change-plan-gates AP2); the three
- * channel reasons are channel facts and stay here.
+ * (the plan refusal contract, P269), so a client shows the upgrade without parsing `detail`;
+ * `permission_not_granted` also names Meta's `permission` (feat-meta-connect-flow AC4) — a feature
+ * refused for a permission always needs one, so it is never empty. The plan refusal is the
+ * entitlement module's (`buildPlanRefusal`, change-plan-gates AP2); the three channel reasons are
+ * channel facts and stay here.
  */
 export function channelFeatureRefusalError({
   reason,
@@ -64,7 +66,9 @@ export function channelFeatureRefusalError({
         .withReason(reason)
         .withFields(fields);
     case 'permission_not_granted':
-      return new ConflictError('errors:permissionNotGranted').withReason(reason).withFields(fields);
+      return new ConflictError('errors:permissionNotGranted')
+        .withReason(reason)
+        .withFields({ ...fields, permission: CHANNEL_FEATURES[feature].permission ?? '' });
     case 'plan_lacks_feature':
       return buildPlanRefusal({ reason, feature: fields.feature });
     case 'feature_not_offered':

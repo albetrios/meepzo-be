@@ -101,7 +101,34 @@ function isAppErrorFieldKind({
       return typeof value === 'boolean';
     case 'date':
       return typeof value === 'string' && CALENDAR_DATE_PATTERN.test(value);
+    case 'string_list':
+      return (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every((item) => typeof item === 'string' && item.length > 0)
+      );
+    case 'plan_room':
+      return isPlanRoomField(value);
   }
+}
+
+/** Whether `value` is a plan room: three non-negative integers (feat-meta-connect-flow CN6). */
+function isPlanRoomField(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const room = value as Record<string, unknown>;
+  return ['accounts_max', 'accounts_used', 'accounts_free'].every(
+    (name) => Number.isInteger(room[name]) && (room[name] as number) >= 0,
+  );
+}
+
+/** The three keys of a plan room checked by {@link isPlanRoomField}, nothing else. */
+function copyPlanRoom(value: unknown): Record<string, unknown> {
+  const room = value as Record<string, unknown>;
+  return {
+    accounts_max: room.accounts_max,
+    accounts_used: room.accounts_used,
+    accounts_free: room.accounts_free,
+  };
 }
 
 /** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_KINDS}) whose value is of their kind. */
@@ -111,7 +138,9 @@ function pickAppErrorFields(fields: AppErrorFields | undefined): AppErrorFields 
   for (const name of APP_ERROR_FIELD_NAMES) {
     if (!Object.hasOwn(fields, name)) continue;
     const value = fields[name];
-    if (isAppErrorFieldKind({ kind: APP_ERROR_FIELD_KINDS[name], value })) picked[name] = value;
+    if (!isAppErrorFieldKind({ kind: APP_ERROR_FIELD_KINDS[name], value })) continue;
+    // A plan room is rebuilt from its three checked keys, so no other key ever reaches a client.
+    picked[name] = APP_ERROR_FIELD_KINDS[name] === 'plan_room' ? copyPlanRoom(value) : value;
   }
   return picked as AppErrorFields;
 }

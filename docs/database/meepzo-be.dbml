@@ -421,6 +421,8 @@ Table app.channel_accounts {
   plan_stopped_at timestamptz
   provider_account_id varchar(64) [not null]
   public_id varchar(28) [not null]
+  scopes text
+  scopes_read_at timestamptz
   suspended_at timestamptz
   updated_at timestamptz [not null]
 }
@@ -475,6 +477,7 @@ Table app.channel_connections {
   login_type varchar(20) [not null]
   organization_id bigint [not null]
   provider varchar(20) [not null]
+  provider_user_id varchar(64)
   public_id varchar(28) [not null]
   scopes text [not null]
   status varchar(10) [not null]
@@ -610,6 +613,8 @@ Table app.instagram_accounts {
   instagram_user_id varchar(64) [not null]
   is_private boolean [not null]
   media_count int [not null]
+  message_access varchar(10) [not null]
+  message_access_checked_at timestamptz
   messages_webhook_missing_at timestamptz
   messages_webhook_seen_at timestamptz
   organization_id bigint [not null]

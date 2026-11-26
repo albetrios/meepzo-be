@@ -444,6 +444,60 @@ describe('Channel connection token check (MC10)', () => {
     ).resolves.toEqual({ outcome: 'skipped', reason: 'not_connected' });
   });
 
+  describe('a login nobody picked from (feat-meta-connect-flow CN9)', () => {
+    async function ageLogin(channelConnectionId: number, days: number): Promise<void> {
+      await operatorQuery`
+        UPDATE app.channel_connections
+        SET connected_at = now() - make_interval(days => ${days}),
+            last_checked_at = now() - interval '25 hours'
+        WHERE id = ${channelConnectionId}`;
+    }
+
+    it('revokes a connection with no account 7 days after its last login and deletes its token, calling no Meta', async () => {
+      const connection = await insertChannelConnection({ organizationId: team.organization.id });
+      await ageLogin(connection.id, 8);
+
+      await expect(runCheck(connection.public_id)).resolves.toEqual({
+        outcome: 'revoked_unpicked',
+      });
+
+      const [row] = await readChannelConnectionRows(team.organization.id);
+      expect(row?.status).toBe('revoked');
+      expect(
+        await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
+      ).toHaveLength(0);
+      // A second run finds it revoked and skips.
+      await expect(runCheck(connection.public_id)).resolves.toEqual({
+        outcome: 'skipped',
+        reason: 'not_connected',
+      });
+    });
+
+    it('keeps a fresh login with no account, checking it as usual', async () => {
+      const connection = await insertChannelConnection({ organizationId: team.organization.id });
+      await ageLogin(connection.id, 6);
+      mockAssigned([]);
+
+      await expect(runCheck(connection.public_id)).resolves.toMatchObject({ outcome: 'checked' });
+      const [row] = await readChannelConnectionRows(team.organization.id);
+      expect(row?.status).toBe('connected');
+    });
+
+    it('keeps an old login an account was picked from', async () => {
+      const { channelConnectionPublicId, accounts } = await connectTwoAccounts();
+      const [connection] = await readChannelConnectionRows(team.organization.id);
+      await ageLogin(Number(connection?.id), 30);
+      mockAssigned(accounts);
+      for (const account of accounts) mockProfile(account);
+
+      await expect(runCheck(channelConnectionPublicId)).resolves.toMatchObject({
+        outcome: 'checked',
+      });
+      const [after] = await readChannelConnectionRows(team.organization.id);
+      expect(after?.status).toBe('connected');
+    });
+  });
+
   describe('a token still on an old key version (S26)', () => {
     const originalSecretsKeys = process.env.SECRETS_ENCRYPTION_KEYS;
     const originalCurrentVersion = process.env.SECRETS_ENCRYPTION_CURRENT_VERSION;

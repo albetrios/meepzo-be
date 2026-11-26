@@ -37,6 +37,8 @@ each connected account's profile and `display_name` (P17), re-encrypts a token s
 | 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | `channel-account:manage` | — |
 | 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | `channel-account:read` | — |
 | 15 | GET | `/social/channel-connections/{channel_connection_id}/ads?ad_account_id=…` | `channel-account:read` | — |
+| 151 | GET | `/social/channel-connections/{channel_connection_id}/shared-assets` | `channel-account:read` | — |
+| 152 | GET | `/social/channel-connections/{provider}/connect-options` | `channel-account:read` | — |
 | 16 | POST | `/social/channel-connections/{provider}/deauthorize` | PUBLIC (Meta's `signed_request`) | — |
 | 17 | POST | `/social/channel-connections/{provider}/data-deletion` | PUBLIC (Meta's `signed_request`) | — |
 
@@ -47,7 +49,7 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 
 - `channel-connection.schema.ts`, `channel-connection-token.schema.ts`, `channel-connection-usage.schema.ts` — the
   three tables (public id prefix `chc`, P22): one connection per organization, provider and business (a revoked one
-  reused); its token, ciphertext only (`system_user` for Meta, never ending; `oauth_user` with an encrypted refresh
+  reused), with the token's Meta system user (`provider_user_id`, internal, fix-meta-unified-login F3); its token, ciphertext only (`system_user` for Meta, never ending; `oauth_user` with an encrypted refresh
   token for a later provider, MC18); Meta's usage per connection, asset and type (S13, P107). FORCE RLS; the
   connection has the retention sweep arm in `USING`, the token and the usage the organization arm only (MC9).
 - `channel-connection.repository.ts` / `channel-connection-token.repository.ts` /

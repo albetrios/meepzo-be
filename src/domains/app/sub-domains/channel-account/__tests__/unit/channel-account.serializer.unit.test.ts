@@ -26,6 +26,8 @@ function row(overrides: Partial<ChannelAccountRow> = {}): ChannelAccountRow {
     connected_by_user_id: 3,
     connected_at: CONNECTED_AT,
     disconnected_at: null,
+    scopes: null,
+    scopes_read_at: null,
     created_at: CONNECTED_AT,
     updated_at: CONNECTED_AT,
     ...overrides,
@@ -53,6 +55,20 @@ describe('serializeChannelAccountSummary (1B.6)', () => {
       is_automation_enabled: true,
       has_sending_stop: false,
       connected_at: CONNECTED_AT.toISOString(),
+      instagram: null,
+    });
+  });
+
+  it('carries the Instagram message access when given (feat-meta-connect-flow IG4)', () => {
+    const output = serializeChannelAccountSummary({
+      account: row(),
+      channel_connection_public_id: 'chc_x',
+      profile_picture_url: null,
+      has_lane_stop: false,
+      instagram_message_access: { status: 'on', checked_at: CONNECTED_AT.toISOString() },
+    });
+    expect(output.instagram).toEqual({
+      message_access: { status: 'on', checked_at: CONNECTED_AT.toISOString() },
     });
   });
 

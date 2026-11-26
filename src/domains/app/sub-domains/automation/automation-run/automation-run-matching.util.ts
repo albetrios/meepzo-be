@@ -519,8 +519,9 @@ function nonBlank(value: string | null | undefined): string | null {
 }
 
 /**
- * The email a DM answers with (D18): Instagram's `user_email` quick reply first, then an
- * attachment's email, then the typed text. `null` when the message carries none of them.
+ * The email a DM answers with (D18): a quick reply's payload first, then an attachment's email,
+ * then the typed text. `null` when the message carries none of them. Since Meta disabled the
+ * `user_email` quick reply (5 Oct 2026, fix-meta-unified-login F2) the typed text is the usual source.
  */
 export function pickEmailAnswer({
   quickReplyPayload,
@@ -535,8 +536,9 @@ export function pickEmailAnswer({
 }
 
 /**
- * The phone number a DM answers with: Instagram's `user_phone_number` quick reply first, then the
- * typed text. `null` when the message carries neither.
+ * The phone number a DM answers with: a quick reply's payload first, then the typed text. `null`
+ * when the message carries neither. Since Meta disabled the `user_phone_number` quick reply
+ * (5 Oct 2026, fix-meta-unified-login F2) the typed text is the usual source.
  */
 export function pickPhoneAnswer({
   quickReplyPayload,

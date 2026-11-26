@@ -20,7 +20,7 @@ Each part builds on the ones above it.
 | # | Part | Folder (`src/…`) | Paths | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
-| 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | draft |
+| 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **rev 1 — awaiting your OK** |
 | 3 | Route plan-gate declaration and the one guard | shared middleware + every `*.routes.ts` | every write | 128 declared | 1 | draft |
 | 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | draft |
 | 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | draft |
@@ -181,7 +181,89 @@ None.
 
 ---
 
-## 2. Plan data (Free) — draft
+## 2. Plan data (Free) — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+
+Code: the existing **`plan` sub-domain folder**, `billing/sub-domains/plan/`: the plan catalog (its seed
+constants) and the billing migrations that write the catalog rows.
+
+2.1 Decisions · 2.2 Open questions · 2.3 Tables and relations · 2.4 Permissions · 2.5 Common to every route ·
+2.6 Objects returned · 2.7 Routes · 2.8 Request details · 2.9 Errors · 2.10 Rules worth knowing ·
+2.11 Code changes · 2.12 Nested sub-domains.
+
+A data change only: Free turns its `broadcasts` and `segments` switches on (P13), which closes oxak pending #12
+in favour of "on Free". No route and no code path changes; the gates of part 1 read the new values.
+
+### 2.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| PL1 | **Free's `broadcasts` and `segments` switches turn on.** Today Free has every PRO switch off (`FREE_PLAN_FEATURES`, P83); the catalog rows were written once by migration `20261124060244_billing_flowdm_plans.sql`, and the seed inserts with `ON CONFLICT DO NOTHING`, so a seed change alone never reaches an existing database. After: **a new billing data migration** sets the two switches on in the stored rows, and the seed's Free constant says the same, so a fresh database and an existing one agree. "PRO" keeps meaning what it means elsewhere (the automation PRO parts, go-live); only Free's two values change. Free's month limit (1,000), accounts (1) and every other switch stay. |
+| PL2 | **The switched-off rows follow Free** *(P22, pending your answer, 2.2)*. Today Starter, Growth and Pro (inactive, never offered, never deleted, P80) carry Free's features through the same constant. After: they keep carrying Free's features, so the migration updates all four rows. Other option: only the Free row changes, and the three off rows get their own constant with today's values. |
+| PL3 | **No event and no follow-up job.** Today a plan change emits the plan-state event so app can stop or resume lanes. After: turning two switches **on** can't stop anything, and nothing was held for them (Free couldn't create a broadcast or a segment before), so the migration emits nothing; the next plan read (no cache, BL2) sees the new values. |
+| PL4 | **The refusal path keeps a test.** Today the two "on Free" integration tests prove `403 plan_lacks_feature` by moving an organization to Free. After: they prove Free is **allowed**, and the refusal is proven on an organization whose switch is off through an **override row** (`broadcasts` = off, `segments` = off), which also exercises P19's override → plan order. |
+| PL5 | **The frozen record isn't edited.** Oxak's AC-9.1 and P76 / BC3 answers stay as written in the frozen iteration. This iteration's decisions (P13) and its `AS-BUILT.md` › Standing deviations say Free now has both switches. |
+
+### 2.2 Open questions
+
+| # | Question | Recommendation | Other option |
+| --- | --- | --- | --- |
+| Q-PL1 (P22) | Do the three switched-off plans (Starter, Growth, Pro) get the two switches too? | **Yes, they follow Free** (one shared constant, P80's "off rows carry Free's features" stays true) | only the Free row; the off rows get their own constant with today's values |
+
+### 2.3 Tables and relations
+
+| Table | Holds | Key rules |
+| --- | --- | --- |
+| `billing.plans` | the catalog: each plan's switches, limits and included seats | data change only (PL1, PL2); no column change; billing rows are never deleted (P80) |
+
+```text
+billing.plans ──< billing.subscriptions ──> tenancy.organizations
+   └── Free: the fallback for an organization without a paid plan (resolve, part 1)
+```
+
+### 2.4 Permissions
+
+None: no route.
+
+### 2.5 Common to every route
+
+n/a: no route.
+
+### 2.6 Objects returned
+
+None change shape. `GET /billing/plans` and `GET /billing/entitlements` report the new Free values.
+
+### 2.7 Routes
+
+None.
+
+### 2.8 Request details
+
+n/a.
+
+### 2.9 Errors
+
+A Free organization no longer gets `403 plan_lacks_feature` (`broadcasts` / `segments`) on the broadcast and
+segment writes (route-changes RC-8 to RC-12). Every other error is unchanged.
+
+### 2.10 Rules worth knowing
+
+- Members are unlimited on every plan today: `included_seats` is empty everywhere (D55). This part doesn't change it (see P26).
+- A fresh database (seed) and an existing one (migration) must hold the same catalog values; a unit test pins the seed constant to what the migration writes.
+
+### 2.11 Code changes
+
+| # | Change |
+| --- | --- |
+| PLC1 | PL1, PL2: a new billing data migration turning `broadcasts` and `segments` on for Free (and the three off rows, per Q-PL1), forward-only and idempotent |
+| PLC2 | PL1: the seed's Free constant; its TSDoc (BL12 / P83 wording) |
+| PLC3 | PL4: the two "on Free" integration tests flip to "allowed on Free"; the refusal cases move to an organization with an override turning the switch off |
+| PLC4 | PL5: this iteration's `AS-BUILT.md` › Standing deviations notes Free's new values against oxak AC-9.1 / P76 / BC3 |
+
+### 2.12 Nested sub-domains
+
+None.
+
+---
 
 ## 3. Route plan-gate declaration and the one guard — draft
 

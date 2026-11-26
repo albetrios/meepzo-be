@@ -236,3 +236,14 @@ After the merge:
   - the overrides table's organization foreign key had only a partial index, which its ON DELETE CASCADE
     cannot use (index-hygiene) — new migration `20261126130000_billing_entitlement_overrides_organization_index.sql`
     with the schema's matching index; `src/tests/integration/database` + entitlement: 21 files / 123 tests.
+
+## Close round 2 — the final gates on the final tree (2026-11-26)
+
+| Gate | Tree | Result |
+| --- | --- | --- |
+| `pnpm ci:local` | f8be3a1 | all steps passed — fast 887 files / 8,031 tests (1 skipped); database projects 461 files / 3,986 tests (1 skipped) |
+| `pnpm test:rls-role` | f8be3a1 | 217 files passed (5 skipped), 1,844 tests passed (10 skipped) |
+| `pnpm sonar:scan` | f8be3a1 | 2 minor (a module imported twice in `entitlement.routes.ts`) — fixed in this commit |
+| `pnpm sonar:scan` | this commit | 0 issues / 0 hotspots; entitlement + plan-gate tests 7 files / 54 tests |
+
+The pre-push hook runs the full unit suite and `sonar:scan` once more at the push.

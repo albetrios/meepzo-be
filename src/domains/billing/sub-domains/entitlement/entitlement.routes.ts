@@ -1,12 +1,14 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { GLOBAL_ROLES } from '@/shared/constants/index.js';
-import { requireRole } from '@/shared/utils/auth/authorization.util.js';
+import {
+  requireOrganizationPermission,
+  requireRole,
+} from '@/shared/utils/auth/authorization.util.js';
 import {
   MODERATE_AUTHED_RATE_LIMIT,
   ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
 } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
-import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
 import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
 import type { EntitlementService } from './entitlement.service.js';
 import { createEntitlementController } from './entitlement.controller.js';

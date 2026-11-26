@@ -97,6 +97,10 @@
     "model": "organization",
     "verifyNoMutation": true
   },
+  "POST /api/v1/app/social/instagram/accounts/:channel_account_id/message-access-checks": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
   "POST /api/v1/app/social/channel-accounts/:channel_account_id/pause": {
     "model": "organization",
     "verifyNoMutation": true

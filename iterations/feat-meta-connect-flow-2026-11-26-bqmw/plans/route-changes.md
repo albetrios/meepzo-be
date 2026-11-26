@@ -31,7 +31,7 @@ Every route is a **proposal** — what must be true; the built truth is `docs/ro
 | RC-9 | CHANGED | every route refusing `409 permission_not_granted` | — | the error also names `permission` (Meta's permission), beside `feature` | L49 |
 | RC-10 | NEW | (route 152) `GET channel-connections/{provider}/connect-options` | read | whether connecting is possible now: `is_configured`, `is_page_login_offered`, `can_manage` (the caller's role), `plan_room` | L13, L96 |
 
-Built: RC-1–RC-5 and RC-10 in ROUTE R3; RC-6 and RC-9 in ROUTE R4 (see `AS-BUILT.md`).
+Built: RC-1–RC-5 and RC-10 in ROUTE R3; RC-6 and RC-9 in ROUTE R4; RC-7 and RC-8 in ROUTE R5 (see `AS-BUILT.md`).
 
 Pages-ready (brief:L78): RC-5 and RC-6 name the `channel` of every asset; the route review carries a written Pages
 sketch showing `facebook_page` arriving as one more `channel` value with no route change.

@@ -642,3 +642,23 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Decreasing → calls resume into a limit that may still be on.
   - Increasing → a business's sends stand still longer than Meta needs.
 - **Last reviewed**: 2026-11-24
+
+## MESSAGE_ACCESS_RECHECK_MIN_SECONDS
+
+- **Value**: 60 seconds
+- **Source**: [src/domains/app/sub-domains/instagram-account/instagram-account.constants.ts](src/domains/app/sub-domains/instagram-account/instagram-account.constants.ts)
+- **Rationale**: The owner's "check Allow access to messages now" (`POST /app/social/instagram/accounts/{channel_account_id}/message-access-checks`, feat-meta-connect-flow IG2) answers the stored result without calling Meta when the last probe of that account is younger than this, so a button pressed again and again spends Meta's usage at most once a minute per account.
+- **Consequences of change**:
+  - Decreasing → more Meta calls from an impatient owner, on the connection's shared usage.
+  - Increasing → an owner who just turned the setting on waits longer to see it.
+- **Last reviewed**: 2026-11-26
+
+## CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS
+
+- **Value**: 7 days
+- **Source**: [src/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.ts](src/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.ts)
+- **Rationale**: A Meta login nobody picked an account from (feat-meta-connect-flow CN9, C-D3) is revoked by the daily token check, and its token deleted, once its last login is this old and it still has no account that is not revoked — one guarded statement, so a pick racing it wins or finds it revoked. A week lets an owner come back to the picker (route 151) without logging in again.
+- **Consequences of change**:
+  - Decreasing → an owner who left the picker for a few days logs in again.
+  - Increasing → unused Meta tokens stay live longer.
+- **Last reviewed**: 2026-11-26

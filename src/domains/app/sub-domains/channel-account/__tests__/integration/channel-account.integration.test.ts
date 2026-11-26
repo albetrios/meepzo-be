@@ -310,6 +310,7 @@ describe('Channel account routes', () => {
           'followers_count',
           'instagram_user_id',
           'is_messages_webhook_missing',
+          'message_access',
           'is_private',
           'is_webhook_subscribed',
           'profile_picture_url',

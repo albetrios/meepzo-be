@@ -1,6 +1,10 @@
 import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import type { InstagramAccountRow } from './instagram-account.repository.js';
-import type { InstagramAccountExtensionOutput } from './instagram-account.types.js';
+import type { InstagramMessageAccessState } from '@/shared/constants/instagram.constants.js';
+import type {
+  InstagramAccountExtensionOutput,
+  InstagramMessageAccessOutput,
+} from './instagram-account.types.js';
 
 /**
  * The Instagram account object (feat-instagram-dm-sending routes-final § 2.A.6) — the `instagram`
@@ -30,6 +34,8 @@ export function serializeInstagramAccountExtension({
     | 'webhook_subscribed_at'
     | 'messages_webhook_missing_at'
     | 'profile_synced_at'
+    | 'message_access'
+    | 'message_access_checked_at'
   >;
   settings: InstagramAccountSettingsOutput;
 }): InstagramAccountExtensionOutput {
@@ -43,7 +49,21 @@ export function serializeInstagramAccountExtension({
     starter_questions_set_at: instagram.starter_questions_set_at?.toISOString() ?? null,
     is_webhook_subscribed: instagram.webhook_subscribed_at !== null,
     is_messages_webhook_missing: instagram.messages_webhook_missing_at !== null,
+    message_access: serializeInstagramMessageAccess(instagram),
     profile_synced_at: instagram.profile_synced_at?.toISOString() ?? null,
     settings,
+  };
+}
+
+/**
+ * The last "Allow access to messages" answer (feat-meta-connect-flow IG4): `{ status, checked_at }`
+ * — `unknown` and `null` until the set-up probe or route 154 ran.
+ */
+export function serializeInstagramMessageAccess(
+  instagram: Pick<InstagramAccountRow, 'message_access' | 'message_access_checked_at'>,
+): InstagramMessageAccessOutput {
+  return {
+    status: instagram.message_access as InstagramMessageAccessState,
+    checked_at: instagram.message_access_checked_at?.toISOString() ?? null,
   };
 }

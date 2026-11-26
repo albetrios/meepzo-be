@@ -67,6 +67,7 @@ describe('app domain wiring', () => {
       'contactService',
       'contactTagEventService',
       'instagramAccountErasureService',
+      'instagramAccountMessageAccessService',
       'instagramAccountService',
       'instagramAccountSettingsService',
       'instagramAccountTaskSlots',
@@ -209,6 +210,7 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/social/channel-connections/:provider/deauthorize`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
       `POST ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
+      `POST ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/message-access-checks`,
     ]);
     // Runs have no route (D13).
     const response = await application.inject({

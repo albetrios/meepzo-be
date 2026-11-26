@@ -926,7 +926,9 @@ export type InstagramMessageAccess = InstagramMessageAccessState;
  * @remarks
  * - **Algorithm:** the read; an answer → `on`. Meta's code 200 (any subcode) or code 10 with subcode
  *   2534077 → `off`. Any other refusal or outage → `unknown` (the probe never fails the set-up).
- * - **Failure modes:** a refused token (code 190) is rethrown — the caller breaks the account.
+ * - **Failure modes:** a refused token (code 190) is rethrown — the caller breaks the account. With
+ *   `isOutageThrown` (the owner's re-check, route 154 of feat-meta-connect-flow) Meta down, throttling
+ *   or its circuit open is rethrown too, so the route answers `503` and stores nothing.
  * - **Side effects:** one Instagram call; nothing is stored or sent.
  * - **Notes:** which call shows it under Unified Login is a Meta test still to run (plan §43); the
  *   codes live here, beside the client's other code tables.
@@ -936,7 +938,11 @@ export async function probeInstagramMessageAccess({
   instagramUserId,
   requestId,
   recordUsage,
-}: InstagramWebhookSubscriptionOptions): Promise<InstagramMessageAccess> {
+  isOutageThrown = false,
+}: InstagramWebhookSubscriptionOptions & {
+  /** Rethrow an outage instead of answering `unknown` (route 154). */
+  isOutageThrown?: boolean;
+}): Promise<InstagramMessageAccess> {
   try {
     await callMetaGraphWithToken<unknown>({
       encryptedAccessToken,
@@ -947,9 +953,15 @@ export async function probeInstagramMessageAccess({
     });
     return 'on';
   } catch (error) {
-    if (!(error instanceof MetaGraphApiError)) return 'unknown';
+    if (!(error instanceof MetaGraphApiError)) {
+      if (isOutageThrown) throw error;
+      return 'unknown';
+    }
     const code = error.instagramErrorCode;
     if (code === INSTAGRAM_ACCESS_TOKEN_ERROR_CODE) throw error;
+    if (isOutageThrown && (error.errorClass === 'outage' || error.errorClass === 'throttled')) {
+      throw error;
+    }
     if (
       code === INSTAGRAM_MESSAGE_ACCESS_OFF_ERROR_CODE ||
       (code === INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_CODE &&

@@ -27,7 +27,10 @@ import type {
   InstagramAccountRow,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import type { InstagramAccountExtensionService } from '@/domains/app/sub-domains/instagram-account/instagram-account-extension.service.js';
-import { serializeInstagramAccountExtension } from '@/domains/app/sub-domains/instagram-account/instagram-account.serializer.js';
+import {
+  serializeInstagramAccountExtension,
+  serializeInstagramMessageAccess,
+} from '@/domains/app/sub-domains/instagram-account/instagram-account.serializer.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
@@ -321,6 +324,10 @@ export class ChannelAccountService
         const connectionPublicIds = new Map(
           connections.map((connection) => [connection.id, connection.public_id]),
         );
+        const instagramRow = (channelAccountId: number) => {
+          const row = instagramById.get(channelAccountId);
+          return row === undefined ? null : serializeInstagramMessageAccess(row);
+        };
         const summaries: ChannelAccountSummaryOutput[] = [];
         for (const account of accounts) {
           const activeStop = await this.lanePort?.readActiveStop({
@@ -335,6 +342,7 @@ export class ChannelAccountService
                 connectionPublicIds.get(account.channel_connection_id) ?? '',
               profile_picture_url: instagramById.get(account.id)?.profile_picture_url ?? null,
               has_lane_stop: activeStop != null,
+              instagram_message_access: instagramRow(account.id),
             }),
           );
         }

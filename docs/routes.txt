@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 210
+  Total routes: 211
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 63
+  Routes: 64
 ================================================================================
 
   — Sub Domains —
@@ -75,6 +75,7 @@ Legend:
   GET    /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/media  200  -    team  PERM: instagram-account:read
+  POST   /api/v1/app/social/instagram/accounts/:channel_account_id/message-access-checks  200  -    team  PERM: instagram-account:manage
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status  200  -    team  PERM: instagram-account:read
   PATCH  /api/v1/app/social/instagram/accounts/:channel_account_id/settings  200  -    team  PERM: instagram-account:manage
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/stories  200  -    team  PERM: instagram-account:read
@@ -301,13 +302,13 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 210
+  Total routes    : 211
   Public          : 23
   Authenticated   : 55
   Role-guarded    : 12
-  Perm-guarded    : 115
+  Perm-guarded    : 116
   Token-guarded   : 5
-  Team-only (O)   : 71
+  Team-only (O)   : 72
 
 ================================================================================
   IDEMPOTENCY-REQUIRED WRITES (33) — X-Idempotency-Key required

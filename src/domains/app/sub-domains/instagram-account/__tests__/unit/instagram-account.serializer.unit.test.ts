@@ -16,6 +16,8 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
     webhook_subscribed_at: new Date('2026-11-21T09:00:00.000Z'),
     messages_webhook_missing_at: null,
     profile_synced_at: null,
+    message_access: 'unknown',
+    message_access_checked_at: null,
   };
 
   it('names exactly the 2.A.6 keys, the private flag and the times as ISO 8601', () => {
@@ -31,6 +33,7 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
       starter_questions_set_at: '2026-11-22T10:00:00.000Z',
       is_webhook_subscribed: true,
       is_messages_webhook_missing: false,
+      message_access: { status: 'unknown', checked_at: null },
       profile_synced_at: null,
       settings,
     });
@@ -60,5 +63,21 @@ describe('serializeInstagramAccountExtension (2.A.6)', () => {
     });
 
     expect(output.is_messages_webhook_missing).toBe(true);
+  });
+
+  it('shows the last message-access answer and when it was read (feat-meta-connect-flow IG4)', () => {
+    const output = serializeInstagramAccountExtension({
+      instagram: {
+        ...row,
+        message_access: 'off',
+        message_access_checked_at: new Date('2026-11-26T08:00:00.000Z'),
+      },
+      settings,
+    });
+
+    expect(output.message_access).toEqual({
+      status: 'off',
+      checked_at: '2026-11-26T08:00:00.000Z',
+    });
   });
 });

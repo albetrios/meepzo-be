@@ -161,6 +161,10 @@ export const ROUTE_PLAN_GATE_MODEL: RoutePlanGateModel = {
     // The settings a change turns on go through the one feature check (IA13, CA11).
     gates: ['feature:extra_delay', 'feature:mark_seen'],
   },
+  'POST /api/v1/app/social/instagram/accounts/:channel_account_id/message-access-checks': {
+    deliberatelyOpen:
+      "reads Instagram's own setting and stores it — the owner must be able to fix a stop on any plan (feat-meta-connect-flow IG2)",
+  },
   // ── auth ─────────────────────────────────────────────────────────────────────────────────
   'POST /api/v1/auth/email/confirm': { deliberatelyOpen: IDENTITY_OPEN },
   'POST /api/v1/auth/email/login': { deliberatelyOpen: IDENTITY_OPEN },

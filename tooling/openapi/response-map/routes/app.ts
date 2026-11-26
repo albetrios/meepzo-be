@@ -101,6 +101,14 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
     example: null,
   },
+  'POST /api/v1/app/social/instagram/accounts/{channel_account_id}/message-access-checks': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.instagramMessageAccessCheckSchema,
+      schemas.instagramMessageAccessCheckExample,
+    ),
+    example: null,
+  },
   'GET /api/v1/app/social/channel-accounts/{channel_account_id}/capabilities': {
     statusCode: 200,
     schema: wrapSuccess(

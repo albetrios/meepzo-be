@@ -89,6 +89,7 @@ import {
   allAccountsReleaseAt,
   type SendingStateService,
 } from './sending-state.service.js';
+import type { InstagramAccountExtensionService } from '@/domains/app/sub-domains/instagram-account/instagram-account-extension.service.js';
 
 const SETTINGS = INSTAGRAM_SEND_CORE_SETTINGS;
 
@@ -200,6 +201,12 @@ export interface InstagramSendCoreDependencies {
   /** The plan's `message_month_limit` (billing, through `MessageMonthCountService.readMonthLimit`). */
   readMonthLimit(scope: OrganizationPrincipalDatabaseScope): Promise<number | null>;
   breakPort: InstagramSendBreakPort;
+  /**
+   * Stores a send's own `access_off` answer as the account's `message_access = off`
+   * (feat-meta-connect-flow IG1, 3.10) — the Instagram account's extension service; absent in a test
+   * that leaves it out.
+   */
+  messageAccessPort?: Pick<InstagramAccountExtensionService, 'recordMessageAccess'> | undefined;
   /** Each lane's own rules (R43 slow / reply, R44 fast, R45 broadcast); a lane without rules sends nothing. */
   laneRules: Partial<Record<InstagramSendLane, InstagramSendLaneRules>>;
   producers?: InstagramSendTicketProducers | undefined;
@@ -1673,6 +1680,23 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         });
       },
     });
+    const messageAccessPort = this.dependencies.messageAccessPort;
+    if (stop.reason === 'access_off' && messageAccessPort !== undefined) {
+      // feat-meta-connect-flow 3.10: a send's own access_off answer also stores `off`.
+      await this.untilSaved({
+        context,
+        what: 'message access',
+        callback: () =>
+          messageAccessPort.recordMessageAccess({
+            scope: target.scope,
+            channelAccount: {
+              organizationId: target.organizationId,
+              channelAccountId: target.channelAccountId,
+            },
+            status: 'off',
+          }),
+      });
+    }
   }
 
   /**

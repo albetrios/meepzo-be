@@ -12,6 +12,7 @@ import type {
   ChannelFeature,
   ChannelFeatureRefusalReason,
 } from './channel-account-capabilities.constants.js';
+import type { InstagramMessageAccessOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 
 /** The Channel account summary of route 6 (routes-final § 1B.6). */
 export interface ChannelAccountSummaryOutput {
@@ -32,6 +33,11 @@ export interface ChannelAccountSummaryOutput {
   /** Paused, suspended, plan-stopped or a lane stop holds it. */
   has_sending_stop: boolean;
   connected_at: string;
+  /**
+   * The Instagram part the menu needs (feat-meta-connect-flow IG4): the last "Allow access to
+   * messages" answer; `null` for an account of another channel.
+   */
+  instagram: { message_access: InstagramMessageAccessOutput } | null;
 }
 
 /** The stop that holds most of the account's lanes (1B.6 `active_stop`) — sub-domain 6's. */

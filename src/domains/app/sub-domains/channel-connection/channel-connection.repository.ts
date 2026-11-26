@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -237,6 +237,44 @@ export class ChannelConnectionRepository {
       )
       .returning();
     return rows[0] ?? null;
+  }
+
+  /**
+   * The token check's clean-up (feat-meta-connect-flow CN9): `revoked` like {@link revoke}, only
+   * while the connection is `connected`, its last login is older than `connectedBefore` and it has
+   * no account that is not revoked — checked in the same statement, so a pick racing the clean-up
+   * either lands first (nothing revoked) or finds the connection revoked. Returns whether it was
+   * revoked.
+   */
+  async revokeUnpicked({
+    organizationId,
+    channelConnectionId,
+    connectedBefore,
+  }: ChannelConnectionKey & { connectedBefore: Date }): Promise<boolean> {
+    const rows = await this.db()
+      .update(channel_connections)
+      .set({
+        status: 'revoked',
+        status_changed_at: databaseNowTimestamp,
+        disconnected_at: databaseNowTimestamp,
+        updated_at: connectionUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(channel_connections.organization_id, organizationId),
+          eq(channel_connections.id, channelConnectionId),
+          eq(channel_connections.status, 'connected'),
+          lt(channel_connections.connected_at, connectedBefore),
+          sql`NOT EXISTS (
+            SELECT 1 FROM app.channel_accounts account
+            WHERE account.organization_id = ${channel_connections.organization_id}
+              AND account.channel_connection_id = ${channel_connections.id}
+              AND account.connection_status <> 'revoked'
+          )`,
+        ),
+      )
+      .returning({ id: channel_connections.id });
+    return rows.length > 0;
   }
 
   /**

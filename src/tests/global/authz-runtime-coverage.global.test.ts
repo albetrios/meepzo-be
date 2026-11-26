@@ -168,6 +168,10 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: channel account DELETE',
   'PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings':
     'cross-organization-mutation: Instagram account settings (route 12 — another organization answers 404 channel_account_not_found, nothing written)',
+  // feat-meta-connect-flow R5: instagram-account-message-access.integration.test.ts checks another
+  // organization's account → 404 channel_account_not_found, no Meta call, nothing stored.
+  'POST /api/v1/app/social/instagram/accounts/:channel_account_id/message-access-checks':
+    'cross-organization-mutation: Instagram message-access check (route 154)',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/pause':
     'cross-organization-mutation: channel account pause',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/resume':

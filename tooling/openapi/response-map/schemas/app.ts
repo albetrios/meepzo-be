@@ -4,6 +4,7 @@
  * contact (§ 2.6), the automation (§ 4.A.6), the Instagram webhook event (§ 4.B.6) and the
  * segment (§ 7.B.6).
  */
+import { INSTAGRAM_MESSAGE_ACCESS_STATES } from '@/shared/constants/instagram.constants.js';
 import {
   CHANNEL_ACCOUNT_BLOCKERS,
   CHANNEL_CAPABILITY_FIXES,
@@ -93,6 +94,17 @@ export const instagramAccountSettingsExample = {
 
 // ── Channel account (feat-instagram-dm-sending routes-final § 1B.6) ──
 // Mirrors serializeChannelAccountSummary / serializeChannelAccount key for key. Never a token.
+// feat-meta-connect-flow IG4: the last "Allow access to messages" answer.
+export const instagramMessageAccessSchema = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: [...INSTAGRAM_MESSAGE_ACCESS_STATES] },
+    checked_at: { type: 'string', format: 'date-time', nullable: true },
+  },
+};
+
+const instagramMessageAccessExample = { status: 'on', checked_at: '2026-11-21T09:01:00.000Z' };
+
 export const channelAccountSummarySchema = {
   type: 'object',
   properties: {
@@ -108,6 +120,11 @@ export const channelAccountSummarySchema = {
     is_automation_enabled: { type: 'boolean' },
     has_sending_stop: { type: 'boolean' },
     connected_at: { type: 'string', format: 'date-time' },
+    instagram: {
+      type: 'object',
+      nullable: true,
+      properties: { message_access: instagramMessageAccessSchema },
+    },
   },
 };
 
@@ -124,6 +141,7 @@ export const channelAccountSummaryExample = {
   is_automation_enabled: true,
   has_sending_stop: false,
   connected_at: '2026-11-21T09:00:00.000Z',
+  instagram: { message_access: instagramMessageAccessExample },
 };
 
 export const channelAccountSchema = {
@@ -178,6 +196,7 @@ export const channelAccountSchema = {
         starter_questions_set_at: { type: 'string', format: 'date-time', nullable: true },
         is_webhook_subscribed: { type: 'boolean' },
         is_messages_webhook_missing: { type: 'boolean' },
+        message_access: instagramMessageAccessSchema,
         profile_synced_at: { type: 'string', format: 'date-time', nullable: true },
         settings: instagramAccountSettingsSchema,
       },
@@ -213,6 +232,7 @@ export const channelAccountExample = {
     starter_questions_set_at: null,
     is_webhook_subscribed: true,
     is_messages_webhook_missing: false,
+    message_access: instagramMessageAccessExample,
     profile_synced_at: '2026-11-21T09:00:00.000Z',
     settings: instagramAccountSettingsExample,
   },
@@ -460,6 +480,24 @@ export const channelAccountCapabilitiesExample = {
     },
   ],
   blockers: [{ blocker: 'paused', since: '2026-11-26T10:00:00.000Z', fix: 'resume' }],
+};
+
+// Route 154 (feat-meta-connect-flow IG2).
+export const instagramMessageAccessCheckSchema = {
+  type: 'object',
+  properties: {
+    channel_account_id: { type: 'string' },
+    status: { type: 'string', enum: [...INSTAGRAM_MESSAGE_ACCESS_STATES] },
+    checked_at: { type: 'string', format: 'date-time', nullable: true },
+    is_from_meta: { type: 'boolean' },
+  },
+};
+
+export const instagramMessageAccessCheckExample = {
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  status: 'off',
+  checked_at: '2026-11-26T10:00:00.000Z',
+  is_from_meta: true,
 };
 
 // Route 3.

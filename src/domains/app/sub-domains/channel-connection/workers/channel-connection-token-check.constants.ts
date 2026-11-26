@@ -49,3 +49,20 @@ export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME =
  * Last reviewed: 2026-11-25.
  */
 export const CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS = 7;
+
+/**
+ * A `connected` connection whose last login is older than this many days and that still has no
+ * account that is not revoked is revoked by the daily token check and its token deleted
+ * (feat-meta-connect-flow CN9, C-D3) — a login nobody picked from stops holding a live token.
+ *
+ * @remarks
+ * Rationale: a week lets an owner come back to the account picker (route 151 re-reads what the
+ * login shared) without logging in again; past it, the unused token is only a risk.
+ *
+ * Consequences of change:
+ * - Decreasing → an owner who left the picker for a few days has to log in again.
+ * - Increasing → unused tokens stay live longer.
+ *
+ * Last reviewed: 2026-11-26.
+ */
+export const CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS = 7;

@@ -12,6 +12,7 @@ import { broadcastSegmentRoutes } from './sub-domains/broadcast/broadcast-segmen
 import { automationBackfillRoutes } from './sub-domains/automation/automation-backfill/automation-backfill.routes.js';
 import { instagramSendingRoutes } from './sub-domains/instagram-sending/instagram-sending.routes.js';
 import { createAppPlanAccessPreHandler } from './app-plan-access.js';
+import { instagramAccountRoutes } from '@/domains/app/sub-domains/instagram-account/instagram-account.routes.js';
 
 /**
  * Top-level app domain plugin, mounted by `src/routes.ts` under `/api/v1/app`. It registers the
@@ -41,6 +42,7 @@ export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   );
   await app.register(channelAccountRoutes(appDomain.channelAccountService));
   await app.register(instagramAccountSettingsRoutes(appDomain.instagramAccountSettingsService));
+  await app.register(instagramAccountRoutes(appDomain.instagramAccountMessageAccessService));
   await app.register(instagramMediaRoutes(appDomain.instagramMediaService));
   await app.register(instagramSendingRoutes(appDomain.instagramSendingService));
   await app.register(contactRoutes(appDomain.contactService));

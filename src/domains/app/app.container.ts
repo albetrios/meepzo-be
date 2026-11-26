@@ -141,6 +141,7 @@ import {
   buildInstagramAccountTaskHandlers,
 } from './sub-domains/instagram-account/workers/instagram-account-tasks.processor.js';
 import type { InstagramReconnectNoticeServices } from './sub-domains/instagram-account/workers/instagram-reconnect-notice.processor.js';
+import { InstagramAccountMessageAccessService } from '@/domains/app/sub-domains/instagram-account/instagram-account-message-access.service.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -182,6 +183,8 @@ export type AppContainer = {
   instagramAccountService: InstagramAccountService;
   instagramAccountSettingsService: InstagramAccountSettingsService;
   instagramMediaService: InstagramMediaService;
+  /** Route 154 — the owner's message-access re-check (feat-meta-connect-flow IG2). */
+  instagramAccountMessageAccessService: InstagramAccountMessageAccessService;
   instagramAccountErasureService: InstagramAccountErasureService;
   channelConnectionMetaCallbackService: ChannelConnectionMetaCallbackService;
   contactService: ContactService;
@@ -896,6 +899,8 @@ function createInstagramSendWork(
         container.channelConnectionService.markConnectionBroken(input),
       markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
     },
+    // A send's own access_off answer also stores `off` (feat-meta-connect-flow 3.10).
+    messageAccessPort: new InstagramAccountExtensionService(new InstagramAccountRepository()),
     // The slow and reply lanes' own rules (R43), the fast lane's (R44) and the broadcast lane's (R45).
     laneRules: {
       broadcast: new InstagramBroadcastLaneRules({
@@ -1218,6 +1223,14 @@ export function createAppContainer({
     instagramAccountService,
     instagramAccountSettingsService,
     ...mediaAndErasure,
+    // Route 154 (feat-meta-connect-flow IG2): the probe now, its answer stored, the stop moved.
+    instagramAccountMessageAccessService: new InstagramAccountMessageAccessService(
+      instagramAccountService,
+      instagramAccountExtensionService,
+      sending.instagramSendLaneService,
+      channelConnectionService,
+      organizationService,
+    ),
     ...automation,
     instagramWebhookEventService,
     instagramWebhookService,

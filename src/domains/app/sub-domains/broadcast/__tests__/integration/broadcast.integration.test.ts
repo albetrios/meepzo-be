@@ -622,7 +622,8 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
         'Charlie',
       ]);
       const unknown = await injectAuthenticated(app, {
-        url: `${BROADCASTS_PATH}?channel_account_id=${account.public_id.replace(/.$/, 'z')}`,
+        // Another last character than the real one's, so the id is never the account's own.
+        url: `${BROADCASTS_PATH}?channel_account_id=${account.public_id.replace(/.$/, (last) => (last === 'z' ? 'y' : 'z'))}`,
         token: team.ownerToken,
       });
       expect(unknown.statusCode).toBe(200);

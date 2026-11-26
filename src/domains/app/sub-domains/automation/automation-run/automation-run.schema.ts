@@ -154,7 +154,10 @@ function automationRunKeysAndIndexes(table: AutomationRunTableColumns) {
   ];
 }
 
-/** The ways to start that carry a comment (`chk_automation_runs_trigger_targets`). */
+/**
+ * The ways to start that carry a comment (`chk_automation_runs_trigger_targets`). A story reply
+ * carries its story id; a story mention may not — Meta's webhook sends only the story's URL.
+ */
 const COMMENT_TRIGGER_TYPES = sqlLiteralList(['comment', 'live_comment', 'ad_comment']);
 
 /** The value-list and state CHECKs of 4.B.3 (`chk_automation_runs_<rule>`). */
@@ -200,7 +203,7 @@ function automationRunChecks(table: AutomationRunTableColumns) {
     check(
       'chk_automation_runs_trigger_targets',
       sql`(${table.trigger_type} NOT IN (${COMMENT_TRIGGER_TYPES}) OR (${table.trigger_instagram_media_id} IS NOT NULL AND ${table.trigger_instagram_comment_id} IS NOT NULL))
-        AND (${table.trigger_type} NOT IN ('story_reply', 'story_mention') OR ${table.trigger_instagram_story_id} IS NOT NULL)`,
+        AND (${table.trigger_type} <> 'story_reply' OR ${table.trigger_instagram_story_id} IS NOT NULL)`,
     ),
     check(
       'chk_automation_runs_instagram_ids',

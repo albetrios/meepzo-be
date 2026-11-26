@@ -628,7 +628,7 @@ Note app.instagram_accounts {
 }
 
 Table app.instagram_attachments {
-  attachment_id varchar(128) [not null]
+  attachment_id varchar(1024) [not null]
   channel_account_id bigint [not null]
   created_at timestamptz [not null]
   id bigint [pk, increment]

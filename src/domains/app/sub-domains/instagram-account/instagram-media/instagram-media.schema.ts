@@ -17,6 +17,7 @@ import {
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import { INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH } from './instagram-media.constants.js';
 
 /**
  * `app.instagram_media` — a post, reel or Live an automation ran on (launch routes-final § 1.C.3,
@@ -45,7 +46,7 @@ export const instagram_media = appSchema
       channel_account_id: bigint('channel_account_id', { mode: 'number' }).notNull(),
       /** Instagram's media id — digits. */
       instagram_media_id: varchar('instagram_media_id', { length: 64 }).notNull(),
-      shortcode: varchar('shortcode', { length: 64 }),
+      shortcode: varchar('shortcode', { length: INSTAGRAM_MEDIA_SHORTCODE_MAX_LENGTH }),
       /** `image` · `video` · `carousel_album` (Instagram's upper case, lowered). */
       media_type: varchar('media_type', { length: 20 }),
       /** `feed` · `reels` · `story` · `ad` · `live` (a Live, D40). */

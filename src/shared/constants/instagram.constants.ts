@@ -172,12 +172,15 @@ export const INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY = 8;
 export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-store';
 
 /**
- * The longest Meta message id (`mid`) the message row stores (feat-instagram-dm-sending 6.B.3).
+ * The longest opaque Meta id the database stores: a message id (`mid`) and a message file's
+ * `attachment_id` (feat-instagram-dm-sending 6.B.3).
  *
  * @remarks
- * Meta documents no maximum and its real ids run to 167 characters, past the 128 first assumed, which
- * failed every result save of a sent message (migration
- * `20261126140000_app_instagram_messages_message_id_length.sql`). 1024 leaves room for Meta to grow
- * the id without another migration.
+ * Meta documents both only as "string", with no format and no maximum. Real message ids run to 167
+ * characters, past the 128 first assumed, which failed every result save of a sent message
+ * (`20261126140000_app_instagram_messages_message_id_length.sql`); `attachment_id` had the same
+ * 128 (`20261126150000_app_instagram_attachments_attachment_id_length.sql`). 1024 leaves room for
+ * Meta to grow them and keeps an index entry far below Postgres's ~2.7 KB limit. Never add a format
+ * CHECK to these columns: an encoding change at Meta would then fail the save again.
  */
-export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 1024;
+export const INSTAGRAM_OPAQUE_ID_MAX_LENGTH = 1024;

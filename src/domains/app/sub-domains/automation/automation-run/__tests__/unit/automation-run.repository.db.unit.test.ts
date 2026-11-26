@@ -60,6 +60,24 @@ describe('automation-run repositories (database)', () => {
     ).id;
   });
 
+  it('a story mention run saves without a story id; a story reply run still needs one', async () => {
+    // Meta's story-mention webhook carries only the story's URL, never its id.
+    const storyRun = (triggerType: 'story_mention' | 'story_reply') =>
+      insertAutomationRun({
+        organizationId: organization.id,
+        automationId,
+        contactId,
+        isOpenKeyLeftOut: true,
+        trigger_type: triggerType,
+        trigger_instagram_story_id: null,
+      });
+    await expect(storyRun('story_mention')).resolves.toMatchObject({
+      trigger_type: 'story_mention',
+      trigger_instagram_story_id: null,
+    });
+    await expect(storyRun('story_reply')).rejects.toThrow();
+  });
+
   it('the once rule reads a DM sent under the key in any kept month part (AU22)', async () => {
     await insertAutomationRun({
       organizationId: organization.id,

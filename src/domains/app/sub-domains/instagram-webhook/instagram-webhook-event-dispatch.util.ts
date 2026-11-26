@@ -1,5 +1,7 @@
 import { parseBroadcastButtonPayload } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient-button-payload.util.js';
 import type { ChannelInboundEventKind } from '@/domains/app/app.channel-ports.js';
+import { AUTOMATION_REF_CODE_MAX_LENGTH } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import { CONTACT_USERNAME_MAX_LENGTH } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import {
   type AutomationButtonPayload,
   parseAutomationButtonPayload,
@@ -152,6 +154,20 @@ function readText(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/**
+ * A non-empty string of at most `maxLength` characters, or `null` — a Meta value longer than the
+ * column it lands in is dropped here, never handed on to fail a save.
+ */
+function readBoundedText({
+  value,
+  maxLength,
+}: {
+  value: unknown;
+  maxLength: number;
+}): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength ? value : null;
+}
+
 /** A non-empty string or number id as text, or `null`. */
 function readOptionalId(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
@@ -198,8 +214,10 @@ function readAttachmentEmail(message: MetaObject): string | null {
 }
 
 /**
- * The id in the first attachment of one of `types` (`payload.ig_post_media_id`, a reel's
- * `payload.reel_video_id`, else `payload.id`).
+ * The digits-only id in the first attachment of one of `types` (`payload.ig_post_media_id`, a reel's
+ * `payload.reel_video_id`, else `payload.id`); `null` when none is a digits-only Instagram id — a
+ * story mention carries only `payload.url` (Meta's story-mention docs), and the run and media
+ * columns accept digits only, so a value of any other shape is never handed on to a save.
  */
 function readAttachmentId({
   message,
@@ -212,9 +230,9 @@ function readAttachmentId({
     if (typeof attachment.type !== 'string' || !types.includes(attachment.type)) continue;
     const payload = asMetaObject(attachment.payload);
     return (
-      readOptionalId(payload?.ig_post_media_id) ??
-      readOptionalId(payload?.reel_video_id) ??
-      readOptionalId(payload?.id)
+      readInstagramWebhookUserId(payload?.ig_post_media_id) ??
+      readInstagramWebhookUserId(payload?.reel_video_id) ??
+      readInstagramWebhookUserId(payload?.id)
     );
   }
   return null;
@@ -236,14 +254,17 @@ function readComment({
   return {
     inboundKind,
     contactInstagramUserId,
-    username: readText(asMetaObject(value.from)?.username),
+    username: readBoundedText({
+      value: asMetaObject(value.from)?.username,
+      maxLength: CONTACT_USERNAME_MAX_LENGTH,
+    }),
     instagramCommentId: requireInstagramId({
       value: readInstagramWebhookCommentId(value),
       reason: 'comment_id_missing',
     }),
     instagramMediaId: requireInstagramId({ value: media?.id, reason: 'comment_media_missing' }),
     parentCommentId: readInstagramWebhookUserId(value.parent_id),
-    adId: readOptionalId(media?.ad_id),
+    adId: readInstagramWebhookUserId(media?.ad_id),
     text: readText(value.text),
   };
 }
@@ -384,11 +405,14 @@ function readReferral({
   const message = asMetaObject(item.message);
   const referral = asMetaObject(item.referral) ?? asMetaObject(message?.referral);
   if (referral === null) throw invalidPayload('referral_missing');
-  const adId = readOptionalId(referral.ad_id);
+  const adId = readInstagramWebhookUserId(referral.ad_id);
   return {
     inboundKind: 'referral',
     contactInstagramUserId,
-    refCode: adId === null ? readText(referral.ref) : null,
+    refCode:
+      adId === null
+        ? readBoundedText({ value: referral.ref, maxLength: AUTOMATION_REF_CODE_MAX_LENGTH })
+        : null,
     adId,
     carriedMessage: message === null ? null : readCarriedMessage(message),
   };

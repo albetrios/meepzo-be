@@ -20,18 +20,22 @@ describe('entitlement overrides (P270)', () => {
     const { features, active } = applyEntitlementOverrides({
       features: FREE_PLAN_FEATURES,
       overrides: [
-        { key: 'broadcasts', value: true, expiresAt: null },
+        // A switch Free keeps off (broadcasts and segments are on for Free, change-plan-gates P13).
+        { key: 'past_comments', value: true, expiresAt: null },
         { key: 'channel_accounts_max', value: 4, expiresAt: LATER },
       ],
       now: NOW,
     });
-    expect(features?.feature_switches.broadcasts).toBe(true);
+    expect(features?.feature_switches.past_comments).toBe(true);
     expect(features?.channel_accounts_max).toBe(4);
     expect(features?.message_month_limit).toBe(FREE_PLAN_FEATURES.message_month_limit);
     expect(features?.feature_switches.segments).toBe(FREE_PLAN_FEATURES.feature_switches.segments);
-    expect(active.map((override) => override.key)).toEqual(['broadcasts', 'channel_accounts_max']);
+    expect(active.map((override) => override.key)).toEqual([
+      'past_comments',
+      'channel_accounts_max',
+    ]);
     // The plan's own object is never changed.
-    expect(FREE_PLAN_FEATURES.feature_switches.broadcasts).toBe(false);
+    expect(FREE_PLAN_FEATURES.feature_switches.past_comments).toBe(false);
   });
 
   it('can turn a plan feature off and a limit down', () => {
@@ -51,8 +55,8 @@ describe('entitlement overrides (P270)', () => {
     const { features, active } = applyEntitlementOverrides({
       features: FREE_PLAN_FEATURES,
       overrides: [
-        { key: 'broadcasts', value: true, expiresAt: EARLIER },
-        { key: 'segments', value: true, expiresAt: NOW },
+        { key: 'past_comments', value: true, expiresAt: EARLIER },
+        { key: 'extra_delay', value: true, expiresAt: NOW },
       ],
       now: NOW,
     });
@@ -94,7 +98,7 @@ describe('entitlement overrides (P270)', () => {
   it('names the plan change: moved_down when a switch goes off or a limit down, else upgraded', () => {
     const raised = applyEntitlementOverrides({
       features: FREE_PLAN_FEATURES,
-      overrides: [{ key: 'broadcasts', value: true, expiresAt: null }],
+      overrides: [{ key: 'past_comments', value: true, expiresAt: null }],
       now: NOW,
     }).features;
     expect(entitlementOverridePlanChange({ previous: FREE_PLAN_FEATURES, current: raised })).toBe(
@@ -144,8 +148,8 @@ describe('entitlement overrides (P270)', () => {
         },
         freePlan: free,
         overrides: [
-          { key: 'broadcasts', value: true, expiresAt: null },
-          { key: 'segments', value: true, expiresAt: EARLIER },
+          { key: 'past_comments', value: true, expiresAt: null },
+          { key: 'extra_delay', value: true, expiresAt: EARLIER },
         ],
       },
       now: NOW,
@@ -154,8 +158,8 @@ describe('entitlement overrides (P270)', () => {
     // The override never changes the state; it lays over whichever plan applies (Free here).
     expect(access.state).toBe('read_only');
     expect(access.plan?.publicId).toBe('pln_free');
-    expect(access.features?.feature_switches.broadcasts).toBe(true);
-    expect(access.features?.feature_switches.segments).toBe(false);
-    expect(access.overrides).toEqual([{ key: 'broadcasts', value: true, expiresAt: null }]);
+    expect(access.features?.feature_switches.past_comments).toBe(true);
+    expect(access.features?.feature_switches.extra_delay).toBe(false);
+    expect(access.overrides).toEqual([{ key: 'past_comments', value: true, expiresAt: null }]);
   });
 });

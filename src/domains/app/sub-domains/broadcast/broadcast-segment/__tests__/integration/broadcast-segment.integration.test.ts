@@ -9,7 +9,9 @@ import {
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -475,11 +477,9 @@ describe('Segment routes (list, save, open, change, delete, count)', () => {
     });
   });
 
-  describe('on Free (BC19, P76)', () => {
-    it('refuses save, change and count with 403 plan_lacks_feature and leaves list, read and delete open (AC-9.1)', async () => {
-      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
-      const segment = await createSegment('Made in the trial');
-      // The move down: the subscription's plan becomes Free.
+  describe('on Free (change-plan-gates P13, PL4; supersedes BC19, P76)', () => {
+    /** The move down: the subscription's plan becomes Free (the catalog's Free features). */
+    async function moveToFree(creatorPlanId: number): Promise<void> {
       const freePlan = await createTestPlan({
         features: FREE_PLAN_FEATURES,
         priceMonthly: '0.00',
@@ -488,22 +488,54 @@ describe('Segment routes (list, save, open, change, delete, count)', () => {
       await operatorQuery`
         UPDATE billing.subscriptions SET plan_id = ${freePlan.id}
         WHERE organization_id = ${team.organization.id} AND plan_id = ${creatorPlanId}`;
-      const refusals = [
+    }
+
+    /** Save (77), change (79) and count (82) on `segmentPublicId`. */
+    async function saveChangeAndCount(segmentPublicId: string): Promise<InjectHttpResult[]> {
+      return [
         await create(),
         await injectAuthenticated(app, {
           method: 'PATCH',
-          url: segmentPath(segment.id),
+          url: segmentPath(segmentPublicId),
           token: team.ownerToken,
           payload: { name: 'Renamed' },
         }),
         await post({
           url: AUDIENCE_COUNT_PATH,
-          payload: { channel_account_id: account.public_id, segment_id: segment.id },
+          payload: { channel_account_id: account.public_id, segment_id: segmentPublicId },
         }),
       ];
-      for (const refused of refusals) {
+    }
+
+    it('saves, changes and counts on Free — its segments switch is on (P13)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const segment = await createSegment('Made in the trial');
+      await moveToFree(creatorPlanId);
+      expect(FREE_PLAN_FEATURES.feature_switches.segments).toBe(true);
+      for (const allowed of await saveChangeAndCount(segment.id)) {
+        expect(allowed.statusCode, allowed.body).toBe(200);
+      }
+    });
+
+    it('with an override turning segments off, refuses save, change and count with 403 plan_lacks_feature and leaves list, read and delete open (AC-9.1, P19)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const segment = await createSegment('Made in the trial');
+      await moveToFree(creatorPlanId);
+      // The override is read before the plan (P19): it turns Free's segments switch off.
+      await getOperatorDatabase()
+        .insert(organization_entitlement_overrides)
+        .values({
+          public_id: generatePublicId('organizationEntitlementOverride'),
+          organization_id: team.organization.id,
+          key: 'segments',
+          value: false,
+          expires_at: null,
+          reason: 'Segments held',
+        });
+      for (const refused of await saveChangeAndCount(segment.id)) {
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');
+        expect(errorOf(refused)).toMatchObject({ feature: 'segments' });
       }
       const list = await injectAuthenticated(app, {
         method: 'GET',

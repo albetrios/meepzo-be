@@ -67,7 +67,8 @@ describe('Billing entitlement overrides (P270)', () => {
   beforeEach(async () => {
     await cleanupDatabase();
     await seedAllPermissions();
-    // The catalog's Free plan (one account, no PRO switch) — the plan every override lays over here.
+    // The catalog's Free plan (one account; every PRO switch off but broadcasts and segments, P13) — the
+    // plan every override lays over here.
     await createTestPlan({
       features: FREE_PLAN_FEATURES,
       priceMonthly: '0.00',
@@ -132,15 +133,16 @@ describe('Billing entitlement overrides (P270)', () => {
   }
 
   it('turns a feature on and a limit up over Free, in the one plan read, and lists them', async () => {
+    // A switch Free keeps off (broadcasts and segments are on for Free since change-plan-gates P13).
     const before = await planFeatures();
-    expect(before.feature_switches.broadcasts).toBe(false);
+    expect(before.feature_switches.past_comments).toBe(false);
     expect(before.channel_accounts_max).toBe(1);
 
-    const feature = await setOverride({ key: 'broadcasts', value: true });
+    const feature = await setOverride({ key: 'past_comments', value: true });
     expect(feature.statusCode, feature.body).toBe(200);
     expect(dataOf<OverrideBody>(feature)).toMatchObject({
       organization_id: team.organization.public_id,
-      key: 'broadcasts',
+      key: 'past_comments',
       value: true,
       expires_at: null,
       is_active: true,
@@ -155,13 +157,16 @@ describe('Billing entitlement overrides (P270)', () => {
     expect(limit.statusCode, limit.body).toBe(200);
 
     const after = await planFeatures();
-    expect(after.feature_switches.broadcasts).toBe(true);
+    expect(after.feature_switches.past_comments).toBe(true);
     expect(after.channel_accounts_max).toBe(3);
     // Every other switch stays the plan's.
     expect(after.feature_switches.segments).toBe(before.feature_switches.segments);
 
     const listed = dataOf<OverrideBody[]>(await listOverrides());
-    expect(listed.map((override) => override.key)).toEqual(['broadcasts', 'channel_accounts_max']);
+    expect(listed.map((override) => override.key)).toEqual([
+      'channel_accounts_max',
+      'past_comments',
+    ]);
     // Both raised the features: the app is told as for an upgrade (BL8).
     expect(events.map((event) => event.change)).toEqual(['upgraded', 'upgraded']);
   });
@@ -188,25 +193,25 @@ describe('Billing entitlement overrides (P270)', () => {
       .values({
         public_id: generatePublicId('organizationEntitlementOverride'),
         organization_id: team.organization.id,
-        key: 'broadcasts',
+        key: 'past_comments',
         value: true,
         expires_at: new Date(Date.now() - 60_000),
         reason: 'Ended trial deal',
         created_at: new Date(Date.now() - 120_000),
         updated_at: new Date(Date.now() - 120_000),
       });
-    expect((await planFeatures()).feature_switches.broadcasts).toBe(false);
+    expect((await planFeatures()).feature_switches.past_comments).toBe(false);
     const [listed] = dataOf<OverrideBody[]>(await listOverrides());
-    expect(listed).toMatchObject({ key: 'broadcasts', is_active: false });
+    expect(listed).toMatchObject({ key: 'past_comments', is_active: false });
   });
 
   it('removes an override: back to the plan, 204, then 404 entitlement_override_not_found', async () => {
-    const created = dataOf<OverrideBody>(await setOverride({ key: 'segments', value: true }));
-    expect((await planFeatures()).feature_switches.segments).toBe(true);
+    const created = dataOf<OverrideBody>(await setOverride({ key: 'extra_delay', value: true }));
+    expect((await planFeatures()).feature_switches.extra_delay).toBe(true);
 
     const removed = await removeOverride(created.id);
     expect(removed.statusCode, removed.body).toBe(204);
-    expect((await planFeatures()).feature_switches.segments).toBe(false);
+    expect((await planFeatures()).feature_switches.extra_delay).toBe(false);
     expect(dataOf<OverrideBody[]>(await listOverrides())).toEqual([]);
     expect(events.map((event) => event.change)).toEqual(['upgraded', 'moved_down']);
 

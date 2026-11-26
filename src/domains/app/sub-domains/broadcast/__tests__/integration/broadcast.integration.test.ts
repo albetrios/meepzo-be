@@ -10,7 +10,9 @@ import {
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -707,11 +709,9 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
     });
   });
 
-  describe('on Free (BC3, P76)', () => {
-    it('refuses draft and send with 403 plan_lacks_feature and leaves list, read, edit, cancel and delete open (AC-9.1)', async () => {
-      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
-      const draft = await createCompleteDraft();
-      const other = await createBroadcast();
+  describe('on Free (change-plan-gates P13, PL4; supersedes BC3, P76)', () => {
+    /** Moves the team from its Creator plan to a Free plan (the catalog's Free features). */
+    async function moveToFree(creatorPlanId: number): Promise<void> {
       const freePlan = await createTestPlan({
         features: FREE_PLAN_FEATURES,
         priceMonthly: '0.00',
@@ -720,6 +720,33 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       await operatorQuery`
         UPDATE billing.subscriptions SET plan_id = ${freePlan.id}
         WHERE organization_id = ${team.organization.id} AND plan_id = ${creatorPlanId}`;
+    }
+
+    it('drafts and sends on Free — its broadcasts switch is on (P13)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      await moveToFree(creatorPlanId);
+      expect(FREE_PLAN_FEATURES.feature_switches.broadcasts).toBe(true);
+      const draft = await createCompleteDraft();
+      const sent = await send(draft.id);
+      expect(sent.statusCode, sent.body).toBe(200);
+    });
+
+    it('with an override turning broadcasts off, refuses draft and send with 403 plan_lacks_feature and leaves list, read, edit, cancel and delete open (AC-9.1, P19)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const draft = await createCompleteDraft();
+      const other = await createBroadcast();
+      await moveToFree(creatorPlanId);
+      // The override is read before the plan (P19): it turns Free's broadcasts switch off.
+      await getOperatorDatabase()
+        .insert(organization_entitlement_overrides)
+        .values({
+          public_id: generatePublicId('organizationEntitlementOverride'),
+          organization_id: team.organization.id,
+          key: 'broadcasts',
+          value: false,
+          expires_at: null,
+          reason: 'Broadcasts held',
+        });
       for (const refused of [await create(), await send(draft.id)]) {
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');

@@ -84,16 +84,17 @@ describe('buildEntitlementSnapshot — merge order override → plan → default
   });
 
   it('an active override wins over the plan and over the registry default', () => {
+    // `past_comments` and `extra_delay` stay off on Free (broadcasts and segments are on, P13).
     const access = resolveOnFree([
-      { key: 'broadcasts', value: true, expiresAt: null },
+      { key: 'past_comments', value: true, expiresAt: null },
       { key: 'mark_seen', value: true, expiresAt: new Date(NOW.getTime() + HOUR) },
       { key: 'channel_accounts_max', value: 4, expiresAt: null },
     ]);
     const snapshot = buildEntitlementSnapshot({ planAccess: access });
-    expect(snapshot.values.broadcasts).toEqual({ value: true, source: 'override' });
+    expect(snapshot.values.past_comments).toEqual({ value: true, source: 'override' });
     expect(snapshot.values.mark_seen).toEqual({ value: true, source: 'override' });
     expect(snapshot.values.channel_accounts_max).toEqual({ value: 4, source: 'override' });
-    expect(snapshot.values.segments).toEqual({ value: false, source: 'plan' });
+    expect(snapshot.values.extra_delay).toEqual({ value: false, source: 'plan' });
     expect(snapshot.values.message_month_limit).toEqual({
       value: FREE_PLAN_FEATURES.message_month_limit,
       source: 'plan',
@@ -113,12 +114,12 @@ describe('buildEntitlementSnapshot — merge order override → plan → default
     const expired = new Date(NOW.getTime() - HOUR);
     const snapshot = buildEntitlementSnapshot({
       planAccess: resolveOnFree([
-        { key: 'broadcasts', value: true, expiresAt: expired },
+        { key: 'past_comments', value: true, expiresAt: expired },
         { key: 'mark_seen', value: true, expiresAt: expired },
         { key: 'message_month_limit', value: 99_999, expiresAt: expired },
       ]),
     });
-    expect(snapshot.values.broadcasts).toEqual({ value: false, source: 'plan' });
+    expect(snapshot.values.past_comments).toEqual({ value: false, source: 'plan' });
     expect(snapshot.values.mark_seen).toEqual({ value: false, source: 'default' });
     expect(snapshot.values.message_month_limit).toEqual({
       value: FREE_PLAN_FEATURES.message_month_limit,
@@ -165,10 +166,10 @@ describe('buildEntitlementSnapshot — merge order override → plan → default
 describe('can and limit (EN3)', () => {
   it('can answers whether a switch is on', () => {
     const snapshot = buildEntitlementSnapshot({
-      planAccess: resolveOnFree([{ key: 'segments', value: true, expiresAt: null }]),
+      planAccess: resolveOnFree([{ key: 'past_comments', value: true, expiresAt: null }]),
     });
-    expect(can({ snapshot, key: 'segments' })).toBe(true);
-    expect(can({ snapshot, key: 'broadcasts' })).toBe(false);
+    expect(can({ snapshot, key: 'past_comments' })).toBe(true);
+    expect(can({ snapshot, key: 'extra_delay' })).toBe(false);
     expect(can({ snapshot, key: 'mark_seen' })).toBe(false);
     expect(can({ snapshot, key: 'starter_questions' })).toBe(
       FREE_PLAN_FEATURES.feature_switches.starter_questions,

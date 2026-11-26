@@ -1,6 +1,7 @@
 /**
- * The plan switches that are PRO (plan:L2088, P83): off on Free, on for Creator and Studio. "PRO" is
- * a label for these switches, not a field — each is its own key in `features.feature_switches`.
+ * The plan switches that are PRO (plan:L2088, P83): on for Creator and Studio, off on Free except
+ * `broadcasts` and `segments` (on for Free since change-plan-gates P13). "PRO" is a label for these
+ * switches, not a field — each is its own key in `features.feature_switches`.
  */
 export const PRO_PLAN_FEATURE_KEYS = [
   'email_ask',

@@ -8,7 +8,9 @@ import {
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { runGlobalRetentionWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { env } from '@/shared/config/env.config.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import {
   CREATOR_PLAN_FEATURES,
@@ -280,7 +282,13 @@ describe('Instagram plan change (R52, WC-37, WC-38)', () => {
     expect(await stops()).toEqual([null, null, null]);
   });
 
-  it('a move down turns off exactly the lost switches: scheduled broadcasts cancelled, unfinished reads failed (AC-9.11, AC-8.7)', async () => {
+  /** A scheduled broadcast, a draft and an unfinished past-comments read on the first account. */
+  async function insertBroadcastsAndRead(): Promise<{
+    scheduledId: number;
+    draftId: number;
+    automationId: number;
+    backfillId: number;
+  }> {
     const account = accounts[0] as TestAccount;
     const automation = await insertAutomation({
       organizationId: team.organization.id,
@@ -325,25 +333,59 @@ describe('Instagram plan change (R52, WC-37, WC-38)', () => {
         return [scheduled.id, draft.id];
       },
     });
+    return { scheduledId, draftId, automationId: automation.id, backfillId: backfill.id };
+  }
+
+  /** The organization's broadcasts' status and cancel reason, by id. */
+  async function readBroadcasts(): Promise<
+    Array<{ id: string; status: string; cancel_reason: string | null }>
+  > {
+    return operatorQuery<Array<{ id: string; status: string; cancel_reason: string | null }>>`
+      SELECT id, status, cancel_reason FROM app.broadcasts WHERE organization_id = ${team.organization.id} ORDER BY id`;
+  }
+
+  it('a move down turns off exactly the lost switches: on Free broadcasts stay (change-plan-gates P13), unfinished reads failed (AC-9.11, AC-8.7)', async () => {
+    const { scheduledId, draftId, automationId, backfillId } = await insertBroadcastsAndRead();
 
     const result = await run({ change: 'moved_down' });
 
-    expect(result).toMatchObject({ cancelledBroadcastCount: 1, failedBackfillCount: 1 });
-    const broadcasts = await operatorQuery<
-      Array<{ id: string; status: string; cancel_reason: string | null }>
-    >`
-      SELECT id, status, cancel_reason FROM app.broadcasts WHERE organization_id = ${team.organization.id} ORDER BY id`;
+    expect(result).toMatchObject({ cancelledBroadcastCount: 0, failedBackfillCount: 1 });
+    const broadcasts = await readBroadcasts();
+    expect(broadcasts.find((row) => Number(row.id) === scheduledId)).toMatchObject({
+      status: 'scheduled',
+      cancel_reason: null,
+    });
+    expect(broadcasts.find((row) => Number(row.id) === draftId)?.status).toBe('draft');
+    const [read] = await readAutomationBackfillRows(automationId);
+    expect(read).toMatchObject({
+      id: backfillId,
+      status: 'failed',
+      fail_reason: 'plan_feature_off',
+    });
+  });
+
+  it('a move down with the broadcasts switch off (an override, P19) cancels the scheduled broadcasts and keeps drafts (AC-9.11)', async () => {
+    const { scheduledId, draftId } = await insertBroadcastsAndRead();
+    await getOperatorDatabase()
+      .insert(organization_entitlement_overrides)
+      .values({
+        public_id: generatePublicId('organizationEntitlementOverride'),
+        organization_id: team.organization.id,
+        key: 'broadcasts',
+        value: false,
+        expires_at: null,
+        reason: 'Broadcasts held',
+      });
+
+    const result = await run({ change: 'moved_down' });
+
+    expect(result).toMatchObject({ cancelledBroadcastCount: 1 });
+    const broadcasts = await readBroadcasts();
     expect(broadcasts.find((row) => Number(row.id) === scheduledId)).toMatchObject({
       status: 'cancelled',
       cancel_reason: 'plan_feature_off',
     });
     expect(broadcasts.find((row) => Number(row.id) === draftId)?.status).toBe('draft');
-    const [read] = await readAutomationBackfillRows(automation.id);
-    expect(read).toMatchObject({
-      id: backfill.id,
-      status: 'failed',
-      fail_reason: 'plan_feature_off',
-    });
   });
 
   it('a move up or a plan end leaves broadcasts and reads alone', async () => {

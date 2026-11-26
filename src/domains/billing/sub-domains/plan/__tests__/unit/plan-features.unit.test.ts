@@ -36,10 +36,11 @@ describe('planFeaturesSchema (BL12, P83)', () => {
     });
   });
 
-  it('Free has every PRO switch off and every other switch on; Creator and Studio have all on', () => {
+  it('Free has every PRO switch off but broadcasts and segments (P13) and every other switch on; Creator and Studio have all on', () => {
+    const onForFree: readonly string[] = ['broadcasts', 'segments'];
     for (const key of PLAN_FEATURE_KEYS) {
       const isPro = (PRO_PLAN_FEATURE_KEYS as readonly string[]).includes(key);
-      expect(FREE_PLAN_FEATURES.feature_switches[key]).toBe(!isPro);
+      expect(FREE_PLAN_FEATURES.feature_switches[key], key).toBe(!isPro || onForFree.includes(key));
       expect(CREATOR_PLAN_FEATURES.feature_switches[key]).toBe(true);
       expect(STUDIO_PLAN_FEATURES.feature_switches[key]).toBe(true);
     }

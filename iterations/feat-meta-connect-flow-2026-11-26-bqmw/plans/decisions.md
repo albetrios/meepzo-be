@@ -16,6 +16,8 @@ Add-only: a changed mind is a new row. Kind: `RED` (answered by the user), `AMBE
 | C-D9 | Step 5 — where the message-access re-check lives (supersedes C-D8's path) | `channel-accounts/{id}/…` · `instagram/accounts/{channel_account_id}/…` | `POST instagram/accounts/{channel_account_id}/message-access-checks`: the probe is Instagram-only, and Instagram-only routes already live there (`…/settings`, `…/media`, `…/stories`, `docs/routes.txt`) | 2026-11-26 | Claude | AMBER |
 | C-D10 | Step 5 — the unpicked clean-up as its own job or in the token check | own scheduled job · the daily token check | the daily token check (reuse rule — it already visits every connection daily in the right scope) | 2026-11-26 | Claude | AMBER |
 | C-D11 | Step 5 — route review sub-domain 1, Channel connection (CN1–CN10) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
+| C-D12 | Step 5 — route review sub-domain 2, Channel account (AC1–AC6, Pages sketch) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
+| C-D13 | Step 5 — add `linked_page_id` now (always `null`) or when its source is known | now · later | **later** (routes-final IG3): a column no code can fill is dead schema; a fix adds it with its writer after O6 (supersedes C-D6's "stays null") | 2026-11-26 | Claude | AMBER |
 
 ## Owner items (need the Meta dev app — not code)
 

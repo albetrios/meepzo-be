@@ -17,8 +17,8 @@ start at **151**.
 | # | Sub-domain | Folder (`src/domains/app/sub-domains/…`) | Paths (`/social/…`) | Routes touched | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Channel connection | `channel-connection/` | `channel-connections` (+ `connect-options`, `shared-assets`) | 2 changed (2, 3), 2 new (151, 152) | team, billing plan access | **final (rev 1, confirmed 2026-11-26)** |
-| 2 | Channel account | `channel-account/` | `channel-accounts` (+ `capabilities`) | 1 new (153), 1 error change (every `409 permission_not_granted`) | 1 | **rev 1 — awaiting your OK** |
-| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks`; the `instagram` block of routes 6, 7 | 2 changed (6, 7), 1 new (154) | 2 | draft |
+| 2 | Channel account | `channel-account/` | `channel-accounts` (+ `capabilities`) | 1 new (153), 1 error change (every `409 permission_not_granted`) | 1 | **final (rev 1, confirmed 2026-11-26)** |
+| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks`; the `instagram` block of routes 6, 7 | 2 changed (6, 7), 1 new (154) | 2 | **rev 1 — awaiting your OK** |
 
 Total: **4 new routes, 4 changed** — no route removed. Every new path names the `channel` of what it answers, so a
 Facebook Page arrives as one more `channel` value (Pages sketch, sub-domain 2).
@@ -30,7 +30,7 @@ No new table. Three tables gain columns (DB-1–DB-3); each stays in its folder.
 | Sub-domain | Table | Lives in | Written by |
 | --- | --- | --- | --- |
 | 2 | `app.channel_accounts` (+ `scopes`, `scopes_read_at`) | `channel-account/` | the token check (WC-4) through the channel-account service |
-| 3 | `app.instagram_accounts` (+ `message_access`, `message_access_checked_at`, `linked_page_id`) | `instagram-account/` | the account set-up job and route 154 (WC-2), the profile read (WC-3) |
+| 3 | `app.instagram_accounts` (+ `message_access`, `message_access_checked_at`; `linked_page_id` deferred — IG3) | `instagram-account/` | the account set-up job and route 154 (WC-2) |
 
 ## File header — rules for every sub-domain
 
@@ -179,7 +179,7 @@ None changed — `channel-connection-meta/` (no routes) gains nothing in this su
 
 ---
 
-## 2. Channel account — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+## 2. Channel account — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
 
 Code: `channel-account/` (the common account row, the capability list `CHANNEL_CAPABILITIES`, the one feature check).
 This iteration lets the frontend read **what each account can do and why not** (brief outcomes 4, 15, 16, 17), gives the
@@ -276,4 +276,94 @@ Route 153: none.
 ### 2.12 Nested sub-domains
 
 None.
+
+---
+
+## 3. Instagram account — rev 1 (2026-11-26) — nested sub-domains unchanged; awaiting your OK
+
+Code: `instagram-account/` (the Instagram part of a channel account, 1:1; nested `instagram-account-settings/`,
+`instagram-media/` unchanged). This iteration **stores** the "Allow access to messages" result the set-up probe
+already reads (outcome 15, brief:L85), lets the owner re-check it on demand (route 154), and shows it on the account.
+
+### 3.1 Decisions (whole sub-domain)
+
+| # | Decision |
+| --- | --- |
+| IG1 | **Store the probe result** (DB-1, outcome 15). Today the set-up job's probe (`probeInstagramMessageAccess`) is logged only; `off` starts an `access_off` stop on every lane (`instagram-account/workers/instagram-account-tasks.processor.ts:331-355,751-773`). After: `app.instagram_accounts.message_access` (`on` · `off` · `unknown`, default `unknown`) and `message_access_checked_at` are written by the same probe; the stop behaviour is unchanged. |
+| IG2 | **Route 154 — `POST /instagram/accounts/{channel_account_id}/message-access-checks`** (C-D9). Runs the same probe now: `on` → stored, and the account's `access_off` stop ended (the lane service, as a login stop is ended — R18); `off` → stored, the stop started or kept; `unknown` → stored, the stop untouched. A re-check within **60 seconds** of the last answers the stored result without calling Meta (`MESSAGE_ACCESS_RECHECK_MIN_SECONDS = 60`, a policy constant) — Meta's usage is spent once a minute at most per account. A 190 breaks the connection (K2). Safe to repeat, so no idempotency key (as pause / resume, CA7). |
+| IG3 | **Linked Facebook Page id — deferred** (DB-2, C-D6). No documented Instagram-user field gives it under Unified Login ⚠️; a column nobody can fill is dead schema (reuse rule). After owner test O6 names the source, a later fix adds `linked_page_id` with its writer. Outcome 16 stays covered by today's webhook watch (`is_messages_webhook_missing`) and the `reconnect_with_page` fix (sub-domain 2, AC2). Other option: add the nullable column now — rejected. |
+| IG4 | **The account shows it** (RC-7). Today the `instagram` block of routes 6 and 7 has `is_webhook_subscribed`, `is_messages_webhook_missing` (`instagram-account.serializer.ts:38-50`). After: **+ `message_access: { status, checked_at }`**. |
+| IG5 | **Capabilities read it** — sub-domain 2's `message_access_off` blocker comes from the `access_off` stop (as built); `message_access` is shown beside it so the screen can say "checked 5 min ago — still off". |
+
+### 3.2 Open questions
+
+None. IG3 waits on owner test O6.
+
+### 3.3 Tables and relations
+
+| Table | Change |
+| --- | --- |
+| `app.instagram_accounts` | **+ `message_access`** — text, `on` · `off` · `unknown`, not null, default `unknown`; **+ `message_access_checked_at`** — timestamp, nullable |
+
+**PostgreSQL design**: `message_access varchar(10) NOT NULL DEFAULT 'unknown'` with `chk_instagram_accounts_message_access
+CHECK (message_access IN ('on', 'off', 'unknown'))` (`NOT VALID` then validated); `message_access_checked_at timestamptz
+NULL`. Expand-only: the default fills existing rows; the previous release never writes the column. RLS unchanged.
+
+### 3.4 Permissions
+
+| Code | Allows | Routes | Held by default |
+| --- | --- | --- | --- |
+| `instagram-account:manage` | settings, **message-access re-check** | 12, **154** | Owner, Admin |
+| `instagram-account:read` | media, stories, sending status | 13, 14, 63, 64 (as built) | Owner, Admin, Editor, Viewer |
+| `channel-account:read` | the `instagram` block on routes 6, 7 | 6, 7 | as sub-domain 2 |
+
+### 3.5 Common to every route
+
+As 1.5.
+
+### 3.6 Objects returned
+
+| Object | Change |
+| --- | --- |
+| Message access check (route 154) **new** | `{ channel_account_id, status: "on" \| "off" \| "unknown", checked_at, is_from_meta }` — `is_from_meta: false` when the 60-second rule answered the stored result |
+| Channel account's `instagram` block (routes 6, 7) | **+ `message_access: { status, checked_at }`** |
+
+### 3.7 Routes
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 154 | POST | `/instagram/accounts/{channel_account_id}/message-access-checks` | Check "Allow access to messages" now **(new)** | `instagram-account:manage` | |
+| 6, 7 | GET | `/channel-accounts`, `/channel-accounts/{channel_account_id}` | **+ `instagram.message_access` (changed)** | `channel-account:read` | |
+
+### 3.8 Request details
+
+Route 154: no body.
+
+### 3.9 Errors
+
+| Route | Status · reason | When |
+| --- | --- | --- |
+| 154 | `404` · `channel_account_not_found` | not this organization's, revoked, or not Instagram |
+| 154 | `409` · `channel_account_not_connected` | the account is not `connected` (a broken login is fixed by reconnecting first) |
+| 154 | `503` · `instagram_unavailable` | Meta down or its circuit open — nothing stored |
+| 154 | (a 190) | breaks the connection (K2), then `409` as above |
+
+### 3.10 Rules worth knowing
+
+- One probe, three callers: the set-up job, route 154, and — unchanged — a send answered `access_off`.
+- `message_access` is the last probe's answer; the **stop** is what blocks sending. They agree after any probe; a send's
+  own `access_off` answer starts the stop and also sets `message_access = off` (one writer per answer).
+
+### 3.11 Code changes (whole sub-domain)
+
+| # | Change |
+| --- | --- |
+| IGC1 | IG1: columns + migration (expand only), Drizzle schema; the set-up job writes the probe's answer |
+| IGC2 | IG2: route 154 (routes, controller, service method over `probeInstagramMessageAccess`, the 60-second rule, the stop ended / started through the lane port), schema doc, route catalog; `MESSAGE_ACCESS_RECHECK_MIN_SECONDS` in POLICIES.md |
+| IGC3 | IG4: the serializer's `message_access`; a send's `access_off` answer also stores `off` |
+| IGC4 | Tests: route 154 — `on` ends the stop, `off` starts it, `unknown` leaves it, the 60-second rule calls Meta once, 190 breaks the connection, 503 stores nothing, viewer refused, another organization 404; the set-up job stores the probe; routes 6/7 show it |
+
+### 3.12 Nested sub-domains
+
+None changed — `instagram-account-settings/`, `instagram-media/` as built.
 

@@ -57,7 +57,10 @@ gate `instagram-account:manage`, team-only) changes it; event processing and the
 - **The one feature check** (CA11, P50): a change that turns the extra delay on asks for the plan's
   `extra_delay` switch (`403 plan_lacks_feature`, P83); one that turns mark as seen on asks for Meta's
   test (`422 feature_not_offered`, P36); a connection without the permission answers
-  `409 permission_not_granted`. Clearing or keeping either is never checked (P10).
+  `409 permission_not_granted`. Clearing or keeping either is never checked (P10). A save that
+  turns features on reads the plan once (`readEntitlementSnapshot` on the port, the entitlement
+  module's one resolve) and passes that snapshot to each check (change-plan-gates P41, K2); a save
+  that turns none on reads no plan.
 - **A stale save is refused**: an `expected_updated_at` older than the saved row answers
   `409 record_changed` (`assertRecordNotChangedSince`, D43). The row is read `FOR UPDATE`.
 - **After commit, a changed limit gives the lanes a new turn** through the lane port (sub-domain 6's lane

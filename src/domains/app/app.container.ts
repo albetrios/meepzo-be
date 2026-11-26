@@ -1022,7 +1022,7 @@ function withSendWorkAndWatches(
 /**
  * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
  * service, so route 12 reaches it through this port; each call reads the service at request time,
- * after both are built.
+ * after both are built. The save's one plan read goes through it too (P41, K2).
  */
 function createSettingsChannelAccountPort(
   readChannelAccountService: () => ChannelAccountService,
@@ -1031,6 +1031,7 @@ function createSettingsChannelAccountPort(
     requireLiveInstagramAccount: (input) =>
       readChannelAccountService().requireLiveInstagramAccount(input),
     setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
+    readEntitlementSnapshot: (input) => readChannelAccountService().readEntitlementSnapshot(input),
     canChannelAccountUseFeature: (input) =>
       readChannelAccountService().canChannelAccountUseFeature(input),
   };

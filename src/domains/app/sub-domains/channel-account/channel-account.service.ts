@@ -739,6 +739,23 @@ export class ChannelAccountService
   }
 
   /**
+   * The organization's entitlement snapshot for a caller with several feature checks (P41, K2):
+   * one resolve, which the caller passes to each {@link canChannelAccountUseFeature}.
+   *
+   * @remarks
+   * Algorithm: one `EntitlementService.resolve` for the scope's organization
+   * (`readEntitlementSnapshot`). Failure modes: a plan read failure propagates. Side effects: none.
+   * Notes: route 12's save (the Instagram settings) reads the plan through it once per save.
+   */
+  async readEntitlementSnapshot({
+    scope,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<EntitlementSnapshot> {
+    return readEntitlementSnapshot({ entitlementService: this.entitlementService, scope });
+  }
+
+  /**
    * The one feature check (CA11 (2), P50): can this channel account use `feature` — allowed, or the
    * first failing reason in the order `channel_lacks_feature`, `permission_not_granted`,
    * `plan_lacks_feature`, `feature_not_offered`.

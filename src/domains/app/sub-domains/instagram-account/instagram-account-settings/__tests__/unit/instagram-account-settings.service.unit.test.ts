@@ -11,6 +11,7 @@ import {
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { channelAccountNotFoundError } from '@/domains/app/sub-domains/channel-account/channel-account-error.util.js';
 import type { ChannelFeatureCheckResult } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type {
   InstagramAccountSettingsRepository,
   InstagramAccountSettingsRow,
@@ -72,6 +73,9 @@ function settingsRow(
   });
 }
 
+/** The save's entitlement snapshot — opaque here: the port's feature check reads it (P41). */
+const ENTITLEMENT_SNAPSHOT = { state: 'active' } as unknown as EntitlementSnapshot;
+
 function setup({
   organizationType = 'TEAM',
   saved = settingsRow() as InstagramAccountSettingsRow | null,
@@ -110,6 +114,7 @@ function setup({
         is_automation_enabled: isAutomationEnabled,
       }),
     ),
+    readEntitlementSnapshot: vi.fn(async (): Promise<EntitlementSnapshot> => ENTITLEMENT_SNAPSHOT),
     canChannelAccountUseFeature: vi.fn(
       async ({ feature }: { feature: ChannelFeature }): Promise<ChannelFeatureCheckResult> =>
         refusals[feature] ?? { isAllowed: true },
@@ -200,6 +205,8 @@ describe('InstagramAccountSettingsService', () => {
       });
       expect(channelAccountPort.setAutomationEnabled).not.toHaveBeenCalled();
       expect(channelAccountPort.canChannelAccountUseFeature).not.toHaveBeenCalled();
+      // No feature turned on: the save reads no plan.
+      expect(channelAccountPort.readEntitlementSnapshot).not.toHaveBeenCalled();
       expect(result.channelAccountPublicId).toBe(ACCOUNT.public_id);
       // The notice was already off: only the limit changed.
       expect(result.changes).toEqual({ opening_hour_limit: { old_value: null, new_value: 300 } });
@@ -310,8 +317,34 @@ describe('InstagramAccountSettingsService', () => {
         scope,
         ...channelAccount,
         feature: 'extra_delay',
+        entitlement: ENTITLEMENT_SNAPSHOT,
       });
       expect(settingsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('reads the plan once per save, however many features it turns on (P41, K2)', async () => {
+      const { service, channelAccountPort } = setup();
+
+      await service.updateSettings(
+        updateInput({
+          changes: {
+            extra_delay_seconds_min: 2,
+            extra_delay_seconds_max: 4,
+            is_mark_seen_after_reply_enabled: true,
+          },
+        }),
+      );
+
+      expect(channelAccountPort.readEntitlementSnapshot).toHaveBeenCalledExactlyOnceWith({ scope });
+      expect(channelAccountPort.canChannelAccountUseFeature).toHaveBeenCalledTimes(2);
+      for (const feature of ['extra_delay', 'mark_seen'] as const) {
+        expect(channelAccountPort.canChannelAccountUseFeature).toHaveBeenCalledWith({
+          scope,
+          ...channelAccount,
+          feature,
+          entitlement: ENTITLEMENT_SNAPSHOT,
+        });
+      }
     });
 
     it('never checks clearing the delay, or changing it when it is already on (P10)', async () => {
@@ -326,6 +359,7 @@ describe('InstagramAccountSettingsService', () => {
       await service.updateSettings(updateInput({ changes: { extra_delay_seconds_max: 6 } }));
 
       expect(channelAccountPort.canChannelAccountUseFeature).not.toHaveBeenCalled();
+      expect(channelAccountPort.readEntitlementSnapshot).not.toHaveBeenCalled();
     });
 
     it('maps mark as seen turned on while untested to 422 feature_not_offered (P36)', async () => {

@@ -6,6 +6,14 @@ allowed-tools: Bash(pnpm*), Bash(git*)
 
 Turn a requirement into a complete, production-ready vertical slice. **The normal input is a direct task** — a line or two of what you want (**$ARGUMENTS**, the conversation, or a path), not a filled form — so you **draft** the full document, get it **reviewed**, then build. The document format is the 9-section form in `docs/getting-started/requirement.template.md` (filled example: `docs/getting-started/requirement.example.md`; defaults: `docs/getting-started/requirement-intake.md`).
 
+## From an approved KICKOFF row (the iteration mode)
+
+When be-kickoff-iteration calls this command for a ROUTE row, **the approved `KICKOFF.md` row (with
+its sub-domain's section of `plans/routes-final.md`, its requirements and its story) is the approved
+draft**: skip section 1 and its review, run section 2 and the section 3 gates without
+`/be-pre-merge-review` (it runs once, at the iteration's Close), and skip section 4 — the row's record
+is its `AS-BUILT.md` row. Every stop, commit and push follows be-kickoff-iteration.
+
 ## 1. Draft the full requirement, then get it reviewed (you fill it, not the user)
 
 The user normally gives a direct task, not the whole form. Build the document for them:
@@ -17,7 +25,7 @@ The user normally gives a direct task, not the whole form. Build the document fo
 
 ### Question catalog (ask only the unresolved items; ★ = never guess)
 
-- **Placement** — ★ domain (auth · user · tenancy · billing · notify · audit · upload · new) · ★ sub-domain (new · extend) · ★ tenancy (organization-scoped/RLS · user-scoped · global)
+- **Placement** — ★ domain (auth · user · tenancy · billing · notify · audit · upload · app · new) · ★ sub-domain (new · extend) · ★ tenancy (organization-scoped/RLS · user-scoped · global)
 - **Data model** — ★ new tables? (yes · reuse) · ★ lifecycle (soft-delete · hard delete · immutable ledger) · columns (type/null/unique/FK/CHECK) · public-id prefix · indexes (AI proposes · specify)
 - **Public API** — ★ auth per route (public · authenticated · `org-permission:<code>` · global-role:admin) · endpoint shape (standard REST · custom) · pagination (cursor · offset · none) · ★ idempotency on writes (yes · no)
 - **Business logic** — cross-domain (none · read · write service `<X>`) · ★ async side effects (none · event · event + queue + worker) · caching / rate limits (default · custom)

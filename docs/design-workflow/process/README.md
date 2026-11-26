@@ -28,8 +28,8 @@ flowchart TB
 | Plan | **be-iteration-planning**, [prompt](../prompts/iteration-planning-prompt.md) | `plans/routes-final.md` (the route review, [template](routes-final-template.md)), `KICKOFF.md` (plan + ROUTE ledger) and `plans/`; `Status: ready-for-approval` | which iteration and Baseline (Step 0); every step; RED questions; your OK on each sub-domain of the route review |
 | Approve | you — `pnpm iteration:status <iteration> approved` | `Status: approved`, logged in `plans/decisions.md` | — |
 | Kick off | **be-kickoff-iteration**, [prompt](../prompts/kickoff-iteration-prompt.md) | `Status: implementing` | which iteration (Step 0) |
-| Build | one ROUTE row at a time | code, migrations, tests; one `AS-BUILT.md` row each | your review after every row; any scope change |
-| Close | the gates, `/be-pre-merge-review` (review only) | `plans/acceptance.md` filled, `AS-BUILT.md` summary, `plans/frontend-route-map.md` (`pnpm iteration:frontend-map`); `Status: done` | — |
+| Build | one ROUTE row at a time (parallel lanes only under a `/goal` or your go) | code, migrations, tests; one `AS-BUILT.md` row each | your review after every row (under a `/goal`: at Close); any scope change |
+| Close | the Close gates, `/be-pre-merge-review` (critical and major findings fixed or accepted by you) | `plans/acceptance.md` filled, `AS-BUILT.md` summary, `plans/frontend-route-map.md` (`pnpm iteration:frontend-map`); `Status: done` | — |
 | Freeze | the last commit before the merge | `Status: frozen`; never edited again | PR CI's Iteration freeze lane (`pnpm iteration:freeze-check`): an iteration the PR changes that is not `frozen`; an edit to a merged frozen one |
 
 ## Document ownership — write once, reference elsewhere
@@ -113,7 +113,7 @@ credentials out of records. The user review contains the same concise informatio
   where agent-os cannot, the row stops and asks, and the agreed change goes into the review first.
 - **Every ROUTE row has a driver.** A NEW table goes through the
   [staged-build prompt](../../getting-started/staged-build-prompt.md); a CHANGE table, a flow or
-  background work through `/be-build-requirement` ([requirement intake](../../getting-started/requirement-intake.md)).
+  background work through `/be-build-requirement` from the approved row ([requirement intake](../../getting-started/requirement-intake.md)).
 - **Scope changes stop and ask.** A row added or removed, an acceptance changed or the order changed
   is recorded in `plans/decisions.md` and `AS-BUILT.md` only after you agree. `KICKOFF.md` itself is
   frozen at approval.

@@ -13,10 +13,9 @@ Procedure:
    - Layout under `src/domains/<domain>/...` (controller, service, repository, dto,
      validator, serializer, types; `<domain>.container.ts`; `<domain>.routes.ts`).
    - Wire DI in the container; register routes; export services for controllers.
-3. Run the follow-up skills that match what you created: **be-schema-generator** +
-   **be-db-migration-maintainer** (tables), **be-route-schema-doc-guard** +
-   **be-route-catalog** + **be-seed-maintainer** (routes), **be-test-generator**,
-   **be-tsdoc-export-guard**, **be-overview-doc-maintainer**.
+3. Run the **new-domain** chain (`agent-os/skills/chains.json`) — its `steps`, in order (schema
+   steps first, then the scaffold, workers, routes, seed, tests and docs). Skip a step only when
+   nothing it owns was created (no table → no schema steps; no worker → no be-workers-events).
 4. Keep imports within the dependency rules — cross-domain access via services only.
 
 Do not skip the be-skill-index step.

@@ -98,7 +98,7 @@ Pre-commit mirrors a **subset** of the static checks in [`.github/workflows/pr-c
 
 | Step | Command | What it catches |
 | ---- | ------- | --------------- |
-| 1 | branch-name policy | Branch names outside the allowed prefixes (`main`/`claude/*` + `<type>/…`) — fail-fast; bypass once: `SKIP_BRANCH_CHECK=1 git push` (see `agent-os/rules/be-git-branch-naming.mdc`) |
+| 1 | branch-name policy | Branch names outside the allowed prefixes (`main`/`claude/*` + `<type>/…`) — fail-fast; rename the branch (`git branch -m <type>/<short-description>`) rather than bypass the check (see `agent-os/rules/be-git-branch-naming.mdc`) |
 | 2–4 | `pnpm typecheck`, `pnpm build`, `pnpm build:check` | Type errors, compile failures, unresolved `@/` aliases in `dist/` |
 | 5 | `pnpm docs:lint:changed --base <push base>` | Markdown lint — when Markdown is pushed |
 | 6–8 | `pnpm tool:project-structure-tree:check`, `routes:catalog:check`, `validate:route-organization-scope` | Generated-doc drift — when `src/`, `tooling/` or a generated doc is pushed |

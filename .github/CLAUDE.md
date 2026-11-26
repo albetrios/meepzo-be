@@ -17,7 +17,7 @@ git push -u origin docs/american-spelling-organization
 
 Already pushed as `claude/*`? Leave it — it auto-deletes when the PR squash-merges. Never open a second PR just to fix a branch name.
 
-**Deriving the name** — `<type>` is the change's conventional-commit type (`feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`, `perf`, `build`, `style`, `revert`, matching `BRANCH_TYPES` in `.husky/pre-push`); `<short-description>` is kebab-case, 2–5 words, ≤ 40 chars, naming the change itself (never a ticket id or a date). Keep it aligned with the commit subject and PR title.
+**Deriving the name** — `<type>` is the change's conventional-commit type, one of `BRANCH_TYPES` in [`tooling/validate/pre-push-steps.ts`](../tooling/validate/pre-push-steps.ts) (the one list); `<short-description>` is kebab-case, 2–5 words, ≤ 40 chars, naming the change itself (never a ticket id or a date). Keep it aligned with the commit subject and PR title.
 
 | Change | Branch |
 | ------ | ------ |

@@ -116,7 +116,8 @@ export function branchNameProblem(options: {
     '  Use <type>/<short-description>, e.g. feature/ai-stream-response or fix/login-error.',
     `  Allowed types: ${BRANCH_TYPES.join('|')}`,
     `  Long-lived: ${trunk} (only).  Hotfixes: fix/* or hotfix/* → ${trunk}.  AI web sessions: claude/*.`,
-    '  See docs/process/trunk-based-workflow.md.  Bypass once: SKIP_BRANCH_CHECK=1 git push',
+    '  Rename it: git branch -m <type>/<short-description>.  See docs/process/trunk-based-workflow.md',
+    '  (a release-tag hotfix follows docs/deployment/runbooks/hotfix-release.md).',
   ].join('\n');
 }
 

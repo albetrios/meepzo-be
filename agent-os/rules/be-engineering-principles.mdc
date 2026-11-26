@@ -55,7 +55,7 @@ For layout, layers, routes, events, and Drizzle conventions, follow **[be-src-ar
 - Use typed errors from `@/shared/errors`; user-facing messages via i18n translation keys (see **[be-i18n-message-guard](../skills/be-i18n-message-guard/SKILL.md)**).
 - Use `withTransaction` where multiple writes must succeed or fail together.
 - Avoid N+1 queries; keep repository access efficient.
-- Workers and scripts must pass organization identifiers explicitly in queries — do not rely on RLS session context.
+- Workers and scripts open their database work through the context wrappers (`withAppDatabaseContext` / `withMaintenanceDatabaseContext`, which set the organization GUC) and carry `organizationPublicId` in tenant job payloads — never `getRequestDatabase()`.
 - Handle edge cases and failure states; use `successResponse` / `paginatedResponse` for HTTP responses.
 
 ## Security
@@ -77,12 +77,9 @@ Route large, low-signal text — long command/CI/test output, logs, whole-file r
 ## Git and refactoring
 
 - Make minimal, focused changes; do not rewrite unrelated code.
-- Nothing is released yet: add no backward-compatibility code — no aliases, shims, deprecated paths,
-  fallbacks for legacy values or backfills of old data. Change the contract and the data model directly
-  and update every consumer (meepzo-fe included) in the same change. Once a release ships, preserve the
-  released API contract and data unless instructed otherwise.
+- Production holds data: preserve the released API contract and data — migrations per **[migrations.md › Since the first release](../../docs/reference/data/migrations.md#since-the-first-release)**, breaking API changes per **[api-versioning.md](../../docs/reference/api/api-versioning.md)**.
 - When refactoring: improve clarity, reduce duplication, preserve behavior, keep diffs clean.
-- Do not create git commits unless the user explicitly asks.
+- Do not create git commits unless the user explicitly asks — except where a workflow commits by design: be-kickoff-iteration rows, `/be-build-requirement` steps and the ship / PR commands (`/be-ship`, `/be-open-pr`, be-pr-babysit).
 
 ## Documentation and sync skills
 
@@ -119,7 +116,7 @@ Before adding a dependency: check whether existing code or platform APIs solve t
 Write testable, deterministic, loosely coupled code.
 
 - Domain tests: `src/domains/<domain>/__tests__/` — see **[be-testing-conventions.mdc](be-testing-conventions.mdc)**.
-- Fix Biome lint issues in touched files per **[be-code-smells-and-best-practices](../skills/be-code-smells-and-best-practices/SKILL.md)**; full `pnpm validate` is enforced by pre-commit and CI (do not duplicate on every small edit).
+- Fix Biome lint issues in touched files per **[be-code-smells-and-best-practices](../skills/be-code-smells-and-best-practices/SKILL.md)**; when to run `pnpm validate` is the gate cadence in **[be-agent-behavior.mdc](be-agent-behavior.mdc)**.
 - Run `pnpm test` (or targeted tests) before considering work complete.
 
 ## Final rule

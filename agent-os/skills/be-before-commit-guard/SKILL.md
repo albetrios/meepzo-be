@@ -59,7 +59,7 @@ Runs before `git push` (fast compile gate; full suite is CI):
 
 | Step | Command | What it catches |
 | ---- | ------- | --------------- |
-| 1 | branch-name policy | Branch names outside the allowed prefixes (`main`/`claude/*` + `<type>/…`) — fail-fast; bypass once: `SKIP_BRANCH_CHECK=1 git push` (see `agent-os/rules/be-git-branch-naming.mdc`) |
+| 1 | branch-name policy | Branch names outside the allowed prefixes (`main`/`claude/*` + `<type>/…`) — fail-fast; rename the branch (`git branch -m <type>/<short-description>`) rather than bypass the check (see `agent-os/rules/be-git-branch-naming.mdc`) |
 | 2–4 | `pnpm typecheck`, `pnpm build`, `pnpm build:check` | Type errors, compile failures, unresolved `@/` aliases in `dist/` |
 | 5 | `pnpm docs:lint:changed --base <push base>` | Markdown lint — when Markdown is pushed |
 | 6–8 | `pnpm tool:project-structure-tree:check`, `routes:catalog:check`, `validate:route-organization-scope` | Generated-doc drift — when `src/`, `tooling/` or a generated doc is pushed |
@@ -90,7 +90,7 @@ Before committing, the user (or AI) can run:
 pnpm guard:pre-commit          # same labeled steps as the hook
 pnpm guard:pre-commit --serial # the same steps, one at a time
 pnpm guard:pre-commit:list     # print step table without running
-pnpm validate                  # biome check + typecheck
+pnpm validate                  # biome check + typecheck + markdown lint
 pnpm validate:domain:strict    # domain structure (warnings fail; hook step 3)
 pnpm routes:catalog:check      # docs/routes.txt in sync
 pnpm docs:check                # OpenAPI specs in sync (when routes or openapi inputs change)
@@ -109,7 +109,7 @@ If all pass, the pre-commit hook should pass. If `deps:audit` fails, see **be-de
 
 These one-time or ongoing practices are part of keeping the repo commit-clean:
 
-1. **Format + lint** — Biome on `src/` and `tooling/`; `pnpm format` / `pnpm lint` to fix; `pnpm validate` runs `biome check` + typecheck.
+1. **Format + lint** — Biome on `src/` and `tooling/`; `pnpm format` / `pnpm lint` to fix; `pnpm validate` runs `biome check` + typecheck + markdown lint (`docs:lint`).
 2. **Lint warnings** — Resolve per **be-code-smells-and-best-practices** / **be-lint-warnings-handler**.
 3. **Typecheck** — `tsc --noEmit --incremental` (`pnpm typecheck`); fix all type errors.
 4. **Domain structure** — `pnpm validate:domain`; domains and sub-domains must match CLAUDE.md layout.

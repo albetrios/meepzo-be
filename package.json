@@ -93,6 +93,7 @@
     "test:all-projects": "vitest run",
     "test:parallel": "tsx tooling/vitest/run-parallel.ts",
     "test:affected": "tsx tooling/vitest/affected.ts",
+    "test:lane": "tsx tooling/vitest/run-in-lane.ts",
     "test:pre-push": "tsx tooling/vitest/pre-push-tests.ts",
     "test:select": "tsx tooling/vitest/select-tests.ts",
     "test:selector-misses": "tsx tooling/vitest/selector-misses.ts",

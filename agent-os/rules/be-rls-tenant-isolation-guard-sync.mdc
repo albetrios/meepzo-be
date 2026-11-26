@@ -1,6 +1,6 @@
 ---
-description: When changing a tenant table, an RLS migration, a database context wrapper, tenant middleware, or a worker that reads tenant data, verify RLS / tenant-isolation correctness so no cross-organization leak or GUC-less query slips in.
-globs: src/domains/**/*.schema.ts, migrations/*.sql, src/infrastructure/database/contexts/**, src/infrastructure/database/utils/force-rls-tables.constants.ts, src/shared/middlewares/tenant/**, src/infrastructure/queue/worker-runtime/worker-processor.util.ts, src/domains/**/*.worker.ts, src/domains/**/*.processor.ts
+description: When changing a tenant table, an RLS migration, a database context wrapper, or a worker that reads tenant data, verify RLS / tenant-isolation correctness so no cross-organization leak or GUC-less query slips in.
+globs: src/domains/**/*.schema.ts, migrations/*.sql, src/infrastructure/database/contexts/**, src/infrastructure/database/utils/force-rls-tables.constants.ts, src/infrastructure/queue/worker-runtime/worker-processor.util.ts, src/domains/**/*.worker.ts, src/domains/**/*.processor.ts
 alwaysApply: false
 ---
 

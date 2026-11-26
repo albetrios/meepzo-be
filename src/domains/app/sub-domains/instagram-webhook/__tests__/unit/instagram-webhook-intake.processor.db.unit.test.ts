@@ -659,7 +659,7 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       UPDATE app.instagram_webhook_events SET occurred_at = ${occurredAt} WHERE id = ${eventId}`;
   }
 
-  it('out of order — her tap stored before the hello’s send result: the tap is ignored (the run is not waiting yet), the late result makes it wait once, her next tap continues it once', async () => {
+  it('out of order — her tap stored before the hello’s send result: the tap is kept on the run, the late result applies it once (P263), a repeat tap moves nothing', async () => {
     const automation = await liveAutomation({ keywords: ['link'] });
     await storeComment({ text: 'link', postId: nextInstagramObjectId() });
     await runJob('comments');
@@ -678,8 +678,8 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       });
     };
 
-    // The tap is taken in before the hello's result is saved: a postback on a run that is not
-    // waiting is `ignored` by the engine — the event is processed, nothing moves, nothing is saved.
+    // The tap is taken in before the hello's result is saved: it is kept on the run (its
+    // `hello_tapped` event) — the event is processed, the run does not move yet.
     const early = await tap();
     await expect(runJob('messages')).resolves.toMatchObject({
       processedEventCount: 1,
@@ -691,21 +691,29 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
     ]);
     expect(port.steps()).toEqual(['hello']);
 
-    // The late result: the run now waits for her tap — once, no second run, no second hello.
-    await reportSent('hello');
-    expect(await readRunRows(organization.id)).toMatchObject([
-      { status: 'waiting', waiting_for: 'opening_message_button' },
-    ]);
+    // A second early tap keeps nothing more.
+    const second = await tap();
+    await runJob('messages');
+    expect((await readTestInstagramWebhookEvent(second.id))?.status).toBe('processed');
     expect(port.steps()).toEqual(['hello']);
 
-    // Her next tap continues the one run to its first message, once; the same tap again is a no-op.
-    const next = await tap();
-    await runJob('messages');
-    expect((await readTestInstagramWebhookEvent(next.id))?.status).toBe('processed');
+    // The late result: the run takes the kept tap — on to its first message once, never waiting.
+    await reportSent('hello');
     expect(port.steps()).toEqual(['hello', 'messages#1']);
+    const [continued] = await readRunRows(organization.id);
+    expect(continued).toMatchObject({ status: 'running', current_step: 'messages' });
+    expect(continued?.waiting_for).toBeNull();
+
+    // A tap after that moves nothing: still one run, one first message.
+    const late = await tap();
     await runJob('messages');
+    expect((await readTestInstagramWebhookEvent(late.id))?.status).toBe('processed');
     expect(port.steps()).toEqual(['hello', 'messages#1']);
     expect(await readRunRows(organization.id)).toHaveLength(1);
+    const taps = await operatorQuery<Array<{ event_type: string }>>`
+      SELECT event_type FROM app.automation_run_events
+      WHERE organization_id = ${organization.id} AND event_type = 'hello_tapped'`;
+    expect(taps).toHaveLength(1);
   });
 
   it('out of order — her DM’s edit stored before the DM itself: the edit is born skipped and never runs; the DM runs once', async () => {

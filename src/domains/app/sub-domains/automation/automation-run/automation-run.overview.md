@@ -59,6 +59,9 @@ reader (the contact's "what happened").
 - **Counts** (AU27, AC-6.22): `runs_started` at the start, a hello tap `taps`, her first text while the
   run waits for the hello's tap `typed_answers` — per hello version — in the event's commit, through
   `AutomationCountService.increment`; they have no key to a run, so they outlive the part drops.
+- **A tap that overtakes the hello's result** (P263): a hello tap taken in while the hello's result is
+  still pending is kept as the run's `hello_tapped` event (`tap_kept`); the hello's `sent` result takes
+  it once — `taps` counted, the run on, no wait and no nudge. A second early tap keeps nothing more.
 - **PRO at run time** (AU26, D57): without the plan's switch the email and phone asks are skipped,
   "Reply like a person" works as off, only version 1 is picked.
 - **Channel-neutral** (AUC13): no import of an `instagram-*` folder — the account and its rules come from

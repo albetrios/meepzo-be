@@ -149,6 +149,8 @@ export interface AutomationTagRunInput extends AutomationRunTriggerInput {
  * What one entry point did, for the intake's event status and logs:
  * - `run_started` — a run started;
  * - `run_continued` — a waiting run took the event (an answer, a tap) and moved on;
+ * - `tap_kept` — her hello tap came before the hello's send result: kept on the run, applied once
+ *   when the result lands (P263);
  * - `run_replaced` — an allowed comment replaced her open run (P35);
  * - `answer_invalid` — an email or phone answer was not valid (asked again, or kept waiting);
  * - `comment_logged` — the chosen automation was held back and logged, no run;
@@ -161,6 +163,7 @@ export interface AutomationTagRunInput extends AutomationRunTriggerInput {
 export type AutomationRunHandlingOutcome =
   | 'run_started'
   | 'run_continued'
+  | 'tap_kept'
   | 'run_replaced'
   | 'answer_invalid'
   | 'comment_logged'

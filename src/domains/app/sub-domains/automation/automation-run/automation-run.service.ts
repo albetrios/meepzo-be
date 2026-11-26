@@ -68,6 +68,7 @@ import {
 import {
   type AutomationContactRunEventRow,
   AutomationRunEventRepository,
+  type AutomationRunEventRow,
   type AutomationRunEventValues,
   createWorkerAutomationRunEventRepository,
 } from './automation-run-event.repository.js';
@@ -413,8 +414,10 @@ export class AutomationRunService {
    * starts nothing falls through to that message).
    *
    * @remarks
-   * Algorithm: one unit. A postback on a run that is not waiting, of another contact, of a deleted
-   * automation or of another account is `ignored`. Failure modes and side effects: as the class.
+   * Algorithm: one unit. A hello tap that overtakes the hello's send result is kept on the run
+   * (`tap_kept`, applied once when the result lands — P263); any other postback on a run that is not
+   * waiting, of another contact, of a deleted automation or of another account is `ignored`. Failure
+   * modes and side effects: as the class.
    */
   async handleButtonClick(input: AutomationButtonClickInput): Promise<AutomationRunHandlingResult> {
     return this.withEventUnit({
@@ -1197,7 +1200,11 @@ export class AutomationRunService {
       contactId: unit.contact.id,
       runPublicId,
     });
-    if (run === null || run.status !== 'waiting') return handlingResult({ outcome: 'ignored' });
+    if (run === null) return handlingResult({ outcome: 'ignored' });
+    const isHelloResultPending = run.status === 'running' && run.current_step === 'comment_reply';
+    if (run.status !== 'waiting' && !isHelloResultPending) {
+      return handlingResult({ outcome: 'ignored' });
+    }
     const automation = await unit.automations.findByIdIncludingDeleted({
       organizationId: unit.organizationId,
       automationId: run.automation_id,
@@ -1210,6 +1217,7 @@ export class AutomationRunService {
     ) {
       return handlingResult({ outcome: 'ignored' });
     }
+    if (isHelloResultPending) return this.keepEarlyHelloTap({ unit, run });
     const marked = await this.markMovedByEvent({ unit, run });
     switch (run.waiting_for as AutomationRunWaitingFor) {
       case 'opening_message_button':
@@ -1235,6 +1243,42 @@ export class AutomationRunService {
         // takes no tap.
         return handlingResult({ outcome: 'ignored' });
     }
+  }
+
+  /**
+   * Her hello tap taken in before the hello's send result is saved (P263): kept on the run as its
+   * `hello_tapped` event — the result applies it once ({@link afterHelloSent}). A second early tap
+   * on the same run keeps nothing more.
+   */
+  private async keepEarlyHelloTap({
+    unit,
+    run,
+  }: {
+    unit: AutomationRunEventUnit;
+    run: AutomationRunRow;
+  }): Promise<AutomationRunHandlingResult> {
+    if ((await this.findHelloTap({ unit, run })) !== null) {
+      return handlingResult({ outcome: 'ignored' });
+    }
+    await this.markMovedByEvent({ unit, run });
+    await unit.runEvents.insertMany([
+      { ...runKeyOf({ organizationId: unit.organizationId, run }), eventType: 'hello_tapped' },
+    ]);
+    return handlingResult({ outcome: 'tap_kept', runPublicIds: [run.public_id] });
+  }
+
+  /** The run's `hello_tapped` event, `null` when she has not tapped the hello. */
+  private async findHelloTap({
+    unit,
+    run,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+  }): Promise<AutomationRunEventRow | null> {
+    const events = await unit.runEvents.listForRun(
+      runKeyOf({ organizationId: unit.organizationId, run }),
+    );
+    return events.find((event) => event.event_type === 'hello_tapped') ?? null;
   }
 
   /**
@@ -1300,14 +1344,17 @@ export class AutomationRunService {
     run,
     automation,
     isTap,
+    earlyTapAt = null,
   }: {
     unit: AutomationRunUnit;
     run: AutomationRunRow;
     automation: AutomationRow;
     isTap: boolean;
+    /** When an early tap was kept ({@link keepEarlyHelloTap}): its time — its event is already saved. */
+    earlyTapAt?: Date | null;
   }): Promise<void> {
     const versions = run.version_numbers;
-    if (isTap) {
+    if (isTap && earlyTapAt === null) {
       await unit.runEvents.insertMany([
         { ...runKeyOf({ organizationId: unit.organizationId, run }), eventType: 'hello_tapped' },
       ]);
@@ -1335,7 +1382,11 @@ export class AutomationRunService {
     await this.updateCommentLog({
       unit,
       run,
-      changes: { opening_dm_status: 'done', button_clicked_at: unit.now, waiting_for: null },
+      changes: {
+        opening_dm_status: 'done',
+        button_clicked_at: earlyTapAt ?? unit.now,
+        waiting_for: null,
+      },
     });
     await this.proceed({ unit, run, automation, from: 'follow' });
   }
@@ -2301,7 +2352,10 @@ export class AutomationRunService {
     }
   }
 
-  /** The hello `sent`: without a "next step" button the run goes on; else it waits for her tap. */
+  /**
+   * The hello `sent`: without a "next step" button the run goes on; with her tap already kept
+   * (P263) it goes on from that tap; else it waits for her tap.
+   */
   private async afterHelloSent({
     unit,
     run,
@@ -2319,6 +2373,19 @@ export class AutomationRunService {
     if (!helloHasNextButton({ steps: automation.steps, versionNumber: versions.hello ?? 1 })) {
       await this.updateCommentLog({ unit, run, changes: logChanges });
       await this.proceed({ unit, run, automation, from: 'follow' });
+      return;
+    }
+    // Her tap came before this result (P263): the run takes it now, once — no wait, no nudge.
+    const earlyTap = await this.findHelloTap({ unit, run });
+    if (earlyTap !== null) {
+      await this.updateCommentLog({ unit, run, changes: logChanges });
+      await this.takeHelloAnswer({
+        unit,
+        run,
+        automation,
+        isTap: true,
+        earlyTapAt: earlyTap.created_at,
+      });
       return;
     }
     if (

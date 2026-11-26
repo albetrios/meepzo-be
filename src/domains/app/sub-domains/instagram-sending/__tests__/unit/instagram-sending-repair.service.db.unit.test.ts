@@ -231,7 +231,7 @@ describe('InstagramSendingRepairService (database)', () => {
     expect(await laneOf('reply')).toMatchObject({ turn_number: 1 });
   });
 
-  it('expires a waiting opening DM 7 days minus 30 minutes after its comment, plan_limit behind the month limit, never twice (WC-15, AC-17.13)', async () => {
+  it('expires a waiting opening DM 7 days minus 30 minutes after its comment, plan_limit behind the month limit, plan_downgrade behind a move down, never twice (WC-15, AC-17.13)', async () => {
     const old = new Date(Date.now() - 7 * DAY);
     const opening = await insertInstagramMessage({
       run,
@@ -284,6 +284,35 @@ describe('InstagramSendingRepairService (database)', () => {
     expect(await messageOf(behindLimit.public_id)).toMatchObject({
       status: 'expired',
       reason: 'plan_limit',
+    });
+
+    // Behind a move down's stop: its own reason `plan_downgrade` (P265).
+    await operatorQuery`
+      UPDATE app.channel_accounts SET plan_stop_reason = 'plan_downgrade', plan_stopped_at = now()
+      WHERE id = ${account.channel_account_id}`;
+    const downgradeRun = await insertAutomationRun({
+      organizationId: organization.id,
+      automationId: automation.id,
+      contactId: (
+        await insertContact({ organizationId: organization.id, instagramAccountId: account.id })
+      ).id,
+    });
+    const behindDowngrade = await insertInstagramMessage({
+      run: downgradeRun,
+      channelAccountId: account.channel_account_id,
+      message_type: 'hide_comment',
+      message_number: null,
+      lane: 'reply',
+      channel: 'comment_hide',
+      is_counted_as_direct_message: false,
+      status: 'waiting',
+      reason: null,
+      trigger_occurred_at: old,
+    });
+    expect((await service.expireWaitingMessages(context())).done).toBe(1);
+    expect(await messageOf(behindDowngrade.public_id)).toMatchObject({
+      status: 'expired',
+      reason: 'plan_downgrade',
     });
   });
 

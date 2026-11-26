@@ -16,7 +16,10 @@ import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contac
 import { createWorkerAutomationReplyStateRepository } from '@/domains/app/sub-domains/automation/automation-reply-state.repository.js';
 import { INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS } from './instagram-message/instagram-message.constants.js';
 import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
-import type { InstagramSendAttemptCountGroup } from './instagram-message/instagram-message.constants.js';
+import type {
+  InstagramMessageReason,
+  InstagramSendAttemptCountGroup,
+} from './instagram-message/instagram-message.constants.js';
 import type { InstagramSendGateService } from './instagram-send-gate.service.js';
 import { InstagramSendLaneRepository } from './instagram-send-lane.repository.js';
 import {
@@ -100,6 +103,23 @@ function groupByOrganization<Row extends { organization_public_id: string }>(
     else group.push(row);
   }
   return groups;
+}
+
+/** The reasons the 7-day expiry (WC-15) ends a waiting message with, one settle each. */
+const EXPIRY_REASONS = [
+  'plan_limit',
+  'plan_downgrade',
+  'expired',
+] as const satisfies readonly InstagramMessageReason[];
+
+/**
+ * A waiting message's expiry reason by its account's plan stop (WC-15, P265): behind the month
+ * limit `plan_limit`, behind a move down's stop `plan_downgrade`, else (no stop, or the plan
+ * ended) `expired`.
+ */
+function expiryReasonOf(planStopReason: string | null): (typeof EXPIRY_REASONS)[number] {
+  if (planStopReason === 'plan_limit' || planStopReason === 'plan_downgrade') return planStopReason;
+  return 'expired';
 }
 
 /** The key the result save and the guarded ends take. */
@@ -508,7 +528,8 @@ export class InstagramSendingRepairService {
   /**
    * WC-15 — expires waiting opening DMs, public replies and hides whose comment time + 7 days − 30
    * minutes is over: `expired`, with `plan_limit` when it waited behind the month limit (its
-   * account's plan stop), else `expired` — never sent.
+   * account's plan stop), `plan_downgrade` when it waited behind a move down's stop (P265), else
+   * `expired` — never sent.
    *
    * @remarks
    * Algorithm: keyset pieces over `idx_instagram_messages_expiry`; per organization one settle
@@ -532,16 +553,16 @@ export class InstagramSendingRepairService {
         );
         let expired = 0;
         for (const [organizationPublicId, group] of groupByOrganization(messages)) {
-          for (const isPlanLimit of [true, false]) {
+          for (const reason of EXPIRY_REASONS) {
             const keys = group
-              .filter((message) => (message.plan_stop_reason === 'plan_limit') === isPlanLimit)
+              .filter((message) => expiryReasonOf(message.plan_stop_reason) === reason)
               .map(messageKeyOf);
             expired += await this.settleWaiting({
               organizationPublicId,
               duty: 'repair-expiry',
               keys,
               status: 'expired',
-              reason: isPlanLimit ? 'plan_limit' : 'expired',
+              reason,
             });
           }
         }

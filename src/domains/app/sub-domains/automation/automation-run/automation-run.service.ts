@@ -290,9 +290,18 @@ function runKeyOf({ organizationId, run }: { organizationId: number; run: Automa
   return { organizationId, runId: run.id, runStartedAt: run.started_at };
 }
 
+/**
+ * Whether a skip reason is the 7-day expiry's (WC-15): plain `expired`, or `plan_downgrade` — the
+ * message's own reason behind a move down's stop (P265); its run ends as for `expired` (P266).
+ */
+function isExpiryReason(reason: string | null): boolean {
+  return reason === 'expired' || reason === 'plan_downgrade';
+}
+
 /** The run's cancel reason for a channel's skip reason, or `null` when the run fails instead. */
 function cancelReasonOfSkip(reason: string | null): AutomationRunCancelReason | null {
   if (reason === 'live_ended' || reason === 'reply_too_old') return 'expired';
+  if (isExpiryReason(reason)) return 'expired';
   if (reason === 'paused_by_owner') return 'contact_excluded';
   return (AUTOMATION_RUN_CANCEL_REASONS as readonly string[]).includes(reason ?? '')
     ? (reason as AutomationRunCancelReason)
@@ -2156,7 +2165,7 @@ export class AutomationRunService {
     let status: AutomationCommentLogStepStatus = result;
     let skipReason: AutomationPublicReplySkipReason | null = null;
     if (result === 'skipped') {
-      if (reason === 'expired' || reason === 'reply_too_old') status = 'expired';
+      if (isExpiryReason(reason) || reason === 'reply_too_old') status = 'expired';
       else if (
         step === 'public_reply' &&
         !(AUTOMATION_PUBLIC_REPLY_SKIP_REASONS as readonly string[]).includes(reason ?? '')
@@ -2281,7 +2290,7 @@ export class AutomationRunService {
       unit,
       run,
       changes: {
-        [logStep.status]: result === 'skipped' && reason === 'expired' ? 'expired' : result,
+        [logStep.status]: result === 'skipped' && isExpiryReason(reason) ? 'expired' : result,
         ...(result === 'failed'
           ? {
               failed_step: logStep.step,

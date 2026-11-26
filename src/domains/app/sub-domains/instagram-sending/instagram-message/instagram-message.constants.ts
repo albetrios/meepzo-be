@@ -108,8 +108,9 @@ export type InstagramMessageFinalStatus = (typeof INSTAGRAM_MESSAGE_FINAL_STATUS
 
 /**
  * Every `reason` of a message, one place (plan §19.1 "All reason values", plus P35's `replaced`, the
- * engine's 7-day wait cancel `wait_expired` (R14) and a follow check's `following` /
- * `not_following` on its `sent` result (P130)).
+ * engine's 7-day wait cancel `wait_expired` (R14), a follow check's `following` /
+ * `not_following` on its `sent` result (P130) and the 7-day expiry's `plan_downgrade` behind that
+ * plan stop (P265)). Mirrors `chk_instagram_messages_reason`.
  */
 export const INSTAGRAM_MESSAGE_REASONS = [
   'opted_out',
@@ -136,6 +137,7 @@ export const INSTAGRAM_MESSAGE_REASONS = [
   'reply_too_old',
   'live_ended',
   'plan_limit',
+  'plan_downgrade',
   'bad_text',
   'tries_used_up',
   'attachment_failed',

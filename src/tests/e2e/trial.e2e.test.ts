@@ -614,8 +614,9 @@ describe('Flow: a trial from start to its end (R59)', () => {
     expect(await messageStatus(stoppedDm.public_id)).toEqual({ status: 'waiting', reason: null });
 
     // 7 days after her comment the stopped account's DM ends `expired` — never sent. Its account's
-    // stop is `plan_downgrade`, not the month limit, so the reason is the plain `expired` (WC-15:
-    // `plan_limit` only behind the month stop; a message has no `plan_downgrade` reason).
+    // stop is `plan_downgrade`, so that is its reason (WC-15, P265: `plan_limit` behind the month
+    // stop, `plan_downgrade` behind a move down's stop, else `expired`); its run ends as for any
+    // expired DM — `cancelled` · `expired` (P266).
     const repair = new InstagramSendingRepairService({
       messageService: app.appDomain.instagramMessageService,
       gateService: app.appDomain.instagramSendGateService,
@@ -634,8 +635,12 @@ describe('Flow: a trial from start to its end (R59)', () => {
     ).toBe(1);
     expect(await messageStatus(stoppedDm.public_id)).toEqual({
       status: 'expired',
-      reason: 'expired',
+      reason: 'plan_downgrade',
     });
+    const [stoppedRun] = await operatorQuery<Array<{ status: string; cancel_reason: string }>>`
+      SELECT status, cancel_reason FROM app.automation_runs
+      WHERE organization_id = ${team.organization.id} AND id = ${stoppedDm.automation_run_id}`;
+    expect(stoppedRun).toEqual({ status: 'cancelled', cancel_reason: 'expired' });
     expect(await messageStatus(keptDm.public_id)).toMatchObject({ status: 'sent' });
   });
 

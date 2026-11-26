@@ -19,7 +19,7 @@ Each part builds on the ones above it.
 
 | # | Part | Folder (`src/…`) | Paths | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **rev 1 — awaiting your OK** |
+| 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | draft |
 | 3 | Route plan-gate declaration and the one guard | shared middleware + every `*.routes.ts` | every write | 128 declared | 1 | draft |
 | 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | draft |
@@ -70,7 +70,7 @@ which is derived from the registry and holds the same 13 keys (part 1).
 
 ---
 
-## 1. Entitlement module — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+## 1. Entitlement module — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
 
 Code: the existing **`entitlement` sub-domain folder**, `billing/sub-domains/entitlement/`. Built in the oxak
 iteration's lane B: the override table, the super-admin override routes and the entitlements read.
@@ -89,18 +89,15 @@ P1, P5–P8, P17–P21. Route numbers run 1–4.
 | --- | --- |
 | EN1 | **The key registry is one typed list in this folder.** Today: two hand lists of override keys here (`ENTITLEMENT_OVERRIDE_KEYS`, `ENTITLEMENT_OVERRIDE_LIMIT_KEYS`), the plan's switch list in `plan/` (`PLAN_FEATURE_KEYS`), seats only in the subscription service. After: each entry has `key`, `kind` (`switch` · `cap` · `metered`), `product` (`instagram` · `core`), `default` (P19) and `overridable`. The **switch entries are built from the plan's existing `PLAN_FEATURE_KEYS`** (reused, not copied), the 2 limits and seats are added here, and the two override lists become **derived** from `overridable`. Keys stay bare (P17). Entries: 11 switches (`instagram`, default off, overridable), `message_month_limit` (metered, `instagram`, overridable), `channel_accounts_max` (cap, `instagram`, overridable), `seats` (cap, `core`, **not** overridable, P18). |
 | EN2 | **`resolve` returns a snapshot with a source per key.** Today: `getPlanAccess` (subscription) does one SQL read and lays active overrides on the plan, with no record of where a value came from. After: `EntitlementService.resolve({ organizationPublicId })` calls it once and returns the snapshot: `state`, `graceEndsAt`, `trialEndsAt`, `plan`, and per key `{ value, source }`, where `source` is `override` · `plan` · `default` (P19: the registry default fills a key the plan row lacks). Seats read the plan's included seats into the same snapshot (no extra read: the plan row is already in the one statement). |
-| EN3 | **`can` and `limit` are pure reads of a snapshot**, not new database reads: `can({ snapshot, key })` → boolean, `limit({ snapshot, key })` → number or unlimited. A caller that checks several gates resolves once and passes the snapshot (K2). Other option: a request-scoped memo (async context) so callers pass only the organization; it's hidden state, and workers would need their own scope. |
-| EN4 | **No `consume` in billing** *(pending your answer, 1.2 Q-EN1)*. Counted limits stay with their counters (K4): the send claim's month guard, the account lock and the seat lock keep their locking code unchanged (P8) and read their ceiling with `limit()`. Billing exposes no counter. Other option: billing defines a `consume` port that app and tenancy register late (the seat sync already uses that shape). It's one more indirection for the same locks. |
+| EN3 | **`can` and `limit` are pure reads of a snapshot** (P24), not new database reads: `can({ snapshot, key })` → boolean, `limit({ snapshot, key })` → number or unlimited. A caller that checks several gates resolves once and passes the snapshot (K2). Other option: a request-scoped memo (async context) so callers pass only the organization; it's hidden state, and workers would need their own scope. |
+| EN4 | **No `consume` in billing** (P23). Counted limits stay with their counters (K4): the send claim's month guard, the account lock and the seat lock keep their locking code unchanged (P8) and read their ceiling with `limit()`. Billing exposes no counter. Other option: billing defines a `consume` port that app and tenancy register late (the seat sync already uses that shape). It's one more indirection for the same locks. |
 | EN5 | **One refusal builder**, `buildPlanRefusal({ reason, … })` in this folder, the only producer of plan refusals. Reasons and statuses stay as built: `organization_read_only` 403 (`grace_ends_at`, `upgrade_required`), `plan_lacks_feature` 403 (`feature`, `upgrade_required`), `plan_account_limit` 409, `seat_limit_reached` 409, `message_month_limit_reached` 409 (`limit`, `used`, and for the month `resets_on`, P6). No plan id (P7). The fields stay within the shared error field list (oxak P269). |
 | EN6 | **The entitlements read adds `sources`** (route 1): a map from key to `override` · `plan` · `default`, beside today's `features`, `limits` and `overrides`. Additive: nothing existing moves. |
 | EN7 | **Only this module reads plan access.** `getPlanAccess` stays in subscription (it owns the SQL), but outside subscription only this service calls it. The 11 callers in app, auth and billing move to `resolve` / `can` / `limit` / `buildPlanRefusal`; the Stripe webhook passes its transaction's repository through `resolve`. A policy test fails on any other caller (K3). |
 
 ### 1.2 Open questions
 
-| # | Question | Recommendation | Other option |
-| --- | --- | --- | --- |
-| Q-EN1 | Does billing own a `consume()` for counted limits? (EN4) | **No:** each counter's owner keeps its locks and reads `limit()` | a `consume` port in billing that app and tenancy register |
-| Q-EN2 | How do callers avoid a second plan read? (EN3) | **Pass the snapshot** explicitly | a request-scoped memo |
+None. Q-EN1 was answered by P23 (no `consume`; counter owners read `limit()`), and Q-EN2 by P24 (pass the snapshot).
 
 ### 1.3 Tables and relations
 

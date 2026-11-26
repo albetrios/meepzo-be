@@ -21,7 +21,7 @@ Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
 | BRIEF:L14 | Key registry: kind, type, global default, namespaced keys | `quality.entitlement-key-registry` | entitlement-module | BRIEF:L122 | covered — P21, P17 |
 | BRIEF:L19 | One module: resolve, can, limit, consume, refusal | `access.entitlement-module-single-entry` | entitlement-module | BRIEF:L118 | covered — P1 |
 | BRIEF:L21 | resolve wraps plan access + overrides, one uncached read | `quality.entitlement-single-read` | entitlement-module | BRIEF:L125 | covered (R4: the merge already exists; a per-request memo is NEW) |
-| BRIEF:L24 | consume: atomic, month cap kept, account lock kept, idempotent | `operations.entitlement-consume` | limit-gates | BRIEF:L123 | covered — P8 (AMBER), P18 |
+| BRIEF:L24 | consume: atomic, month cap kept, account lock kept, idempotent | `operations.entitlement-consume` | limit-gates | BRIEF:L123 | covered — P8, P18, P23: counted limits stay with their counters and read `limit()` |
 | BRIEF:L28 | Route declarations `config.planGate` on every write route | `access.route-plan-gate-declaration` | route-gates | BRIEF:L115 | covered (128 write routes, R1) |
 | BRIEF:L29 | One global preHandler replaces the hand-added one | `access.route-plan-gate-enforcement` | route-gates | BRIEF:L124 | covered — P4 (order test first, R2) |
 | BRIEF:L31 | Job gates declared in the job registry; worker checks at claim | `background.job-plan-gate-declaration` | job-gates | BRIEF:L116 | covered — P12 |

@@ -15,7 +15,7 @@ Command: `/be-watch-pr <n>` (the watch loop) · `/be-merge-pr <n>` (auto-merge o
 - Use `gh` (or the GitHub tools) for PR status, checks, and comments — to read them once, never in a polling loop.
 - Subscribe to the PR's activity (`subscribe_pr_activity` where it exists): CI results, reviews, conflicts and the merge wake the session; after a push from the CLI, the `be-push-ci-watch.mjs` hook wakes it when a run fails. Where neither exists, one safety-net check-in (`send_later`) replaces any timer.
 - Default branch: `main` (see `.github/workflows/pr-ci.yml`).
-- Review rubric: **`docs/process/pr-review.md`** (human + agent checklist, severity legend).
+- Review rubric: **`docs/process/pr-review.md`** (human + agent checklist); severity scale: `REVIEW.md` (critical / major / minor / nit).
 
 ## Workflow
 
@@ -26,7 +26,7 @@ gh pr view --json title,state,mergeable,statusCheckRollup,reviews,comments
 gh pr checks
 ```
 
-- If the branch is behind the base branch and CI failures look unrelated, merge or rebase the latest base branch first.
+- Being behind the base branch is not a problem on its own — strict up-to-date is off and PR CI tests the merge with `main` ([`.github/CLAUDE.md` › Merge policy](../../../.github/CLAUDE.md#merge-policy)). Merge the base branch in only to resolve a conflict.
 - Read only unresolved review threads; skip resolved threads.
 
 ### 2. Merge conflicts
@@ -53,7 +53,7 @@ the check, its run id) — and act on its root cause and fix plan instead of rea
 After fixes:
 
 ```bash
-pnpm validate          # lint + format:check + typecheck
+pnpm validate          # lint + format:check + typecheck + markdown lint
 pnpm validate:domain   # when domain layout touched
 git push
 ```
@@ -62,7 +62,7 @@ Then wait for the next PR event — the push's CI result arrives as one; do not 
 
 ### 4. Review comments
 
-- Apply **`docs/process/pr-review.md`** — classify feedback as Blocker / Major / Nit; fix Blockers and Majors in scope.
+- Apply **`docs/process/pr-review.md`** — classify feedback on the `REVIEW.md` scale (critical / major / minor / nit); fix critical and major findings in scope.
 - Validate Bugbot and human feedback; fix real issues in touched files.
 - Invoke **be-code-smells-and-best-practices** for `src/` edits.
 - Run skills from **be-skill-index** when the comment implies routes, migrations, seeds, or docs drift.
@@ -77,9 +77,8 @@ pnpm ci:local
 
 "Merge-ready" is not the finish line — take it to merged once the user has asked you to merge (or to "merge when green"):
 
-- Merge only when **every required check is green** and the PR is mergeable (`mergeable_state: clean`).
+- Merge only when **every required check is green** and the PR has **no conflicts** (`mergeable: MERGEABLE`). The branch need not be up to date with `main` (strict up-to-date is off — `.github/CLAUDE.md` › Merge policy).
 - Prefer **squash** so the base branch gets one conventional commit (release-please bumps from it).
-- If the branch is **behind** the base, update it first (re-runs CI), then re-check.
 - For a **transient** CI failure (e.g. an image-pull timeout), re-run the failed job / re-trigger CI rather than editing code.
 - Results, green and red, arrive as PR events; a lost event is covered by one safety-net check-in, not a timer. The watch is not finished until the PR is **merged or closed**.
 

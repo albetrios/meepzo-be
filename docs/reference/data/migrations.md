@@ -124,7 +124,9 @@ Production has held data since v9.4.1 (2026-10-25). A migration protects it:
 
 - **Never edit a merged migration** — development applies every merged file, and the runner records each
   applied file by name, so an edit reaches fresh databases only and the environments drift. Fix forward
-  with a new file (`be-db-migration-maintainer-sync.mdc`: "Applied migrations are immutable").
+  with a new file. **An unmerged migration** — added in the same pull request, never on `main`, never
+  deployed — may still change in place, with the decision recorded (the iteration's `plans/decisions.md`,
+  or the pull request description). This is the one definition; the skills and rules link here.
 - **A new column carries its data.** Add it nullable (or with a default), fill the existing rows in the
   same migration, then constrain it (`NOT VALID` + `VALIDATE`, then `SET NOT NULL`). A column that a
   read path depends on is filled before that read ships — `20261101090000_upload_record_binding.sql`

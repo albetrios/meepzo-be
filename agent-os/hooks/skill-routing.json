@@ -10,7 +10,8 @@
         "be-api-contract-guard",
         "be-route-schema-doc-guard",
         "be-route-catalog",
-        "be-seed-maintainer"
+        "be-seed-maintainer",
+        "be-test-generator"
       ],
       "optional": [
         "be-openapi-multilingual"
@@ -50,10 +51,13 @@
         "src/domains/**/*.container.ts"
       ],
       "skills": [
-        "be-domain-generator",
         "be-schema-generator",
+        "be-sql-design-guard",
         "be-db-migration-maintainer",
+        "be-rls-tenant-isolation-guard",
+        "be-domain-generator",
         "be-workers-events",
+        "be-api-contract-guard",
         "be-route-schema-doc-guard",
         "be-route-catalog",
         "be-seed-maintainer",
@@ -155,7 +159,7 @@
       "skills": [
         "be-kickoff-iteration"
       ],
-      "note": "Iteration implementation — one ROUTE row at a time; every row's technical decisions go into AS-BUILT.md"
+      "note": "Iteration implementation — one ROUTE row at a time (parallel lanes only under a /goal or the user's go); every row's technical decisions go into AS-BUILT.md"
     },
     {
       "globs": [

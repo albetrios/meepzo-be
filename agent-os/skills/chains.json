@@ -8,7 +8,8 @@
         "be-api-contract-guard",
         "be-route-schema-doc-guard",
         "be-route-catalog",
-        "be-seed-maintainer"
+        "be-seed-maintainer",
+        "be-test-generator"
       ],
       "optional": ["be-openapi-multilingual"]
     },
@@ -31,10 +32,13 @@
       "description": "Scaffolding a whole new domain or sub-domain (the full DAG).",
       "trigger": "src/domains/**/*.container.ts",
       "steps": [
-        "be-domain-generator",
         "be-schema-generator",
+        "be-sql-design-guard",
         "be-db-migration-maintainer",
+        "be-rls-tenant-isolation-guard",
+        "be-domain-generator",
         "be-workers-events",
+        "be-api-contract-guard",
         "be-route-schema-doc-guard",
         "be-route-catalog",
         "be-seed-maintainer",

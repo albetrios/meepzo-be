@@ -15,15 +15,18 @@ pre-flight, so still treat the file-level rules below as hard policy.
   `.env.example`) are gitignored; put template keys in `.env.example` and real
   values in the environment. Never paste private keys, `sk_live_…`, AWS `AKIA…`,
   GitHub `ghp_…`, or Slack `xox…` tokens into tracked files.
-- **Destructive shell** — no `rm -rf`, no `git push --force` (use
-  `--force-with-lease`), avoid `git reset --hard` / `git clean -f` on work you
+- **Destructive shell** — no `rm -rf`, no `git push --force`: a rewritten branch
+  goes up only with `git push --force-with-lease`, and only with the user's
+  explicit OK; avoid `git reset --hard` / `git clean -f` on work you
   did not create; never `mkfs` or `dd if=`.
 - **Git hooks** — never skip them (`--no-verify` on commit or push, `git commit -n`,
   `HUSKY=0`); the pre-commit and pre-push gates are mandatory, so fix what they report.
 
 ## Confirm first (protected paths)
-- **Migrations** (`migrations/*.sql`) — applied migrations are immutable; add a
-  NEW migration instead of editing one. Run `pnpm db:migrate:lint`.
+- **Migrations** (`migrations/*.sql`) — a migration merged to `main` is never
+  edited: add a NEW one. An unmerged one may change in place with a recorded
+  decision (`docs/reference/data/migrations.md` › Since the first release).
+  Run `pnpm db:migrate:lint`.
 - **Billing ledgers** (`src/domains/billing/**` ledger/invoice/charge) —
   append-only; changes must be additive.
 

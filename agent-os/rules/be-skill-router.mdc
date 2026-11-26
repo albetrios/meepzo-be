@@ -7,19 +7,19 @@ alwaysApply: true
 
 When a task matches a pattern below, **read the corresponding `SKILL.md` before starting** and complete the steps it defines (including the tests, route/OpenAPI registration, docs, and lint it lists) as part of the same change — see `agent-os/rules/be-change-completeness.mdc`. This table is the fast path; the authoritative catalog and decision tree live in `agent-os/skills/be-skill-index/SKILL.md` (consult it first for anything not listed here), and the file-pattern → skill map is `agent-os/docs/skill-triggers.md`.
 
-Behaviour: infer sensible defaults from the codebase rather than asking, and run the whole matched chain — see `agent-os/rules/be-agent-behavior.mdc` for the full-completion policy. The **one** confirmation checkpoint is the new-requirement plan gate in `agent-os/rules/be-new-requirement-intake.mdc` ("propose a Plan once, wait for **go**"); outside that, proceed without stopping to ask. The iteration skills are the exception by design: **be-iteration-planning** and **be-kickoff-iteration** stop after every step of their own procedure.
+Behaviour: infer sensible defaults from the codebase rather than asking, and run the whole matched chain — see `agent-os/rules/be-agent-behavior.mdc` for the full-completion policy. The **one** confirmation checkpoint is the new-requirement plan gate in `agent-os/rules/be-new-requirement-intake.mdc` ("propose a Plan once, wait for **go**"); outside that, proceed without stopping to ask. The iteration skills are the exception by design: **be-iteration-planning** and **be-kickoff-iteration** stop after every step of their own procedure (kickoff's per-row stop is lifted only by a `/goal` or the user's go — be-kickoff-iteration › Parallel lanes).
 
 ## Task → skill
 
 | Task pattern | Skill(s) | Path |
 | --- | --- | --- |
-| **Any new requirement** (domain, route, schema, worker) — master orchestrator | be-auto-implement | `agent-os/skills/be-auto-implement/SKILL.md` |
-| New/changed **route or endpoint** (`*.routes.ts`) | be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog → be-seed-maintainer | `agent-os/skills/be-api-contract-guard/SKILL.md` |
+| **Any new requirement** (domain, route, schema, worker) — master orchestrator; a requirement from a design iteration (`iterations/<iteration>/`) follows `/be-iteration` instead (`iterations/CLAUDE.md`) | be-auto-implement | `agent-os/skills/be-auto-implement/SKILL.md` |
+| New/changed **route or endpoint** (`*.routes.ts`) | **route-change** chain (steps: `chains.json`) | `agent-os/commands/be-route-complete.md` |
 | Route params, public ids, statuses, headers, list-query | be-api-contract-guard | `agent-os/skills/be-api-contract-guard/SKILL.md` |
-| New/changed **schema or table** (`*.schema.ts`) | be-schema-generator → be-sql-design-guard → be-db-migration-maintainer → be-rls-tenant-isolation-guard | `agent-os/skills/be-schema-generator/SKILL.md` |
+| New/changed **schema or table** (`*.schema.ts`) | **schema-change** chain (steps: `chains.json`) | `agent-os/commands/be-schema-complete.md` |
 | SQL migration (`migrations/*.sql`) | be-db-migration-maintainer | `agent-os/skills/be-db-migration-maintainer/SKILL.md` |
-| New **domain or sub-domain** scaffold | be-domain-generator | `agent-os/skills/be-domain-generator/SKILL.md` |
-| **Events / queues / workers** | be-workers-events → be-test-generator | `agent-os/skills/be-workers-events/SKILL.md` |
+| New **domain or sub-domain** scaffold | **new-domain** chain (steps: `chains.json`) | `agent-os/commands/be-new-domain.md` |
+| **Events / queues / workers** | **worker-change** chain (steps: `chains.json`) | `agent-os/commands/be-worker-complete.md` |
 | Money/state **idempotent write**, Stripe mutation, idempotency middleware | be-idempotency-guard | `agent-os/skills/be-idempotency-guard/SKILL.md` |
 | RLS / tenant isolation, DB context wrappers, worker DB access | be-rls-tenant-isolation-guard | `agent-os/skills/be-rls-tenant-isolation-guard/SKILL.md` |
 | **Seed** data (`seed/**`) alignment | be-seed-maintainer | `agent-os/skills/be-seed-maintainer/SKILL.md` |
@@ -36,7 +36,7 @@ Behaviour: infer sensible defaults from the codebase rather than asking, and run
 | Middleware, infra or security config | be-production-hardening-guard | `agent-os/skills/be-production-hardening-guard/SKILL.md` |
 | **A release, a production deploy, or "ready for production"** — the plan the user approves, then the Release PR, the approved deploy and the live check (`/be-release`) | be-path-to-production | `agent-os/skills/be-path-to-production/SKILL.md` |
 | "Review docs" / "audit documentation", or after a large docs reorganization | be-docs-audit | `agent-os/skills/be-docs-audit/SKILL.md` |
-| Port a Supabase Edge Function (manual only: `/be-supabase-porting`) | be-supabase-porting | `agent-os/skills/be-supabase-porting/SKILL.md` |
+| Port a Supabase Edge Function (manual only — invoke the skill by name; there is no command file) | be-supabase-porting | `agent-os/skills/be-supabase-porting/SKILL.md` |
 | Merge / production-deploy review posture (`.github/rulesets/*.json`, `.github/environments/production.json`) | `pnpm github:tool:governance-mode` (no skill) | `docs/deployment/ci-cd/branch-protection.md` |
 | Product slug, image names, branches, hosted env mapping (no new `meepzo-be` literals) | `be-project-identity.mdc` + `pnpm tool:generate-project-identity` | `agent-os/rules/be-project-identity.mdc` |
 | "Which skill applies?" / full catalog | be-skill-index | `agent-os/skills/be-skill-index/SKILL.md` |
@@ -45,7 +45,7 @@ Behaviour: infer sensible defaults from the codebase rather than asking, and run
 | Get a PR merge-ready (CI + review loop) | be-pr-babysit | `agent-os/skills/be-pr-babysit/SKILL.md` |
 | Split a branch/large change into reviewable PRs | be-split-to-prs | `agent-os/skills/be-split-to-prs/SKILL.md` |
 | **Plan an iteration** — "plan iteration <name>": no code; the drop in `intake-files/` → `KICKOFF.md` (plan + ROUTE ledger) + `plans/` | be-iteration-planning | `agent-os/skills/be-iteration-planning/SKILL.md` |
-| **Implement an iteration** — "kickoff", "kickoff iteration <name>", "start implementing <iteration>": one ROUTE row at a time, `AS-BUILT.md` | be-kickoff-iteration (after be-iteration-planning's approval) | `agent-os/skills/be-kickoff-iteration/SKILL.md` |
+| **Implement an iteration** — "kickoff", "kickoff iteration <name>", "start implementing <iteration>": one ROUTE row at a time (parallel lanes only under a `/goal` or the user's go), `AS-BUILT.md` | be-kickoff-iteration (after be-iteration-planning's approval) | `agent-os/skills/be-kickoff-iteration/SKILL.md` |
 
 ## Orchestration manifests
 

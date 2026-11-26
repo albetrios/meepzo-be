@@ -26,8 +26,9 @@ guardrails are unchanged — this rule narrows *routine* confirmation, not safet
 
 The iteration skills are a deliberate exception: **be-iteration-planning** stops after
 every step of its procedure (its output is a plan the user approves before any code), and
-**be-kickoff-iteration** stops for the user's review after every ROUTE row and before any scope
-change. Each starts by confirming the iteration. Keep those stops.
+**be-kickoff-iteration** stops for the user's review after every ROUTE row — unless a `/goal` or the
+user's go is set (be-kickoff-iteration › Parallel lanes) — and before any scope change. Each starts
+by confirming the iteration. Keep those stops.
 
 ## Do these as part of every change (never ask)
 
@@ -41,9 +42,11 @@ change. Each starts by confirming the iteration. Keep those stops.
    errors/success). Do not ask.
 4. **Docs** — keep TSDoc on new exports and any affected `docs/**` in sync via
    `agent-os/skills/be-docs-maintainer/SKILL.md`. Do not ask "Should I update the docs?".
-5. **Lint & types** — fix all Biome + TypeScript issues in touched files
-   (`agent-os/skills/be-code-smells-and-best-practices/SKILL.md`) so `pnpm lint` and
-   `pnpm typecheck` are clean before responding. Do this silently.
+5. **Lint & types — the gate cadence (the one policy; other skills and rules point here)** — fix
+   Biome + TypeScript issues in touched files as you go
+   (`agent-os/skills/be-code-smells-and-best-practices/SKILL.md`). Run `pnpm validate` once per
+   chain step or iteration row, and lint + typecheck before claiming done — never after every
+   edit. Pre-commit and CI are the backstop. Do this silently.
 6. **Infer sensible defaults** — for slight ambiguity (e.g. "add a settings field"),
    apply the intake doc's default assumptions and proceed; only stop when a field is
    genuinely unresolvable or a destructive case applies.

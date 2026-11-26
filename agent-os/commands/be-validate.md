@@ -1,5 +1,5 @@
 ---
-description: Run the local validate gate (Biome lint + format + typecheck) and fix issues you introduced
+description: Run the local validate gate (Biome lint + format + typecheck + markdown lint) and fix issues you introduced
 argument-hint: "[--affected] — show what git push will run and which tests the selection picks, and why"
 allowed-tools: Bash(pnpm validate*), Bash(pnpm lint*), Bash(pnpm typecheck*), Bash(pnpm format*), Bash(pnpm test:affected*)
 ---
@@ -11,7 +11,7 @@ each with why. Change nothing, then stop.
 
 Without an argument:
 
-Run `pnpm validate` (Biome lint + format check + TypeScript typecheck).
+Run `pnpm validate` (Biome lint + format check + TypeScript typecheck + markdown lint, `docs:lint`).
 
 If it passes, report green and stop.
 

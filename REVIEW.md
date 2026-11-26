@@ -51,8 +51,8 @@ Every reviewer — the `/be-pre-merge-review` agents, `/code-review`, a review s
 each finding on one line, in this shape, so one report can merge them:
 
 ```markdown
-- **major** · `src/domains/billing/sub-domains/invoices/invoices.repository.ts:142` · RLS — the refund
-  update runs on the GUC-less pool, so another organization's invoice can be refunded → fix: be-rls-tenant-isolation-guard
+- **major** · `src/domains/billing/sub-domains/subscription/subscription.repository.ts:142` · RLS — the
+  cancel update runs on the GUC-less pool, so another organization's subscription can be cancelled → fix: be-rls-tenant-isolation-guard
 ```
 
 - **Severity** — one of this file's four: `critical`, `major`, `minor`, `nit`. No other scale

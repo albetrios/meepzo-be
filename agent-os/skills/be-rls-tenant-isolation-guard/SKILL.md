@@ -1,6 +1,6 @@
 ---
 name: be-rls-tenant-isolation-guard
-description: Enforces Postgres Row-Level Security and tenant-isolation correctness in meepzo-be — every tenant-owned table ENABLE + FORCE RLS with an organization-scoped policy carrying both USING and WITH CHECK, the app.current_organization_public_id GUC set on every query path, workers using context wrappers (never calling getRequestDatabase), and tenant jobs carrying organizationPublicId. Use when adding or changing a *.schema.ts table, a migration touching RLS, a database context wrapper, tenant middleware, or any worker/processor that reads tenant data.
+description: Enforces Postgres Row-Level Security and tenant-isolation correctness in meepzo-be — every tenant-owned table ENABLE + FORCE RLS with an organization-scoped policy carrying both USING and WITH CHECK, the app.current_organization_public_id GUC set on every query path, workers using context wrappers (never calling getRequestDatabase), and tenant jobs carrying organizationPublicId. Use when adding or changing a *.schema.ts table, a migration touching RLS, a database context wrapper, or any worker/processor that reads tenant data.
 trigger: src/infrastructure/database/contexts/**, src/domains/**/*.worker.ts
 triggerNote: DB context wrappers, workers, and RLS migrations — tenant isolation
 indexNote: Postgres RLS + tenant isolation (FORCE RLS, organization GUC, worker context wrappers)
@@ -26,7 +26,7 @@ The single most failure-prone, security-critical surface in meepzo-be: a missed 
 
 ## When this guard triggers
 
-`src/domains/**/*.schema.ts` · `migrations/*.sql` (RLS DDL) · `src/infrastructure/database/contexts/**` · `src/infrastructure/database/utils/force-rls-tables.constants.ts` · `src/shared/middlewares/tenant/**` · `src/infrastructure/queue/worker-runtime/worker-processor.util.ts` · `src/domains/**/workers/**`, `*.worker.ts`, `*.processor.ts`.
+`src/domains/**/*.schema.ts` · `migrations/*.sql` (RLS DDL) · `src/infrastructure/database/contexts/**` · `src/infrastructure/database/utils/force-rls-tables.constants.ts` · `src/infrastructure/queue/worker-runtime/worker-processor.util.ts` · `src/domains/**/workers/**`, `*.worker.ts`, `*.processor.ts`.
 
 ## Enforcement checklist
 

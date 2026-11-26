@@ -39,9 +39,11 @@ needs the user, then continue or change.
    records a Baseline only if the user names one, `pnpm iteration:baseline`; Step 5 is the route review, one sub-domain at a
    time) → approval → **be-kickoff-iteration**
    (one ROUTE row at a time, `AS-BUILT.md`) → close → freeze. Both skills stop after each of their
-   own steps; keep those stops.
+   own steps; keep those stops — unless a `/goal` or the user's go is set for the kickoff
+   (be-kickoff-iteration › Parallel lanes).
 6. **README values change only through the commands** — `pnpm iteration:status`,
    `pnpm iteration:baseline`, `pnpm iteration:intake` — never by editing the README. The one
    exception is the Summary line, written by hand after `pnpm iteration:new`.
 
-Never push, open a PR or merge — the user raises PRs.
+Never push, open a PR or merge, unless the user asks: then push last, once, after the full gates
+(be-kickoff-iteration › Parallel lanes rule 12). The user raises PRs.

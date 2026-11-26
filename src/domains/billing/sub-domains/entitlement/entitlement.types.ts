@@ -11,6 +11,26 @@ import type {
 } from './entitlement.constants.js';
 
 /**
+ * One plan gate a write route declares (change-plan-gates RG1) — typed from the registry, so an
+ * unknown key fails to compile: `read_only` (the one route guard refuses a read-only organization,
+ * `403 organization_read_only`), `feature:<switch key>` (a plan feature switch the route's work
+ * needs) or `limit:<limit key>` (a plan limit it counts against).
+ */
+export type PlanGate =
+  | 'read_only'
+  | `feature:${EntitlementSwitchKey}`
+  | `limit:${EntitlementLimitKey}`;
+
+/**
+ * A write route's plan-gate declaration (change-plan-gates RG1) — `config.planGate` on every
+ * non-`GET` route: the gates it meets, or the one-line reason it meets none (`open`). Exactly one
+ * of the two.
+ */
+export type PlanGateDeclaration =
+  | { gates: readonly [PlanGate, ...PlanGate[]]; open?: never }
+  | { open: string; gates?: never };
+
+/**
  * Where a resolved entitlement value came from (change-plan-gates EN2, P19) — the merge order:
  * `override` (an active organization override set it) → `plan` (the plan row carried it) →
  * `default` (the registry default filled it).

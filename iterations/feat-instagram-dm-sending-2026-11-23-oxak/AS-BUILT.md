@@ -428,6 +428,9 @@ RED (the owner's answers during the build): [P140](plans/decisions.md) (every wo
 
 ## Owner items
 
+The short list at the freeze — deferred work, open questions, deploy steps and the meepzo-fe sibling work — is
+[plans/pending-and-deferred.md](plans/pending-and-deferred.md) (2026-11-26).
+
 Open questions for the owner, collected from the build's lanes, the AMBER and RED rows of
 [plans/decisions.md](plans/decisions.md) and the differences above. None blocks the merge; each is a decision or a
 deploy step.

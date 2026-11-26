@@ -333,7 +333,7 @@ sequenceDiagram
 
 ### Trigger
 
-A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled (past its period end) while `LAPSED_PLAN_READ_ONLY_ENABLED` is on (owner decision D3, 2026-10-17; **on by default** since routes-final BL4 — Free never ends, so an organization that never paid is never read-only). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; a product write guard checks it with `SubscriptionService.assertOrganizationWritable` — the app domain's `app-plan-access.ts` preHandler, on the automation writes only (`POST /app/automations`, `PATCH` and `DELETE /app/automations/{automation_id}`; launch D27).
+A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled (past its period end) while `LAPSED_PLAN_READ_ONLY_ENABLED` is on (owner decision D3, 2026-10-17; **off by default** since change-plan-gates P5 — Free never ends, so an organization that never paid is never read-only). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; the one read-only plan guard checks it — built by the entitlement module (`entitlement-plan-guard.util.ts`) and attached by the one route hook in `src/routes.ts` to every write declaring `config.planGate` `read_only`, which today is the automation go-live (`POST /app/automations/{automation_id}/go-live`, route 32) and the broadcast send (`POST /app/broadcasts/{broadcast_id}/send`, route 75) only (oxak P10, superseding launch D27's create / edit / delete; change-plan-gates P9, RG3). Drafts, edits, pause, duplicate and delete stay open; turning a PRO part on answers `plan_lacks_feature`, not `organization_read_only`.
 
 ### Sequence
 
@@ -341,7 +341,8 @@ A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled
 sequenceDiagram
   participant Client
   participant Ctx as AuthMeContextService
-  participant Guard as product write guard (preHandler)
+  participant Guard as plan guard (preHandler, read_only routes)
+  participant Ent as EntitlementService
   participant Sub as SubscriptionService
   participant DB as Postgres
   Client->>Ctx: GET /auth/me/context
@@ -349,13 +350,15 @@ sequenceDiagram
   Sub->>DB: organization + current subscription + its plan + the Free plan (one query, the context's own transaction)
   Sub-->>Ctx: active | grace (grace_ends_at) | read_only (grace_ends_at)
   Ctx-->>Client: 200 active_organization.plan_access
-  Client->>Guard: POST/PUT/PATCH/DELETE (a guarded product route)
-  Guard->>Sub: assertOrganizationWritable(org claim)
+  Client->>Guard: POST go-live / broadcast send (declares read_only)
+  Guard->>Ent: resolve(org claim)
+  Ent->>Sub: getPlanAccess (VERIFIED scope)
   Sub->>DB: the same one query
+  Ent-->>Guard: snapshot (state, grace_ends_at, every key)
   alt read_only
-    Sub-->>Client: 403 error.reason organization_read_only
+    Guard-->>Client: 403 error.reason organization_read_only (buildPlanRefusal)
   else active or grace
-    Guard->>Guard: route permission gate → idempotency claim → handler
+    Guard->>Guard: request.entitlementSnapshot → route permission gate → idempotency claim → handler
   end
 ```
 
@@ -365,8 +368,8 @@ sequenceDiagram
 - **The entitlement** (routes-final BL2): the state plus the plan whose features apply and its typed features — the one plan read every decision uses. **Free never ends:** no subscription, the Free plan, an unpaid row that never earned its plan (INCOMPLETE, PAUSED) or an expired checkout → `active` on Free. ACTIVE / TRIALING on a paid plan → `active` on it (`trial_ends_at` while TRIALING).
 - **The grace:** a dunning paid subscription (PAST_DUE / UNPAID) — `grace` until `current_period_end + BILLING_DUNNING_GRACE_DAYS`, then `read_only` on Free's features; a cancelled paid plan — `active` until its `current_period_end`, then `read_only` with no grace ("plan ended"). `grace_ends_at` is the moment read-only began.
 - **Where the rows change (the Stripe webhook, routes-final § 8.D BL22):** an unpaid trial end and a scheduled move to Free end the Stripe row and insert a local `ACTIVE` Free row in the same commit (`active` on Free); a paid schedule's flip moves `plan_id` and clears the schedule; a cancelled paid plan ends with no Free row (`read_only` from its period end). Each change of the entitlement is announced once after the commit as `subscription.plan_state_changed`.
-- **Only the guarded product writes close.** Reads stay open, and so do billing, auth, user, tenancy and upload — a read-only organization can still pay, sign in, manage its team and export its data. Nobody is suspended and no data is deleted. PERSONAL organizations are always `active`.
-- The write guard runs before the route's permission gate and the idempotency claim, so a refused write holds no idempotency key.
+- **Only the two `read_only` writes close** (go-live and broadcast send). Reads stay open, and so do billing, auth, user, tenancy and upload — a read-only organization can still pay, sign in, manage its team and export its data. Nobody is suspended and no data is deleted. PERSONAL organizations are always `active`.
+- The plan guard runs first in the route's `preHandler` list — after authentication, before the route's permission gate and the idempotency claim — so a refused write holds no idempotency key (P4). A passing guard leaves the resolved snapshot on `request.entitlementSnapshot` for the controller to pass on (P24).
 
 ### Failure modes
 

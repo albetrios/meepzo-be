@@ -12,9 +12,9 @@ snapshots; the frontend's half of this list is
       grace, then read-only; the owner and admins are never suspended and no data is deleted.
       **Built, switched off:** behind `LAPSED_PLAN_READ_ONLY_ENABLED` (default `false`) — a TEAM
       organization without a paid plan gets 14 days from its creation (or
-      `BILLING_DUNNING_GRACE_DAYS` after a lapsed subscription's period), then every write behind
-      the product write guard (`SubscriptionService.assertOrganizationWritable`) answers 403
-      `organization_read_only`; `GET /auth/me/context` reports `active_organization.plan_access`
+      `BILLING_DUNNING_GRACE_DAYS` after a lapsed subscription's period), then every write that
+      declares the `read_only` plan gate (go-live and broadcast send, behind the entitlement
+      module's one plan guard) answers 403 `organization_read_only`; `GET /auth/me/context` reports `active_organization.plan_access`
       ([unpaid-organization-read-only-flow](../../src/FLOWS.md#unpaid-organization-read-only-flow)).
       It stays off until organizations can pay — on now, an unpaid organization would have no way
       out. Tick this when the flag is on in production. Switching it on turns every unpaid

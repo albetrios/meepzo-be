@@ -33,3 +33,12 @@ Every job a registered queue runs declares, so the coverage test fails on a forg
 | --- | --- | --- | --- | --- | --- |
 | WC-1–WC-7 | every job | where the gate is declared | 12 paid jobs in a hand-kept test helper; other jobs undeclared | every job declares in its queue's worker-registry entry, read by the coverage test | BRIEF:L31, L116, P33 |
 | WC-5, WC-6 | past comments read, segment count | who answers the switch | the piece reads the plan directly | the piece asks the module (`can`) | BRIEF:L41 |
+
+## Built
+
+| # | Built as | Commit | AS-BUILT |
+| --- | --- | --- | --- |
+| WC-1–WC-4 | `SEND_CLAIM_PLAN_GATE` on the 10 send-claim jobs (`instagram-send-lane-turn`, `instagram-send-fast-message`, `retry-failed`, `intake-messages`, `intake-live`, `intake-comments`, `intake-tag-events`, `missed-comment-check`, `broadcast-audience`, `repair-broadcast-start`) | `d5a07bc` | row 8 |
+| WC-5 | `automation-backfill-read` → `feature:past_comments`; checks through `can()` | `d5a07bc`, `fbb87ce` | rows 6, 8 |
+| WC-6 | `segment-count` → `feature:segments`; checks through `can()` | `d5a07bc`, `fbb87ce` | rows 6, 8 |
+| WC-7 | the other 80 jobs `open` (`JOB_PLAN_GATE_OPEN_REASON`) in `worker-registration.registry.ts` › `jobPlanGates` | `d5a07bc` | row 8 |

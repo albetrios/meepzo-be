@@ -9,7 +9,7 @@ Baseline: none · KICKOFF.md approved 2026-11-26 (I-D19) · kicked off 2026-11-2
 
 ## Revisions to upcoming rows
 
-- none
+- Paused before R1 by the user (I-D20): the rename's dry run was shown; nothing applied. Resume at R1.
 
 ## Summary
 

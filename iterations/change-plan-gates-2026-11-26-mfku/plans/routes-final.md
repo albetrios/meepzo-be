@@ -21,8 +21,8 @@ Each part builds on the ones above it.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **final (rev 1, confirmed 2026-11-26)** |
-| 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **rev 1 — awaiting your OK** |
-| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | draft |
+| 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **final (rev 1, confirmed 2026-11-26)** |
+| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | **rev 1 — awaiting your OK** |
 | 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | draft |
 | 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | draft |
 
@@ -263,7 +263,7 @@ None.
 
 ---
 
-## 3. Route plan-gate declaration and the one guard — rev 1 (2026-11-26) — cross-cutting; awaiting your OK
+## 3. Route plan-gate declaration and the one guard — final (rev 1, confirmed 2026-11-26) — cross-cutting
 
 Code: no single folder. The declaration type sits beside the other route-config fields (`src/fastify.d.ts`),
 the guard is built by the entitlement module (part 1) and registered once in `src/routes.ts`, and each
@@ -283,16 +283,14 @@ reads the declarations, and the coverage test reads the live routes instead of t
 | RG1 | **The declaration is a typed field of the route config**, `planGate`, beside `idempotencyRequired`. Today the gates are written only in a test helper (`src/tests/helpers/route-plan-gate-model.ts`, 128 entries). After: `planGate` is either `{ gates: [...] }` or `{ open: '<one line>' }`, the shape the model already uses (reused). A gate is `read_only`, `feature:<switch key>` or `limit:<limit key>`, typed from the registry (part 1), so an unknown key fails to compile. The model's names map one to one: `read_only_guard` → `read_only`, `account_limit` → `limit:channel_accounts_max`, `seat_limit` → `limit:seats`, `month_limit` → `limit:message_month_limit`. |
 | RG2 | **Shared open reasons move with it.** The model's reason constants (identity, user, paying, team, removing, draft, Meta callback, contact, account) move into the entitlement module beside the registry, so a route file and the coverage test cite the same words. |
 | RG3 | **One guard, attached by one route hook.** Today `createAppPlanAccessPreHandler` (app) is built in `app.routes.ts` and hand-placed first on 2 routes. After: the entitlement module builds the guard, and `src/routes.ts` registers one route hook after the domain containers and before the domain route plugins. For every route declaring `read_only`, the hook puts the guard **first** in the route's pre-handlers, so the order stays authenticate → plan guard → role permission → idempotency claim (the idempotency plugin still appends its claim last) (P4). The app's hand-made guard and its wiring are removed. |
-| RG4 | **The guard enforces `read_only` only** *(pending your answer, 3.2 Q-RG1)*. `feature:` and `limit:` declarations are recorded and checked by the coverage test, but enforced where they're used: services call `can()` / `limit()` (parts 4, 5), and counters keep their locks (P23). Those checks need the request body (which PRO parts a save turns on) or a transaction, and moving them ahead of the permission check or validation would change which error a caller sees (K1). Other option: the guard also enforces the unconditional switch gates (create broadcast, the 3 segment writes, past comments) before the permission check. |
+| RG4 | **The guard enforces `read_only` only** (P29). `feature:` and `limit:` declarations are recorded and checked by the coverage test, but enforced where they're used: services call `can()` / `limit()` (parts 4, 5), and counters keep their locks (P23). Those checks need the request body (which PRO parts a save turns on) or a transaction, and moving them ahead of the permission check or validation would change which error a caller sees (K1). Other option: the guard also enforces the unconditional switch gates (create broadcast, the 3 segment writes, past comments) before the permission check. |
 | RG5 | **The guard hands its snapshot on** (P24). On a route the guard runs on, it resolves once and attaches the snapshot to the request; the controller passes it to the service, so go-live and broadcast send do one plan read (today the guard, the switch check and the month-limit read each read plan access). Routes without the guard resolve once in their service. |
 | RG6 | **The coverage test reads the live routes.** Today it parses `docs/routes.txt` against the hand-kept model, and only the read-only check registers real routes. After: it builds the app with the existing test app builder, collects every route's `planGate` through a route hook, and fails on a write with no declaration, an empty or multi-line open reason, or a gate key not in the registry; the `read_only` set equals the routes the guard attached to. The route half of the hand-kept model is deleted (its job half moves in part 6). |
 | RG7 | **The order test comes first** (R2, P4). Before anything moves, a test pins the pre-handler order on go-live and broadcast send: plan guard → role permission → idempotency claim. It passes on today's code and must still pass after RG3. |
 
 ### 3.2 Open questions
 
-| # | Question | Recommendation | Other option |
-| --- | --- | --- | --- |
-| Q-RG1 | Does the one guard enforce more than `read_only`? (RG4) | **`read_only` only**; feature and limit gates are declared, and enforced where used | the guard also enforces the unconditional switch gates before the permission check, which changes which 403 a caller without permission sees |
+None. Q-RG1 was answered by P29: the guard enforces `read_only` only.
 
 ### 3.3 Tables and relations
 
@@ -374,7 +372,94 @@ None.
 
 ---
 
-## 4. App gate users — draft
+## 4. App gate users — rev 1 (2026-11-26) — seven sub-domains, no new nested ones; awaiting your OK
+
+Code: the app sub-domains that read plan access today: `automation/` (with the run engine and past-comments
+read), `broadcast/` with `broadcast-segment/`, `channel-account/` (with its plan-stop service),
+`channel-connection/`, `instagram-account-settings/` and `instagram-sending/` (the month counter, the send gate
+and the usage meter).
+
+4.1 Decisions · 4.2 Open questions · 4.3 Tables and relations · 4.4 Permissions · 4.5 Common to every route ·
+4.6 Objects returned · 4.7 Routes · 4.8 Request details · 4.9 Errors · 4.10 Rules worth knowing ·
+4.11 Code changes · 4.12 Nested sub-domains.
+
+Every app read of plan access moves to the entitlement module (K3). The checks stay where they are and do what
+they do today; only the question ("ask the module") and the refusal body ("one builder") change.
+
+### 4.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| AP1 | **Every app plan read goes through the module.** Today 8 app call sites read `getPlanAccess` directly: the automation's `readPlanSwitches` (save, read, the reply-like-person default), the run engine's switch read per event, the channel account's `applyOrganizationPlanStops`, weekly summary, `readFeatureInputs` and `readAccountsMax`, the connection's account pick and connect, the usage meter, the month count's `readMonthLimit`, the plan-stop service, and the reply lane's reply-like-person check in the app container. After: each resolves **once** per request or job (P24) and reads `can()` / `limit()` from the snapshot; the plan-change follow-up job reads through the module too. |
+| AP2 | **The channel feature check stays the composer** (P20). Its order (channel lacks it → Meta permission not granted → plan lacks it → not offered) and AC-2.8 are untouched; only its plan step becomes `can()`, and the plan refusal comes from `buildPlanRefusal`. The three channel reasons (`channel_lacks_feature` 422, `permission_not_granted` 409, `feature_not_offered` 422) are channel facts, not plan refusals, and stay in app. |
+| AP3 | **Automation save refuses through the builder.** Today a save that turns a PRO part on without the switch throws the automation's own `planLacksFeatureError`. After: the same `403 plan_lacks_feature` with `feature` and `upgrade_required`, from `buildPlanRefusal`. The run engine keeps **skipping** an off step silently (the downgrade rule) and asks `can()`. |
+| AP4 | **Counted limits keep their locks** (P8, P23). The send gate's month guard (advisory lock, lane locks, the counter's add inside the claim) is unchanged and reads its ceiling with `limit('message_month_limit')` before the claim, as today; its refusal `409 message_month_limit_reached` comes from the builder and gains `limit`, `used`, `resets_on` (P6). The account cap keeps its advisory lock and count, reads `limit('channel_accounts_max')`, and refuses `409 plan_account_limit` through the builder. |
+| AP5 | **Plan stops and the usage meter read the snapshot.** The plan-stop service maps `read_only` to `plan_ended` from the snapshot's state, as today; `GET /app/usage` serializes one snapshot (no output change). |
+| AP6 | **Free's new switches need no code** (part 2): segment and broadcast checks read the plan values. |
+
+### 4.2 Open questions
+
+None: every decision moves an existing check onto the module without changing what it answers.
+
+### 4.3 Tables and relations
+
+No change. Read for context: `app.message_month_counts` (the month counter, lane C) and the channel accounts (the account cap's count).
+
+### 4.4 Permissions
+
+None change.
+
+### 4.5 Common to every route
+
+As each sub-domain has it today; the plan gate declarations are part 3's.
+
+### 4.6 Objects returned
+
+| Object | Change |
+| --- | --- |
+| Plan refusal on the 13 gated app writes | one builder (part 1, EN5); the month refusal gains `limit`, `used`, `resets_on` (P6) |
+| Usage (`GET /app/usage`) | none |
+
+### 4.7 Routes
+
+The 13 gated app writes are part 3's routes 1–13 (their declarations are listed there); `GET /app/usage` is
+read-only and unchanged. No route is added, removed or moved.
+
+### 4.8 Request details
+
+None change.
+
+### 4.9 Errors
+
+| Reason | Status | Routes (part 3 numbering) | Change |
+| --- | --- | --- | --- |
+| `organization_read_only` | 403 | 4, 6 | built by the module |
+| `plan_lacks_feature` | 403 | 1, 2, 4, 5, 6, 7, 8, 9, 13 | built by the module; Free no longer gets it on 5–9 for `broadcasts` / `segments` (part 2) |
+| `message_month_limit_reached` | 409 | 3, 4, 6, 10 | built by the module; gains `limit`, `used`, `resets_on` (P6) |
+| `plan_account_limit` | 409 | 11, 12 | built by the module |
+| `channel_lacks_feature` 422 · `permission_not_granted` 409 · `feature_not_offered` 422 | — | 2, 4, 13 | unchanged; stay in app (AP2) |
+
+### 4.10 Rules worth knowing
+
+- A refusal that isn't about the plan (a channel fact, a Meta permission) never comes from the module.
+- A switch turned off stops new use; what already exists stays saved, and the run engine skips the step (downgrade rule).
+- Sends never gain a plan read: lane turns stay held by the account's stored plan stop (P12).
+
+### 4.11 Code changes
+
+| # | Change |
+| --- | --- |
+| APC1 | AP1: the 8 app call sites and the plan-change follow-up read through `resolve` / `can` / `limit`; the app container wiring takes the entitlement service instead of the subscription service's plan read |
+| APC2 | AP2: the channel feature check's plan step calls `can()`; the plan refusal from the builder |
+| APC3 | AP3: the automation's `planLacksFeatureError` removed; save refuses through the builder; the run engine asks `can()` |
+| APC4 | AP4: the send gate and the account cap read `limit()` and refuse through the builder; locks and counter untouched |
+| APC5 | Tests: the existing integration and unit tests pass unchanged, plus body-shape assertions on every refusal; the month-cap DB tests, AC-22.4 and the account-race tests unchanged (BRIEF:L123); AC-2.8 unchanged |
+
+### 4.12 Nested sub-domains
+
+None added.
+
+---
 
 ## 5. Seats — draft
 

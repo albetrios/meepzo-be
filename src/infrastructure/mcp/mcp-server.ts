@@ -456,7 +456,10 @@ export async function registerMcpRouteHandlers({
   app.post(
     '/api/v1/mcp',
     {
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'the global-admin tool surface (super_admin) — no organization plan' },
+      },
       schema: {
         summary: 'MCP streamable HTTP (POST)',
         description:

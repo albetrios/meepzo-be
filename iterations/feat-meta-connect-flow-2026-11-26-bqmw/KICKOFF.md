@@ -53,7 +53,7 @@ and the contract is shaped so a Facebook Page is an addition, not a rewrite. The
 | R4 | 2 Channel account — routes-final § 2 (AC1–AC5; ACC1–ACC4): route 153, the named permission, per-account scopes in the check | sub-domain | R2 | `/be-build-requirement` | AC-3.1–AC-3.5 | — | done |
 | R5 | 3 Instagram account — routes-final § 3 (IG1, IG2, IG4, IG5; IGC1–IGC4): the probe stored, route 154, routes 6/7 show it | sub-domain | R1, R4 | `/be-build-requirement` | AC-4.1–AC-4.5 | — | done |
 | R6 | Background — the daily token check: unpicked clean-up (CN9, CNC7) and per-account scopes behind owner test O1 (CN10, AC5) | background | R2, R3 | `/be-worker-complete` | AC-1.9, AC-3.4 | — | done |
-| R7 | Flow and close — every outcome of routes-final 1.9 / 1.10 end to end; `docs/routes.txt`, OpenAPI, i18n, `plans/frontend-route-map.md` | flow | R3–R6 | `/be-build-requirement` | BRIEF-1–BRIEF-10 | — | open |
+| R7 | Flow and close — every outcome of routes-final 1.9 / 1.10 end to end; `docs/routes.txt`, OpenAPI, i18n, `plans/frontend-route-map.md` | flow | R3–R6 | `/be-build-requirement` | BRIEF-1–BRIEF-10 | — | done |
 
 ## 6. Requirements index
 

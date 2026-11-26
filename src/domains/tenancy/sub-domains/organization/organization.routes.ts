@@ -40,6 +40,7 @@ import {
   notificationPolicyIdParamsDto,
   updateOrganizationNotificationPolicyDto,
 } from './organization-notification-policy/organization-notification-policy.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Service collaborators required by the organization routes plugin. Includes
@@ -113,7 +114,13 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // without a cap an authenticated user could flood the endpoint. Merge rateLimit
         // into the existing config object rather than spreading STRICT_AUTHED_RATE_LIMIT at
         // the top level to preserve idempotencyRequired alongside the rate-limit config.
-        config: { idempotencyRequired: true, ...STRICT_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...STRICT_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'a new organization starts on Free — its plan gates what it does next',
+          },
+        },
         schema: {
           summary: 'Create organization',
           description:
@@ -131,7 +138,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // sec-r4-I2: organization-scoped mutation — cap per (organization, actor) so a
         // single member cannot churn organization metadata in a loop or starve
         // siblings, and a cross-tenant probe cannot exhaust the victim's bucket.
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Update organization',
           description:
@@ -156,7 +166,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // tier (5 req / 5 min keyed by actor) so a hijacked session cannot bulk
         // delete tenants. The keyGenerator is user-scoped (not organization-scoped) since
         // a delete burst targets multiple organizations by definition.
-        ...EXPENSIVE_AUTHED_RATE_LIMIT,
+        config: {
+          ...EXPENSIVE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete organization',
           description:
@@ -180,7 +193,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // sec-r4-I2: logo upload writes to S3 and rewrites the organization row; cap at
         // the organization-scoped tier so a hijacked session cannot mint unbounded
         // storage objects for one tenant.
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Upload organization logo',
           description:
@@ -198,7 +214,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       {
         // sec-r4-I2: same organization-scoped tier as upload — each call deletes an S3
         // object and rewrites the organization row.
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ORGANIZATION_UPDATE)],
         schema: {
@@ -247,7 +266,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       {
         // sec-r4-I2: organization-scoped settings mutation — bound per (organization, actor) so
         // policy churn or notification-config flapping cannot loop unbounded.
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Update organization settings',
           description:
@@ -298,7 +320,11 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // single Admin role-holder (or a hijacked session for one) cannot churn
         // unbounded API key rows. Parity with sec-r4-I2 / sec-r4-I3 on every
         // other organization-scoped mutation.
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Create API key',
           description:
@@ -315,7 +341,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       '/organization/api-keys/:api_key_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Update API key',
           description:
@@ -333,7 +362,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       '/organization/api-keys/:api_key_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.API_KEY_MANAGE)],
         schema: {
@@ -351,7 +383,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.API_KEY_MANAGE)],
-        ...STRICT_AUTHED_RATE_LIMIT,
+        config: {
+          ...STRICT_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Rotate API key',
           description:
@@ -401,7 +436,11 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         // with no enum constraint and no per-organization row cap, so without this
         // limiter an Admin-role-holder could churn policies and flap
         // downstream notification routing. Parity with sec-r4-I2.
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Create notification policy',
           description:
@@ -418,7 +457,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       '/organization/notification-policies/:notification_policy_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         schema: {
           summary: 'Update notification policy',
           description:
@@ -436,7 +478,10 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       '/organization/notification-policies/:notification_policy_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.NOTIFICATION_POLICY_MANAGE)],
         schema: {

@@ -14,6 +14,7 @@ import {
   updateMemberRoleDto,
 } from './member-role.dto.js';
 import { putMemberRolePermissionsDto } from './member-role-permission/member-role-permission.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** Services required to wire the member-role and role-permission routes. */
 export interface MemberRoleRoutesDeps {
@@ -74,7 +75,11 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         // sec-r4-I2 / sec-r4-I3 on every other organization-scoped mutation. The
         // sec-r4-D4 .limit(256) on `findByRoleId` already caps per-role read
         // memory; this caps the rate at which new rows can be created.
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ROLE_CREATE)],
         schema: {
@@ -91,7 +96,10 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
       '/organization/roles/:role_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ROLE_UPDATE)],
         schema: {
@@ -109,7 +117,10 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
       '/organization/roles/:role_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ROLE_DELETE)],
         schema: {
@@ -127,7 +138,11 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
       '/organization/roles/:role_id/restore',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor); T13: idempotent.
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ROLE_DELETE)],
         schema: {
@@ -160,7 +175,10 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
       '/organization/roles/:role_id/permissions',
       {
         // R4: organization-scoped admin mutation (full permission-set replace) — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.ROLE_UPDATE)],
         schema: {

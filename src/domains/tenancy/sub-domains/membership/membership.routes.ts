@@ -29,6 +29,7 @@ import { createMembershipController } from './membership.controller.js';
 import { createMembershipInvitationController } from './membership-invitation/membership-invitation.controller.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
 import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** Services required to wire the membership and membership-invitation routes. */
 export interface MembershipRoutesDeps {
@@ -104,7 +105,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor) alongside the
         // required idempotency key.
-        config: { ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config, idempotencyRequired: true },
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          idempotencyRequired: true,
+          planGate: { gates: ['limit:seats'] },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_CREATE)],
         schema: {
@@ -121,7 +126,10 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/organization/memberships/:membership_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['limit:seats'] },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE)],
         schema: {
@@ -139,7 +147,10 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/organization/memberships/:membership_id',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor).
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_DELETE)],
         schema: {
@@ -157,7 +168,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/organization/memberships/:membership_id/restore',
       {
         // R4: organization-scoped admin mutation — cap per (organization, actor); T13: idempotent.
-        config: { ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config, idempotencyRequired: true },
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          idempotencyRequired: true,
+          planGate: { gates: ['limit:seats'] },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_DELETE)],
         schema: {
@@ -174,7 +189,10 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/organization/memberships/:membership_id/invitation',
       {
         // sec-r4-I3: invitation revocation is an organization-scoped admin mutation.
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_DELETE)],
         schema: {
@@ -191,7 +209,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/organization/memberships/:membership_id/invitation/resend',
       {
         // T13: idempotent; strict cap — every resend sends an email.
-        config: { ...STRICT_AUTHED_RATE_LIMIT.config, idempotencyRequired: true },
+        config: {
+          ...STRICT_AUTHED_RATE_LIMIT.config,
+          idempotencyRequired: true,
+          planGate: { open: 'the invitation already holds its seat — a new email only' },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE)],
         schema: {
@@ -212,7 +234,10 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         // Without a cap, a session-token holder (or compromised script) could
         // loop the endpoint against arbitrary organization ids to probe membership
         // existence by status code. Cap at the moderate-authed tier (30/60s).
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Leave organization',
@@ -231,7 +256,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         // expensive-authed tier (5 req / 5 min) so a hijacked owner session
         // cannot pivot multiple tenants in rapid succession. Preserve
         // idempotencyRequired by merging into a single config object.
-        config: { idempotencyRequired: true, ...EXPENSIVE_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...EXPENSIVE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.TEAM },
+        },
         onRequest: [app.authenticate],
         // Effectively irreversible: a stolen owner access token alone must not be enough.
         preHandler: [requireRecentStepUpPreHandler],
@@ -251,7 +280,10 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/membership-invitations/:membership_invitation_id/preview',
       {
         // Route 118 (TN11): 30 a minute per IP; no captcha — nothing is said without the token.
-        ...INVITATION_PREVIEW_RATE_LIMIT,
+        config: {
+          ...INVITATION_PREVIEW_RATE_LIMIT.config,
+          planGate: { open: 'reads an invitation by its token — writes nothing a plan limits' },
+        },
         // Optional sign-in: a valid bearer is recognised, none (or a bad one) reads signed out.
         preHandler: [authenticateWhenBearerPresent],
         schema: {
@@ -273,7 +305,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         // sec-T4: accept requires authentication and (in the service) an invitee-email match —
         // anyone holding the invitation URL must not flip the victim's pending membership to active.
         // T13: idempotent.
-        config: { ...STRICT_PUBLIC_RATE_LIMIT.config, idempotencyRequired: true },
+        config: {
+          ...STRICT_PUBLIC_RATE_LIMIT.config,
+          idempotencyRequired: true,
+          planGate: { open: 'the invitation already holds its seat (seat_limit at the invite)' },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Accept invitation',
@@ -290,7 +326,11 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
       '/membership-invitations/:membership_invitation_id/decline',
       {
         // Launch D84 (3): bound to the invitee's verified email like accept; idempotent (T13).
-        config: { ...STRICT_PUBLIC_RATE_LIMIT.config, idempotencyRequired: true },
+        config: {
+          ...STRICT_PUBLIC_RATE_LIMIT.config,
+          idempotencyRequired: true,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Decline invitation',

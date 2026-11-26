@@ -28,7 +28,7 @@ function captureOnce({ source, pattern }: { source: string; pattern: RegExp }): 
 
 const flowdmPlansMigration = readMigration('20261124060244_billing_flowdm_plans.sql');
 const freeSwitchesMigration = readMigration(
-  '20261126140000_billing_free_plan_segments_broadcasts.sql',
+  '20261126150200_billing_free_plan_segments_broadcasts.sql',
 );
 
 /** Free's features as `20261124060244_billing_flowdm_plans.sql` wrote them (the `ELSE` branch). */
@@ -36,7 +36,7 @@ const flowdmFreeFeatures = JSON.parse(
   captureOnce({ source: flowdmPlansMigration, pattern: /ELSE '(\{.*\})'::jsonb/ }),
 ) as PlanFeatures;
 
-/** The switches `20261126140000_billing_free_plan_segments_broadcasts.sql` merges in. */
+/** The switches `20261126150200_billing_free_plan_segments_broadcasts.sql` merges in. */
 const mergedSwitches = JSON.parse(
   captureOnce({ source: freeSwitchesMigration, pattern: /\|\| '(\{.*\})'::jsonb/ }),
 ) as Partial<PlanFeatures['feature_switches']>;

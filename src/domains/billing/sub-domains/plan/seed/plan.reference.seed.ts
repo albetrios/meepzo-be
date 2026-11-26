@@ -29,7 +29,7 @@ function featureSwitches({ isProOn }: { isProOn: boolean }): PlanFeatures['featu
  *
  * @remarks
  * `broadcasts` and `segments` are on since iteration change-plan-gates (P13): migration
- * `20261126140000_billing_free_plan_segments_broadcasts.sql` writes the same two values into the
+ * `20261126150200_billing_free_plan_segments_broadcasts.sql` writes the same two values into the
  * stored Free, Starter, Growth and Pro rows, so a fresh database (this seed) and an existing one (the
  * migration) hold the same catalog — `plan-catalog-migration.unit.test.ts` pins the two together.
  */
@@ -63,7 +63,7 @@ export const STUDIO_PLAN_FEATURES: PlanFeatures = Object.freeze({
 /**
  * The product plan catalog `pnpm db:seed` installs — the same rows as migration
  * `20261124060244_billing_flowdm_plans.sql` (routes-final BLC6) as amended by
- * `20261126140000_billing_free_plan_segments_broadcasts.sql` (Free's `broadcasts` and `segments` on,
+ * `20261126150200_billing_free_plan_segments_broadcasts.sql` (Free's `broadcasts` and `segments` on,
  * change-plan-gates P13): Free, Creator and Studio active
  * (Creator and Studio at placeholder prices, P37), Starter, Growth and Pro off with Free's features
  * (P80, billing rows are never deleted). Members are unlimited on every plan (`included_seats` empty,

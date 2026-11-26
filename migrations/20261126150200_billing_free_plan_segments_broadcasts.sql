@@ -1,5 +1,5 @@
 -- Migration: billing_free_plan_segments_broadcasts
--- Created: 2026-11-26T14:00:00.000Z
+-- Created: 2026-11-26T15:02:00.000Z
 -- Reference: docs/reference/data/migrations.md
 --
 -- Free turns its `broadcasts` and `segments` switches on (iteration change-plan-gates-2026-11-26-mfku,

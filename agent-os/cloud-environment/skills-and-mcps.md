@@ -86,7 +86,7 @@ to which skill(s) to run (no duplicate invocations).
 | **Docs & narrative** | `be-docs-maintainer`, `be-overview-doc-maintainer`, `be-system-narrative-maintainer`, `be-tsdoc-export-guard` | `docs/**/*.md`, `src/**/*.overview.md`, public exports |
 | **Quality & CI** | `be-code-quality-guard`, `be-before-commit-guard`, `be-dependency-security`, `be-ci-investigation`, `be-pr-babysit` | Pre-commit, `package.json`, CI failures |
 | **Infra & setup** | `be-env-schema-add`, `be-production-hardening-guard`, `be-path-to-production` | `tooling/setup/**`, env schema, deploy readiness |
-| **Security & tenancy** | `be-rls-tenant-isolation-guard`, `be-idempotency-guard` | RLS, tenant middleware, idempotency |
+| **Security & tenancy** | `be-rls-tenant-isolation-guard`, `be-idempotency-guard` | RLS, database context wrappers, idempotency |
 | **Cursor built-ins (reference)** | `be-cursor-global-skills` | Editing `agent-os/skills`, rules, agents, hooks |
 
 Trigger map (file pattern → skill): [`agent-os/docs/skill-triggers.md`](../../agent-os/docs/skill-triggers.md).

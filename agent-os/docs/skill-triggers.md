@@ -10,10 +10,10 @@ When you edit a file matching a pattern below, invoke the listed skill(s). Gener
 
 | File pattern | Invoke skill(s) | Notes |
 | ------------ | --------------- | ----- |
-| `src/domains/**/*.routes.ts` | be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog → be-seed-maintainer (+ be-openapi-multilingual) | Adding or changing an API route end-to-end. |
+| `src/domains/**/*.routes.ts` | be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog → be-seed-maintainer → be-test-generator (+ be-openapi-multilingual) | Adding or changing an API route end-to-end. |
 | `src/domains/**/*.schema.ts` | be-schema-generator → be-sql-design-guard → be-db-migration-maintainer → be-rls-tenant-isolation-guard | Adding or changing a Drizzle schema / table end-to-end. |
 | `src/domains/**/events/**`, `src/domains/**/queues/**`, `src/domains/**/workers/**` | be-workers-events → be-test-generator → be-tsdoc-export-guard | Adding or changing events, queues, or workers. |
-| `src/domains/**/*.container.ts` | be-domain-generator → be-schema-generator → be-db-migration-maintainer → be-workers-events → be-route-schema-doc-guard → be-route-catalog → be-seed-maintainer → be-test-generator → be-tsdoc-export-guard → be-overview-doc-maintainer → be-system-narrative-maintainer | Scaffolding a whole new domain or sub-domain (the full DAG). |
+| `src/domains/**/*.container.ts` | be-schema-generator → be-sql-design-guard → be-db-migration-maintainer → be-rls-tenant-isolation-guard → be-domain-generator → be-workers-events → be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog → be-seed-maintainer → be-test-generator → be-tsdoc-export-guard → be-overview-doc-maintainer → be-system-narrative-maintainer | Scaffolding a whole new domain or sub-domain (the full DAG). |
 | `iterations/*/intake-files/**` | be-iteration-planning → be-kickoff-iteration | A design iteration: plan the drop in intake-files/ into KICKOFF.md + plans/ (no code), then implement the ROUTE one row at a time with AS-BUILT.md. |
 | `.husky/pre-commit`, `src/scripts/tooling/run-pre-commit-guard.ts` | be-before-commit-guard | The guard steps changed — or a commit failed: read the ✗ FAILED at step N/M line |
 | `.vscode/extensions.json`, `.vscode/settings.json` | be-ide-productivity-guard | Backend-relevant IDE tooling |
@@ -21,7 +21,7 @@ When you edit a file matching a pattern below, invoke the listed skill(s). Gener
 | `biome.json`, `.biomeignore`, `.husky/pre-commit`, `.husky/pre-push`, `tooling/validate/gates.ts`, `tooling/validate/run-gate.ts`, `tooling/ci/run-named-step.sh`, `.gitleaks.toml`, `.semgrepignore` | be-code-quality-guard | Lint/format/pre-commit/pre-push + branch-name policy |
 | `docs/**/*.md`, `.github/rulesets/*.json` | be-docs-maintainer | Hand-written docs — index + cross-links |
 | `docs/deployment/runbooks/production-go-live.md` | be-path-to-production | Or the user asks to release / deploy to production / path to production — the readiness plan the user approves, then the Release PR, the approved deploy and the live check |
-| `iterations/*/AS-BUILT.md` | be-kickoff-iteration | Iteration implementation — one ROUTE row at a time; every row's technical decisions go into AS-BUILT.md |
+| `iterations/*/AS-BUILT.md` | be-kickoff-iteration | Iteration implementation — one ROUTE row at a time (parallel lanes only under a /goal or the user's go); every row's technical decisions go into AS-BUILT.md |
 | `iterations/*/plans/**` | be-iteration-planning | Iteration plans — requirements and decisions, plus the route review in routes-final.md (Step 5); KICKOFF.md is written at Step 6 |
 | `migrations/*.sql` | be-db-migration-maintainer | Migration files (schema changes go via the schema-change chain) |
 | `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `patches/**`, `tooling/setup/agent/tool-versions.sh` | be-dependency-security | Zero-vuln dependency updates + agent tool pin bumps |

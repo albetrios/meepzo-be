@@ -118,7 +118,7 @@ skill confirms the iteration (eligible: `approved`, Baseline `none` or `done`/`f
 1. builds it through its driver, with its route-review section as the spec — a **NEW table** through the
    [staged-build prompt](../../getting-started/staged-build-prompt.md) (its Stage 1 is where you
    approve the table design, and its Stage 3 runs the tests the change selects); a **CHANGE table,
-   flow or background work** through `/be-build-requirement`;
+   flow or background work** through `/be-build-requirement` from the approved row (no draft review);
 2. verifies it (`pnpm validate`, the row's acceptance and tests — `pnpm test:select --run`);
 3. writes the row into `AS-BUILT.md` — planned, actually built, difference, why, decision, commit;
 4. checks the impact on upcoming rows — a **scope** change (a row added or removed, an acceptance
@@ -126,9 +126,11 @@ skill confirms the iteration (eligible: `approved`, Baseline `none` or `done`/`f
 5. stops for your review.
 
 At kickoff the skill also offers a `/goal` line whose condition is the iteration's Close. Set it to
-let the rows run on without a stop each: a row then ends with a one-line report, the plan's open
-decisions are taken as recommendations (logged AMBER in `plans/decisions.md`), the rows are
-reviewed at Close — and a scope change or a RED question still stops and asks.
+let the rows run on without a stop each (rows may then run in parallel lanes): a row then ends with
+a one-line report, a point `plans/routes-final.md` or the PRD left open is taken as the
+recommendation (logged AMBER in `plans/decisions.md`), the rows are reviewed at Close — and a
+conflict with what `plans/routes-final.md` states, a scope change or a RED question still stops
+and asks.
 
 **The plan proposes; agent-os decides.** The backend's agent-os — its skills, rules and agents — is
 the expert: whenever the plan and agent-os disagree, or anything is unclear, agent-os wins, and it may
@@ -142,8 +144,8 @@ where agent-os cannot, the row stops and asks before anything differs.
 
 ### Step 7 — Close
 
-The skill runs the repository's gates (`pnpm validate`, `pnpm ci:local`), `/be-pre-merge-review` as
-a review only, checks each criterion of the `/goal` (when one was set) with its evidence, fills `plans/acceptance.md`, writes the `AS-BUILT.md` summary (planned-not-built,
+The skill runs the Close gates (be-kickoff-iteration › Close), `/be-pre-merge-review` — a critical or
+major finding is fixed or accepted by you before `done` — checks each criterion of the `/goal` (when one was set) with its evidence, fills `plans/acceptance.md`, writes the `AS-BUILT.md` summary (planned-not-built,
 built-not-planned, follow-ups) and the frontend's route map `plans/frontend-route-map.md` (sections 1, 2
 and 4 by hand), then:
 

@@ -14,7 +14,7 @@
 | **Static slice (no full tests)** | `pnpm ci:quality` |
 | **PR template** | [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) |
 | **New work intake** | [requirement-intake.md](../getting-started/requirement-intake.md) |
-| **Severity** | **Blocker** = must fix before merge · **Major** = should fix or justify · **Nit** = optional polish |
+| **Severity** | [`REVIEW.md` › Severity definitions](../../REVIEW.md#severity-definitions) — **critical** · **major** · **minor** · **nit** (the one scale) |
 
 ```mermaid
 flowchart LR
@@ -28,11 +28,9 @@ flowchart LR
 
 ## Severity legend
 
-| Label | Meaning | Examples |
-| ----- | ------- | -------- |
-| **Blocker** | Merge must not proceed | Secret in diff, missing authz, worker uses request DB context, broken migration on hot table |
-| **Major** | Fix or document why not | Missing tests for new route, N+1 query, raw user-facing string, skill artifact drift CI would catch |
-| **Nit** | Nice to have | Naming polish, comment clarity, minor refactor outside PR scope |
+The scale and its meanings are [`REVIEW.md` › Severity definitions](../../REVIEW.md#severity-definitions):
+**critical** and **major** block the merge (fix, or the author accepts it explicitly with a reason);
+**minor** — fix or justify; **nit** — optional, at most two per review.
 
 ---
 
@@ -49,99 +47,99 @@ Check only what the PR touches. Skip categories marked **none** in the PR **Revi
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Controller thin | No Drizzle/DB in `*.controller.ts`; uses service + `requireAuth` / `getRequestIdentifier` | Blocker |
-| Service intent | Business logic in service; no `withTransaction` ownership in service (repos/infra coordinate transactions) | Major |
-| Repository boundary | DB only in `*.repository.ts`; services use same-domain repositories and other domains' services only | Blocker |
-| Import paths | No parent-relative `../` in `src/` or `tooling/` TypeScript; use `@/` / `@tooling/` aliases | Blocker |
-| Queue processors | Processors under `src/domains/**/workers/`, not `infrastructure/queue/processors/` | Blocker |
-| Pass-through facades | No controller → thin wrapper → service with no added value | Nit |
+| Controller thin | No Drizzle/DB in `*.controller.ts`; uses service + `requireAuth` / `getRequestIdentifier` | major |
+| Service intent | Business logic in service; a service may wrap a unit of work in `withTransaction`, but issues no raw SQL and owns no DB connection | minor |
+| Repository boundary | DB only in `*.repository.ts`; services use same-domain repositories and other domains' services only | major |
+| Import paths | No parent-relative `../` in `src/` or `tooling/` TypeScript; use `@/` / `@tooling/` aliases | minor |
+| Queue processors | Processors under `src/domains/**/workers/`, not `infrastructure/queue/processors/` | minor |
+| Pass-through facades | No controller → thin wrapper → service with no added value | nit |
 
 ### Naming and API style
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Full names | No `org`, `repo`, `req` (except Fastify `req`/`reply`) | Major |
-| Object params | Functions with 2+ inputs use a single options object (repos exempt) | Major |
-| Sub-domain paths | Folder names domain-prefixed (`organization-settings`, not `settings`) | Major |
-| Responses | `successResponse` / `paginatedResponse`; errors use typed errors + i18n keys | Major |
+| Full names | No `org`, `repo`, `req` (except Fastify `req`/`reply`) | minor |
+| Object params | Functions with 2+ inputs use a single options object (repos exempt) | minor |
+| Sub-domain paths | Folder names domain-prefixed (`organization-settings`, not `settings`) | minor |
+| Responses | `successResponse` / `paginatedResponse`; errors use typed errors + i18n keys | minor |
 
 ### Security
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Authorization | Routes use auth middleware + `requireOrganizationPermission` / `requireRole` where needed | Blocker |
-| Workers / RLS | No `getRequestDatabase()` in `*.worker.ts` / `*.processor.ts`; tenant jobs include `organizationPublicId` | Blocker |
-| Secrets | No `.env`, keys, or tokens in diff; Gitleaks clean | Blocker |
-| User-facing text | No raw strings in errors/success — translation keys in `src/shared/locales/en/` | Major |
-| Input validation | Zod DTO + `*.validator.ts` with `.safeParse()` | Major |
+| Authorization | Routes use auth middleware + `requireOrganizationPermission` / `requireRole` where needed | critical |
+| Workers / RLS | No `getRequestDatabase()` in `*.worker.ts` / `*.processor.ts`; tenant jobs include `organizationPublicId` | major |
+| Secrets | No `.env`, keys, or tokens in diff; Gitleaks clean | critical |
+| User-facing text | No raw strings in errors/success — translation keys in `src/shared/locales/en/` | minor |
+| Input validation | Zod DTO + `*.validator.ts` with `.safeParse()` | major |
 
 ### Performance and data access
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| N+1 | List endpoints batch or join efficiently | Major |
-| Indexes | New filters/sorts have supporting indexes in migration | Major |
-| Multi-write | Related writes use `withTransaction` | Major |
-| Caching | Permission/cache patterns reused where appropriate | Nit |
+| N+1 | List endpoints batch or join efficiently | major |
+| Indexes | New filters/sorts have supporting indexes in migration | major |
+| Multi-write | Related writes use `withTransaction` | major |
+| Caching | Permission/cache patterns reused where appropriate | nit |
 
 ### Database and migrations
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Migration safety | `IF NOT EXISTS` / reversible pattern; `pnpm db:migrate:lint` passes | Blocker |
-| Column types | `text` not `varchar(n)`; CHECK for length where needed | Major |
-| Hot tables | No blocking DDL without plan | Blocker |
-| Schema sync | Drizzle `*.schema.ts` matches `migrations/*.sql` | Blocker |
-| Soft-delete | Tenant tables use `deleted_at` where lifecycle doc expects it | Major |
+| Migration safety | `IF NOT EXISTS` / reversible pattern; `pnpm db:migrate:lint` passes | critical |
+| Column types | `text` not `varchar(n)`; CHECK for length where needed | minor |
+| Hot tables | No blocking DDL without plan | major |
+| Schema sync | Drizzle `*.schema.ts` matches `migrations/*.sql` | major |
+| Soft-delete | Tenant tables use `deleted_at` where lifecycle doc expects it | major |
 
 ### Routes and API surface
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Route catalog | `docs/routes.txt` updated (pre-commit/CI enforces) | Blocker |
-| OpenAPI | Route metadata in `*.routes.ts` Zod schemas + locale `openapi.json` when operations change | Major |
-| Versioning | Public routes under `/api/v1`; deprecation headers if applicable | Major |
-| Access documented | New routes match catalog access (public / authenticated / organization permission) | Major |
+| Route catalog | `docs/routes.txt` updated (pre-commit/CI enforces) | minor |
+| OpenAPI | Route metadata in `*.routes.ts` Zod schemas + locale `openapi.json` when operations change | minor |
+| Versioning | Public routes under `/api/v1`; deprecation headers if applicable | major |
+| Access documented | New routes match catalog access (public / authenticated / organization permission) | minor |
 
 ### Tests
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Coverage | New routes/behavior have unit and/or domain e2e tests | Major |
-| Layout | Tests under domain `__tests__/` per [be-testing-conventions](../../.cursor/rules/be-testing-conventions.mdc) | Major |
-| Determinism | No flaky timers/network without mocks | Major |
-| Factories | Reuse domain factories; no duplicate seed helpers | Nit |
+| Coverage | New routes/behavior have unit and/or domain e2e tests | major |
+| Layout | Tests under domain `__tests__/` per [be-testing-conventions](../../.cursor/rules/be-testing-conventions.mdc) | minor |
+| Determinism | No flaky timers/network without mocks | major |
+| Factories | Reuse domain factories; no duplicate seed helpers | nit |
 
 ### Workers and events
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Event bus vs BullMQ | In-process handlers don't fail HTTP; durable work on queues | Major |
-| Idempotency | Webhooks/billing/notify jobs safe on retry | Major |
-| DLQ | New queues wired with DLQ hooks in bootstrap | Major |
-| Registration | Handlers registered in correct path (global vs container DI) | Major |
+| Event bus vs BullMQ | In-process handlers don't fail HTTP; durable work on queues | major |
+| Idempotency | Webhooks/billing/notify jobs safe on retry | major |
+| DLQ | New queues wired with DLQ hooks in bootstrap | major |
+| Registration | Handlers registered in correct path (global vs container DI) | major |
 
 ### Environment and config
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Env schema | New vars in `env-schema.ts` + `.env.example` + sync script | Blocker |
-| Hosted envs | Maintainer runs `pnpm github:sync` when adding production secrets | Major |
+| Env schema | New vars in `env-schema.ts` + `.env.example` + sync script | major |
+| Hosted envs | Maintainer runs `pnpm github:sync` when adding production secrets | minor |
 
 ### Documentation
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Behavior docs | Canonical reference updated when behavior changes | Major |
-| Index | New `docs/**/*.md` listed in [docs/README.md](../README.md) or [deployment/README.md](../deployment/README.md) | Major |
-| Generated artifacts | Do not hand-edit `routes.txt`, `openapi/`, Postman JSON | Blocker |
+| Behavior docs | Canonical reference updated when behavior changes | minor |
+| Index | New `docs/**/*.md` listed in [docs/README.md](../README.md) or [deployment/README.md](../deployment/README.md) | minor |
+| Generated artifacts | Do not hand-edit `routes.txt`, `openapi/`, Postman JSON | minor |
 
 ### Dependencies
 
 | Check | What to look for | Typical severity |
 | ----- | ---------------- | ---------------- |
-| Audit | `pnpm deps:audit:prod` / CI security audit green; read the report-only full-tree `deps:audit` log; any new `auditConfig.ignoreGhsas` entry names its path and removal condition | Blocker |
-| Justification | New packages are necessary; prefer existing utilities | Major |
+| Audit | `pnpm deps:audit:prod` / CI security audit green; read the report-only full-tree `deps:audit` log; any new `auditConfig.ignoreGhsas` entry names its path and removal condition | critical |
+| Justification | New packages are necessary; prefer existing utilities | minor |
 
 ---
 
@@ -175,14 +173,11 @@ Post a short review comment body:
 ```markdown
 ## PR review (agent)
 
-### Blockers
-- [ ] <file:line> — <issue>
-
-### Major
-- [ ] <file:line> — <issue>
-
-### Nits
-- [ ] <optional>
+### Findings (critical first, `REVIEW.md` › Findings format)
+- **critical** · <file:line> · <check> — <failure scenario> → fix: <skill or change>
+- **major** · …
+- **minor** · …
+- **nit** · <optional, at most two>
 
 ### Skills / CI
 - Expected skills: <list from be-skill-index>

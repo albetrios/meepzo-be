@@ -4,8 +4,8 @@ argument-hint: (no arguments)
 allowed-tools: Bash(pnpm ci:local*), Bash(pnpm validate*), Bash(pnpm routes*), Bash(pnpm test*)
 ---
 
-Run `pnpm ci:local` — the PR gate: validate + domain structure + routes catalog +
-migration lint + env-example sync + full tests.
+Run `pnpm ci:local` — the PR gate: every `pnpm ci:quality` step, then the build and the full
+test suite. The step list is `tooling/validate/gates.ts` (one source; `pnpm health` reads it too).
 
 For each failing step:
 

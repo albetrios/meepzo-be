@@ -59,7 +59,7 @@ does not apply (not by forgetting it).
    (a count, a route set, a path list), update it — and the indexes that count skills:
    `agent-os/skills/be-skill-index/SKILL.md` (the `N project skills` count + the skill table),
    `agent-os/skills/groups.json` (every skill in exactly one group), `agent-os/docs/skill-triggers.md`,
-   and the `N project skills` count in `CLAUDE.md` / `AGENTS.md`. Run **be-structure-maintainer**;
+   and the `N project skills` count in `AGENTS.md`. Run **be-structure-maintainer**;
    the `pnpm agent-os:check` gate asserts these stay in sync.
 
 ## Trace-the-change table — what mirrors each kind of edit
@@ -76,7 +76,7 @@ does not apply (not by forgetting it).
 | A shared count or hardcoded list (in code or docs) | **grep the literal repo-wide** and fix every mirror (see below)                              | this guard                                     |
 | A public export (added/renamed)                    | TSDoc summary (+ `@remarks` on service/worker/policy), importers                             | **be-tsdoc-export-guard**                         |
 | A folder layout / file move                        | `CLAUDE.md`, `README.md`, rules, skills, OVERVIEW                                            | **be-structure-maintainer**                       |
-| A skill (added/renamed)                            | be-skill-index count + table, `groups.json`, `skill-triggers.md`, `CLAUDE.md` / `AGENTS.md`     | **be-structure-maintainer** + `pnpm agent-os:check` |
+| A skill (added/renamed)                            | be-skill-index count + table, `groups.json`, `skill-triggers.md`, `AGENTS.md`                 | **be-structure-maintainer** + `pnpm agent-os:check` |
 
 ## How to find every mirror of a change
 

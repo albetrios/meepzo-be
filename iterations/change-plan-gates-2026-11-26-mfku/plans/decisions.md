@@ -1,0 +1,29 @@
+# Decisions — change-plan-gates-2026-11-26-mfku
+
+Add-only: a changed mind is a new row that supersedes an old one. Kind: `RED` (answered by the user),
+`AMBER` (safe default, still open), `SCOPE` (scope decision during implementation).
+
+The plan gating this iteration builds on was built by `feat-instagram-dm-sending-2026-11-23-oxak` (frozen):
+its decisions are cited as **oxak P\<n\>** (`../feat-instagram-dm-sending-2026-11-23-oxak/plans/decisions.md`) —
+P269–P274 (refusal fields, entitlement overrides, the entitlements read), P364–P369 (gate coverage test,
+system audit rows, the hard month cap), P147–P149 (the read-only switch, UTC). A row below that changes one
+of them says so.
+
+The open questions Q1–Q9 cited by `coverage.md` and the change files are answered here (rows P1–P10); the
+finding ids R1–R19 are `coverage.md`'s.
+
+| # | Question | Options | Decision | Date | Who | Kind |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 | Q1 — where the entitlements module lives | `billing/sub-domains/entitlement/` · a new top-level module | **`billing/sub-domains/entitlement/`** — already built there (oxak P274, `EntitlementService.getEntitlements`); this iteration adds `can`, `limit`, `consume`, `refusal` to it | 2026-11-26 | Nikunj Mavani | RED |
+| P2 | Q2 / Q4 — namespace the entitlement keys now (`instagram.email_step`, `core.seats`, …) or keep the bare keys (`email_ask`, `message_month_limit`) | namespace now · keep bare until a second product | **Namespace now.** Consequences, all in this iteration: a new billing migration widening `chk_organization_entitlement_overrides_key` and rewriting stored override keys (oxak P270/P273 frozen the bare spelling); the `GET /billing/entitlements` and the three entitlement-override routes return and accept the namespaced keys (a contract change for meepzo-fe); the plan catalog's `feature_switches` keys map through the registry. Supersedes the bare-key part of oxak P273 / P274 | 2026-11-26 | Nikunj Mavani | RED |
+| P3 | Q5 — seats as an overridable limit (`core.seats`) | yes · keep seats outside the module (unlimited, D55) | **Yes, for now**: seats become a registry limit that an override can set; the seat check keeps its own lock (advisory lock → subscription row `FOR UPDATE` → count, R5) and reads the limit through the module. Supersedes oxak P273's "not seats (seats are unlimited, D55)" | 2026-11-26 | Nikunj Mavani | RED |
+| P4 | Q6 — the one global plan-gate preHandler: before or after the permission (RBAC) check (R9) | keep today's position (before RBAC, before the idempotency claim) · after RBAC | **Keep today's position** — first in the route's `preHandler`, before the permission check and before the idempotency claim the middleware appends. The brief promises no behaviour change: today a read-only organization gets `organization_read_only` before RBAC, and a refused write holds no idempotency key (oxak `app-plan-access.ts`). The order test R2 asks for is written first, in phase 1, and pins this order. (Claude's recommendation, accepted by the owner) | 2026-11-26 | Nikunj Mavani | RED |
+| P5 | Q8 — `LAPSED_PLAN_READ_ONLY_ENABLED` default (R14) | `false` (product-first) · keep `true` (oxak P148) | **Default `false`** — the schema default, `.env.example` and the env catalog change; the hosted environments get it through `pnpm github:sync`. A lapsed paid plan then keeps full access until the owner turns read-only on. Supersedes the "default `true` unchanged" part of oxak P148 | 2026-11-26 | Nikunj Mavani | RED |
+| P6 | Q9 / R10 — `message_month_limit_reached` carries numbers | add `limit` / `used` (+ reset) · keep `reason` only (oxak P272) | **Add `limit` and `used`** (and the month's reset date, keeping oxak P274's `resets_on` spelling) through the one refusal shape; `upgrade_required` + `feature` stay the upgrade hint (oxak P272). Supersedes oxak P272's "keeps its `reason` only" | 2026-11-26 | Nikunj Mavani | RED |
+| P7 | Q3 / Q9 — the upgrade hint's shape | `upgrade_required` + `feature` · a cheapest-plan id · feature key only | **`upgrade_required: true` + `feature`** — as built (oxak P272); the client picks the plan from `GET /billing/plans` | 2026-11-26 | Nikunj Mavani | RED |
+| P8 | R7 / R18 — what `consume` is | one atomic statement with an idempotency key · wrap the existing locks | **Wrap, don't rewrite**: `consume` wraps the month cap's `guardMonth` (advisory lock + lane locks, oxak P368/P369) and the account lock; no idempotency key — the count is added once per claimed message inside the claim (R18) | 2026-11-26 | Nikunj Mavani | RED |
+| P9 | R13 — the stale Standing deviation "Read-only plan" in the frozen oxak `AS-BUILT.md` (it says turning a PRO part on answers `organization_read_only`; the code answers `plan_lacks_feature`, and the read-only guard sits on go-live and broadcast send only) | correct the frozen record · supersede it here | **Superseded here**: the frozen oxak record is not edited (`iterations/CLAUDE.md` › Never edit a merged or frozen iteration). This iteration's `AS-BUILT.md` › Standing deviations carries the corrected row — "Read-only plan: the guard is on go-live (route 32) and broadcast send (route 75); turning a PRO part on answers `plan_lacks_feature`" — and the `src/FLOWS.md:336` narrative (R15) is fixed in the docs row | 2026-11-26 | Nikunj Mavani | RED |
+| P10 | Q7 — job gates: a declaration only, or a live check at the claim (R12) | declaration describing today's mechanism · a new live check | **Open** — not answered yet | — | — | AMBER |
+
+Still open beyond P10: R19 (oxak pending #12 — are segments and broadcasts on Free?), which P5's product-first
+default touches.

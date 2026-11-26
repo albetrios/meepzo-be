@@ -16,4 +16,4 @@
 | Intake mode | brief |
 | Intake note | 1 received (BRIEF.md) · from scratch |
 | Schema-routes | — |
-| Intake hash | 0a75385be12d |
+| Intake hash | f1ff32a8eb81 |

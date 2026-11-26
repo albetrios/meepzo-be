@@ -80,6 +80,17 @@ reads must name the channel of each asset (`instagram` today, `facebook_page` la
 channel account type, one more capability block and one more webhook object — with no change to the routes above.
 Build Instagram only.
 
+Stored facts the frontend needs (gaps found in the schema-v3 mapping — today they are logged or not read):
+
+- **Message access** — the "Allow access to messages" check's result (`on`, `off`, `unknown`) and when it ran, kept on
+  the Instagram account (today the set-up job only logs it), re-checked on demand, read by outcome 15.
+- **Linked Facebook Page** — the account's linked Page id from the profile read, kept on the Instagram account: it
+  detects outcome 16 (shared without its Page) and is the join a Page channel account uses later.
+- **Permissions per account** — `/debug_token`'s `granular_scopes` (each permission with the asset ids it covers)
+  kept per channel account, so a capability answers for that account, not for the whole connection. ⚠️ depends on
+  the fix iteration's owner test O1 (that this token type answers `granular_scopes`); until then the connection's
+  scopes stand for every account.
+
 Frontend reads (the plan names the routes): what the login shared (re-read from Meta, with each asset's pick state)
 for a connection at any time; each account's permissions and capability states with the blocking reason; the
 connect-start preconditions.
@@ -93,6 +104,9 @@ connect-start preconditions.
 - [ ] A connection left with no account past the set time loses its token and is revoked by a background job.
 - [ ] Each account's capabilities answer allowed or the first blocking reason (permission with its name, plan,
       Meta setting, Meta test) on a read route.
+- [ ] An account's message access (with its check time) and linked Page id are stored and readable; a re-check updates them.
+- [ ] With per-account permissions available, a capability of one account can be blocked while another account of the
+      same connection is allowed.
 - [ ] Every asset in the frontend contract carries its channel; adding `facebook_page` needs no route change (checked
       against a written Pages sketch in the plan).
 - [ ] `docs/routes.txt`, OpenAPI, `plans/frontend-route-map.md` and the i18n keys move with every route change.

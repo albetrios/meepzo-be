@@ -47,7 +47,7 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 
 - `channel-connection.schema.ts`, `channel-connection-token.schema.ts`, `channel-connection-usage.schema.ts` — the
   three tables (public id prefix `chc`, P22): one connection per organization, provider and business (a revoked one
-  reused); its token, ciphertext only (`system_user` for Meta, never ending; `oauth_user` with an encrypted refresh
+  reused), with the token's Meta system user (`provider_user_id`, internal, fix-meta-unified-login F3); its token, ciphertext only (`system_user` for Meta, never ending; `oauth_user` with an encrypted refresh
   token for a later provider, MC18); Meta's usage per connection, asset and type (S13, P107). FORCE RLS; the
   connection has the retention sweep arm in `USING`, the token and the usage the organization arm only (MC9).
 - `channel-connection.repository.ts` / `channel-connection-token.repository.ts` /

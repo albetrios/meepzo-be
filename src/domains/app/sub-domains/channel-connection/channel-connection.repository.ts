@@ -54,6 +54,8 @@ export interface ChannelConnectionConnectValues {
   organizationId: number;
   provider: ChannelConnectionProvider;
   clientBusinessId: string;
+  /** The `/me` `id` of the token — its Meta system user (F3); `null` when Meta named none. */
+  providerUserId: string | null;
   configId: string;
   scopes: readonly string[];
   /** `auth.users.id` of the connecting user; `null` when the caller has none. */
@@ -160,6 +162,7 @@ export class ChannelConnectionRepository {
   ): Promise<ChannelConnectionConnectResult> {
     const connectedColumns = {
       config_id: values.configId,
+      provider_user_id: values.providerUserId,
       status: 'connected',
       scopes: [...values.scopes],
       connected_by_user_id: values.connectedByUserId,

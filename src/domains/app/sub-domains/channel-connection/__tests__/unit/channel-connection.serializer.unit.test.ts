@@ -19,6 +19,7 @@ function connectionRow(overrides: Partial<ChannelConnectionRow> = {}): ChannelCo
     organization_id: 7,
     provider: 'meta',
     client_business_id: '5550001234567890',
+    provider_user_id: '10001',
     config_id: '1234567890',
     login_type: 'unified',
     status: 'connected',

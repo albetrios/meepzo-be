@@ -453,9 +453,9 @@ sequenceDiagram
   Service-->>Client: 200 { login_url, state_expires_at }
   Client->>Gate: POST …/meta/callback {code, state} + X-Idempotency-Key
   Service->>Redis: GETDEL the state — this user, organization and provider (else 400)
-  Service->>Meta: code exchange, then client_business_id, assigned Instagram accounts, granted permissions
+  Service->>Meta: code exchange, then client_business_id (+ the system user id), assigned Instagram accounts, granted permissions (/me/permissions, else /debug_token)
   Service->>Service: another business on a reconnect (409), a missing permission (422)
-  Service->>DB: BEGIN — upsert the connection (connected, scopes); store the encrypted token
+  Service->>DB: BEGIN — upsert the connection (connected, scopes, provider_user_id); store the encrypted token
   Service->>Accounts: reconnect every not-revoked account of the organization still assigned (moved accounts too)
   Service->>DB: revoke a connection a move left empty, with its token; COMMIT
   Service-->>Client: 200 { is_reconnect, channel_connection, accounts (free / here / elsewhere), plan_room }

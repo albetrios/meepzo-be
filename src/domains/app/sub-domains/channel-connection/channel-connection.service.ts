@@ -19,7 +19,7 @@ import {
   readInstagramAccountProfile,
   readMetaAppSettings,
   readMetaPageConfigId,
-  readMetaClientBusinessId,
+  readMetaBusinessIdentity,
   readMetaGrantedPermissions,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { describeMetaGraphError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
@@ -390,6 +390,7 @@ export class ChannelConnectionService {
           organizationId: caller.organizationId,
           provider,
           clientBusinessId: login.clientBusinessId,
+          providerUserId: login.providerUserId,
           // P356: the configuration the login address carried, kept in its one-use state.
           configId: payload.config_id,
           scopes: [...new Set(login.grantedPermissions)].slice(0, 20),
@@ -995,6 +996,8 @@ export class ChannelConnectionService {
     /** The token's end from the exchange (P355), `null` when it never ends. */
     tokenExpiresAt: Date | null;
     clientBusinessId: string;
+    /** The token's Meta system user (`/me` `id`, F3), or `null`. */
+    providerUserId: string | null;
     assignedAccounts: MetaAssignedInstagramAccount[];
     grantedPermissions: string[];
   }> {
@@ -1010,7 +1013,10 @@ export class ChannelConnectionService {
       throw toChannelConnectRouteError({ error, isCodeSpent: false });
     }
     try {
-      const clientBusinessId = await readMetaClientBusinessId({ encryptedAccessToken, requestId });
+      const { clientBusinessId, providerUserId } = await readMetaBusinessIdentity({
+        encryptedAccessToken,
+        requestId,
+      });
       const { accounts: assignedAccounts } = await listMetaAssignedInstagramAccounts({
         encryptedAccessToken,
         requestId,
@@ -1023,6 +1029,7 @@ export class ChannelConnectionService {
         encryptedAccessToken,
         tokenExpiresAt,
         clientBusinessId,
+        providerUserId,
         assignedAccounts,
         grantedPermissions,
       };

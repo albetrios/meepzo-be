@@ -273,6 +273,25 @@ describe('Channel connection routes', () => {
       }
     });
 
+    it("stores the token's Meta system user on connect, updates it on reconnect, and never answers it (F3, AF-6)", async () => {
+      const clientBusinessId = nextClientBusinessId();
+      const account = nextAccount();
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: '20001' });
+      const first = await callback({ state: await start() });
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.body).not.toContain('provider_user_id');
+      expect(first.body).not.toContain('20001');
+      const [connected] = await readChannelConnectionRows(team.organization.id);
+      expect(connected?.provider_user_id).toBe('20001');
+
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [account], systemUserId: '20002' });
+      const again = await callback({ state: await start() });
+      expect(again.statusCode, again.body).toBe(200);
+      const rows = await readChannelConnectionRows(team.organization.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.provider_user_id).toBe('20002');
+    });
+
     it('keeps no end for a token Meta names none for (a configuration whose token never ends)', async () => {
       const state = await start();
       mockMetaLogin({

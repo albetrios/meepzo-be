@@ -475,6 +475,7 @@ Table app.channel_connections {
   login_type varchar(20) [not null]
   organization_id bigint [not null]
   provider varchar(20) [not null]
+  provider_user_id varchar(64)
   public_id varchar(28) [not null]
   scopes text [not null]
   status varchar(10) [not null]

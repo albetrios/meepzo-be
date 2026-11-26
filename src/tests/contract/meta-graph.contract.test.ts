@@ -13,7 +13,7 @@ import {
   readInstagramLatestConversationTime,
   readInstagramMediaItem,
   readInstagramUserProfile,
-  readMetaClientBusinessId,
+  readMetaBusinessIdentity,
   readMetaGrantedPermissions,
   replyToInstagramComment,
   sendInstagramMessage,
@@ -377,8 +377,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(200, record(permissionsSuccessFixture));
 
       await expect(
-        readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountAccessToken }),
-      ).resolves.toBe(meClientBusinessSuccessFixture.client_business_id);
+        readMetaBusinessIdentity({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual({
+        clientBusinessId: meClientBusinessSuccessFixture.client_business_id,
+        providerUserId: meClientBusinessSuccessFixture.id,
+      });
       await expect(
         listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountAccessToken }),
       ).resolves.toEqual({
@@ -868,7 +871,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(400, graphErrorTokenInvalidatedFixture);
       const readLoggedText = recordLoggedText();
 
-      const rejection = await readMetaClientBusinessId({
+      const rejection = await readMetaBusinessIdentity({
         encryptedAccessToken: encryptedAccountAccessToken,
       }).catch((error: unknown) => error);
 

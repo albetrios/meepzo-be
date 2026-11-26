@@ -1302,22 +1302,37 @@ export interface MetaConnectionReadOptions extends MetaGraphCallTracing {
   encryptedAccessToken: string;
 }
 
+/** A Meta id kept in a digits-only column (`chk_channel_connections_provider_user_id`). */
+const META_DIGIT_ID_PATTERN = /^[0-9]{1,64}$/;
+
+/** Who a Unified Login token is: its business portfolio and its system user (MC5 step 3, F3). */
+export interface MetaBusinessIdentity {
+  /** Meta's `client_business_id` — the client's business portfolio; digits. */
+  clientBusinessId: string;
+  /**
+   * The `/me` `id` — the business integration system user the token belongs to (the guide's
+   * `app_scoped_id`; fix-meta-unified-login F3), or `null` when Meta's answer named none.
+   */
+  providerUserId: string | null;
+}
+
 /**
- * Reads the business portfolio a Unified Login token belongs to (`GET /me?fields=client_business_id`,
- * MC5 step 3).
+ * Reads who a Unified Login token is (`GET /me?fields=client_business_id`, MC5 step 3): the business
+ * portfolio and, from the same answer's `id`, the system user (fix-meta-unified-login F3).
  *
  * @remarks
- * - **Algorithm:** one Graph read with the token in `Authorization` and `appsecret_proof`; the id is
- *   read from the flat body or `data[0]` (D33).
- * - **Failure modes:** `MetaGraphApiError`; an answer without `client_business_id` → `outage`.
+ * - **Algorithm:** one Graph read with the token in `Authorization` and `appsecret_proof`; both ids
+ *   are read from the flat body or `data[0]` (D33). `id` comes back without being asked for.
+ * - **Failure modes:** `MetaGraphApiError`; an answer without `client_business_id` → `outage`; an
+ *   answer without a digits-only `id` → `providerUserId` `null` (the connect goes on).
  * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
- * - **Notes:** the business id is digits, kept as an exact string.
+ * - **Notes:** both ids are digits, kept as exact strings.
  */
-export async function readMetaClientBusinessId({
+export async function readMetaBusinessIdentity({
   encryptedAccessToken,
   requestId,
   recordUsage,
-}: MetaConnectionReadOptions): Promise<string> {
+}: MetaConnectionReadOptions): Promise<MetaBusinessIdentity> {
   const answer = readInstagramAnswerRecord(
     await callMetaGraphWithToken<unknown>({
       encryptedAccessToken,
@@ -1334,7 +1349,12 @@ export async function readMetaClientBusinessId({
       missing: 'client_business_id',
     });
   }
-  return clientBusinessId;
+  const providerUserId = readAnswerId(answer.id);
+  return {
+    clientBusinessId,
+    providerUserId:
+      providerUserId !== null && META_DIGIT_ID_PATTERN.test(providerUserId) ? providerUserId : null,
+  };
 }
 
 /** An Instagram account a Unified Login token is assigned (MC5, MC7). */

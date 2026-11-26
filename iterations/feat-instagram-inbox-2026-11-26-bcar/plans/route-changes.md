@@ -7,7 +7,7 @@
 | Intake mode | brief — from scratch |
 | Intake hash | `1082fd1734e6` |
 | Date | 2026-11-26 |
-| Stage | Step 5 — sub-domain 1 final (I-D15); sub-domain 2 drafted with route numbers 155–169 (`routes-final.md` § 2) |
+| Stage | Step 5 — sub-domains 1, 2 final (I-D15, I-D16); sub-domain 3 drafted, routes 170–174 |
 
 Proposals under `/api/v1/app`. Gates reuse the contact codes ([I-D4](decisions.md)): `contact:read` · `contact:update`. Instagram-only routes live under `/social/instagram/…` ([I-D1](decisions.md)).
 
@@ -29,8 +29,8 @@ Proposals under `/api/v1/app`. Gates reuse the contact codes ([I-D4](decisions.m
 | RC-8 | NEW (route 163) | `POST /social/instagram/conversations/{instagram_conversation_id}/typing` | `contact:update` | the typing indicator ⚠️ | 16 |
 | RC-9 | NEW (route 167, 168) | `GET` and `POST /social/instagram/conversations/{instagram_conversation_id}/notes` | `contact:read` · `contact:update` | internal notes | 15 |
 | RC-10 | NEW (route 169) | `DELETE /social/instagram/conversations/{instagram_conversation_id}/notes/{instagram_conversation_note_id}` | `contact:update` (author) | remove a note | 15 |
-| RC-11 | NEW | `GET` and `POST /saved-replies` | `contact:read` · `contact:update` | the organization's saved replies | 15 |
-| RC-12 | NEW | `PATCH` and `DELETE /saved-replies/{saved_reply_id}` | `contact:update` | change or remove | 15 |
+| RC-11 | NEW (routes 170, 171) | `GET` and `POST /saved-replies` | `contact:read` · `contact:update` | the organization's saved replies | 15 |
+| RC-12 | NEW (routes 172–174) | `GET`, `PATCH` and `DELETE /saved-replies/{saved_reply_id}` | `contact:update` | change or remove | 15 |
 | RC-13 | NEW (route 166) | `POST /social/instagram/conversations/{instagram_conversation_id}/messages/{instagram_conversation_message_id}/reactions` | `contact:update` | react to her message ⚠️ | 16 |
 | RC-14 | CHANGED (route 19) | `GET /contacts/{contact_id}` | contact:read | + `instagram_conversation` summary (id, state, assignee, unread) | 11 |
 | RC-15 | NEW (route 12) | the organization's `mark_seen` setting | `contact:update` | an Instagram account setting `is_mark_seen_on_open_enabled` on route 12, behind the plan feature `mark_seen` (routes-final CV8) | 16 |

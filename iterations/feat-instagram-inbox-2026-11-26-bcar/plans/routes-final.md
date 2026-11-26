@@ -15,8 +15,8 @@ Paths are under `/api/v1/app`; `{x_id}` is a public id; **Gate** is the permissi
 | # | Sub-domain | Folder (`SD/…`) | Paths | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Instagram automation message (rename) | `instagram-sending/instagram-message/` → `instagram-sending/instagram-automation-message/` | none | 0 | — | **final (rev 1, confirmed 2026-11-26)** |
-| 2 | Instagram conversation | `instagram-conversation/` (new) with nested `instagram-conversation-message/`, `instagram-conversation-note/` | `/social/instagram/conversations…` | 15 new (155–169), 2 changed (12, contact read) | 1, contacts, upload | **rev 1 — awaiting your OK** |
-| 3 | Saved reply | `saved-reply/` (new, shared across channels — [I-D2](decisions.md)) | `/saved-replies…` | new | — | draft |
+| 2 | Instagram conversation | `instagram-conversation/` (new) with nested `instagram-conversation-message/`, `instagram-conversation-note/` | `/social/instagram/conversations…` | 15 new (155–169), 2 changed (12, contact read) | 1, contacts, upload | **final (rev 1, confirmed 2026-11-26)** |
+| 3 | Saved reply | `saved-reply/` (new, shared across channels — [I-D2](decisions.md)) | `/saved-replies…` | 5 new (170–174) | — | **rev 1 — awaiting your OK** |
 
 ## File header — code layout and tables without routes
 
@@ -102,7 +102,7 @@ n/a.
 
 ---
 
-## 2. Instagram conversation — rev 1 (2026-11-26) — nested sub-domains 2.A–2.C; awaiting your OK
+## 2. Instagram conversation — final (rev 1, confirmed 2026-11-26) — nested sub-domains 2.A–2.C
 
 Code: `SD/instagram-conversation/` (new) — the conversation at the folder root (2.A), `instagram-conversation-message/`
 (2.B), `instagram-conversation-note/` (2.C). One conversation per contact (a contact is already per organization,
@@ -227,11 +227,11 @@ Every route: `404` · `instagram_conversation_not_found` (another organization's
 
 | Nested sub-domain | Folder (`SD/instagram-conversation/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 2.A Instagram conversation | folder root | `app.instagram_conversations` | 155–163 | awaiting your OK |
-| 2.B Instagram conversation message | `instagram-conversation-message/` | `app.instagram_conversation_messages` | 164–166 | awaiting your OK |
-| 2.C Instagram conversation note | `instagram-conversation-note/` | `app.instagram_conversation_notes` | 167–169 | awaiting your OK |
+| 2.A Instagram conversation | folder root | `app.instagram_conversations` | 155–163 | final |
+| 2.B Instagram conversation message | `instagram-conversation-message/` | `app.instagram_conversation_messages` | 164–166 | final |
+| 2.C Instagram conversation note | `instagram-conversation-note/` | `app.instagram_conversation_notes` | 167–169 | final |
 
-### 2.A Instagram conversation — folder root — awaiting your OK
+### 2.A Instagram conversation — folder root — final (rev 1, confirmed 2026-11-26)
 
 #### 2.A.1 Decisions
 
@@ -305,7 +305,7 @@ As 2.7.
 
 CVC1, CVC3, CVC5, CVC6, CVC7 for this table and routes 155–163.
 
-### 2.B Instagram conversation message — `instagram-conversation-message/` — awaiting your OK
+### 2.B Instagram conversation message — `instagram-conversation-message/` — final (rev 1, confirmed 2026-11-26)
 
 #### 2.B.1 Decisions
 
@@ -378,7 +378,7 @@ As 2.7.
 
 CVC2, CVC4, CVC8 for this table and routes 164–166.
 
-### 2.C Instagram conversation note — `instagram-conversation-note/` — awaiting your OK
+### 2.C Instagram conversation note — `instagram-conversation-note/` — final (rev 1, confirmed 2026-11-26)
 
 #### 2.C.1 Decisions
 
@@ -429,3 +429,96 @@ As 2.7.
 #### 2.C.11 Code changes
 
 CVC1 (table), CVC9 (tests) for routes 167–169.
+
+---
+
+## 3. Saved reply — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+
+Code: `SD/saved-reply/` (new). The organization's reusable reply texts, shared across channels ([I-D2](decisions.md)):
+the reply box (route 165) inserts one. Route numbers 170–174.
+
+### 3.1 Decisions (whole sub-domain)
+
+| # | Decision |
+| --- | --- |
+| SR1 | **Folder and names**: `SD/saved-reply/`; table `app.saved_replies` (no channel prefix — shared, like contacts, [I-D2](decisions.md)); prefix `svr`; path id `{saved_reply_id}`. |
+| SR2 | **Gates** ([I-D4](decisions.md)): `contact:read` lists and reads; `contact:update` adds, changes and deletes — a saved reply is part of answering contacts. |
+| SR3 | **Title unique among live rows, any case**, within the organization — the reply box picks by title. |
+| SR4 | **Use is counted**: route 165 with `saved_reply_id` adds one to `use_count` and sets `last_used_at` in the reply's transaction; the list can sort by most used. |
+| SR5 | **Hard delete** — nothing points at a saved reply (route 165 stores the text it sent, not the reply); a deleted one simply stops being offered. Other option: soft delete with restore — rejected, nothing to restore into. |
+| SR6 | **Placeholders**: the text may hold `{first_name}` and `{username}`, filled from the contact at send time by the existing `{name}` filler of the composer. |
+
+### 3.2 Open questions
+
+None.
+
+### 3.3 Tables and relations
+
+`app.saved_replies` — standard columns (`id`, `public_id`, `organization_id`, `created_at`, `updated_at`,
+`created_by_user_id`, `updated_by_user_id`) plus `title` (1–100), `text` (1–1,000 UTF-8 bytes), `use_count` (≥ 0),
+`last_used_at`. Unique `(organization_id, lower(title))`; list indexes `(organization_id, use_count desc, id)` and
+`(organization_id, lower(title), id)`. FORCE RLS (K3). A per-organization row cap (e.g. 500) through the shared row-cap
+policy.
+
+```text
+tenancy.organizations ──< app.saved_replies          (read by route 165 when a reply names one)
+```
+
+### 3.4 Permissions
+
+| Code | Allows | Routes |
+| --- | --- | --- |
+| `contact:read` | list, read | 170, 172 |
+| `contact:update` | add, change, delete | 171, 173, 174 |
+
+### 3.5 Common to every route
+
+Base `/api/v1/app`; `POST` needs `X-Idempotency-Key`; `PATCH` takes `expected_updated_at`; `DELETE` → `204`.
+
+### 3.6 Objects returned
+
+Saved reply: `id`, `title`, `text`, `use_count`, `last_used_at`, `created_at`, `updated_at`.
+
+### 3.7 Routes
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 170 | GET | `/saved-replies` | List — `q` (title), sort `title` or `use_count` | `contact:read` | |
+| 171 | POST | `/saved-replies` | Add one | `contact:update` | req |
+| 172 | GET | `/saved-replies/{saved_reply_id}` | One | `contact:read` | |
+| 173 | PATCH | `/saved-replies/{saved_reply_id}` | Change | `contact:update` | |
+| 174 | DELETE | `/saved-replies/{saved_reply_id}` | Delete | `contact:update` | |
+
+### 3.8 Request details
+
+171: `title*` (1–100), `text*` (1–1,000 bytes). 173: `title`, `text`, `expected_updated_at`. 170: `q` (1–100), `sort`
+(`title` · `use_count`), `order`, `limit`, `after`.
+
+### 3.9 Errors
+
+| Route | Status · reason | When |
+| --- | --- | --- |
+| 171, 173 | `400` · `invalid_field` | empty or too long |
+| 171, 173 | `409` · `saved_reply_title_taken` | another live reply has the title (any case) |
+| 171 | `409` · `resource_limit_reached` | the organization's cap |
+| 173 | `409` · `record_changed` | stale `expected_updated_at` |
+| 172–174 | `404` · `saved_reply_not_found` | not this organization's |
+| 165 | `404` · `saved_reply_not_found` | `saved_reply_id` not this organization's (the reply is not sent) |
+
+### 3.10 Rules worth knowing
+
+- Changing or deleting a saved reply never changes a message already sent.
+- Adding, changing and deleting are audited (resource `saved_reply`).
+
+### 3.11 Code changes (whole sub-domain)
+
+| # | Change |
+| --- | --- |
+| SRC1 | SR1–SR3, SR5: folder, schema, migration, FORCE-RLS list, public-id entity and prefix, param registry, the row cap; routes 170–174 with schema docs, the route catalog, i18n reasons |
+| SRC2 | SR4, SR6: route 165 reads the saved reply, fills the placeholders, counts the use in its transaction |
+| SRC3 | Tests: routes 170–174 (unique title any case, cap, stale update, 404 across organizations, viewer reads but cannot write), route 165 with a saved reply, the RLS matrix entry; seeds (a few demo replies) |
+
+### 3.12 Nested sub-domains
+
+None.
+

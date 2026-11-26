@@ -742,6 +742,23 @@ describe('Channel connection routes', () => {
       ).toHaveLength(1);
     });
 
+    it('keeps the unpicked clock on a login that shares nothing again (C-D21)', async () => {
+      const clientBusinessId = nextClientBusinessId();
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [nextAccount()] });
+      const first = await callback({ state: await start() });
+      expect(first.statusCode, first.body).toBe(200);
+      await operatorQuery`
+        UPDATE app.channel_connections SET connected_at = now() - interval '8 days'
+        WHERE organization_id = ${team.organization.id}`;
+      mockMetaLogin({ clientBusinessId, assignedAccounts: [] });
+
+      const again = await callback({ state: await start() });
+
+      expect(dataOf<{ outcome: string }>(again).outcome).toBe('no_accounts_shared');
+      const [row] = await readChannelConnectionRows(team.organization.id);
+      expect(row?.connected_at.getTime()).toBeLessThan(Date.now() - 7 * 24 * 3_600_000);
+    });
+
     it('marks only the accounts a complete list no longer shares (CN5, AC-1.6)', async () => {
       await useCreatorPlan();
       const [kept, dropped] = [nextAccount(), nextAccount()];

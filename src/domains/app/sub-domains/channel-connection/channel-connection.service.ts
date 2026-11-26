@@ -522,6 +522,8 @@ export class ChannelConnectionService {
       configId: payload.config_id,
       scopes: [...new Set(login.grantedPermissions)].slice(0, META_PERMISSION_NAMES_MAX),
       connectedByUserId: caller.userId,
+      // C-D21: a login sharing nothing never restarts the unpicked clean-up's clock.
+      isNothingShared: login.assignedAccounts.length === 0,
     });
     const channelConnection = {
       organizationId: caller.organizationId,

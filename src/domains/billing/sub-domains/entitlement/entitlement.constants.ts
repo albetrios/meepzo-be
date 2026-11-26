@@ -175,3 +175,28 @@ export const PLAN_GATE_OPEN_REASON = {
   ACCOUNT:
     'disconnects, pauses or re-logs an account already in the plan — no new plan room is used',
 } as const;
+
+/**
+ * The shared one-line reasons a queue job declares no plan gate (change-plan-gates JG3, P33) — the
+ * worker registry's `jobPlanGates` cite them; the plan-gate coverage test checks every one.
+ *
+ * @remarks
+ * A job that only enforces a plan, or does no paid work, declares `open`: like on a route, it is a
+ * decision with a reason, not a gap. A paid job meets its plan where the paid work happens (the send
+ * claim, or its switch when it starts — JG2) and declares those gates instead. A job whose paid work
+ * is a route's or another job's (a sweep that adds one job per row, a recovery that hands work back)
+ * says so: the job it adds carries the gate. Reasons for the user's own data and for paying reuse
+ * {@link PLAN_GATE_OPEN_REASON}.
+ */
+export const JOB_PLAN_GATE_OPEN_REASON = {
+  ENFORCES_PLAN: 'enforces a plan, does no paid work',
+  CLEAN_UP: 'a clean-up or retention sweep — removes or expires rows, does no paid work',
+  RECOVERY: 'hands lost or stuck work back to its own job — that job declares its gate',
+  FAN_OUT: 'a sweep that adds one job per due row — each added job declares its own gate',
+  NOTICE: 'a notice or email to people — no paid work',
+  OBSERVABILITY: 'samples queue, Redis or sending health — no organization work',
+  ACCOUNT_UPKEEP:
+    'keeps an account already in the plan connected and set up on Meta — sends no message, uses no new plan room',
+  READ: 'reads from Meta for an account already in the plan — sends no message',
+  PLATFORM: 'platform plumbing (the audit outbox and its archive) — no organization paid work',
+} as const;

@@ -2869,7 +2869,6 @@ src/
     │   ├── route-catalog-registry.ts
     │   ├── route-http-coverage.helper.ts
     │   ├── route-organization-scope.helper.ts
-    │   ├── route-plan-gate-model.ts
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts
@@ -2884,6 +2883,7 @@ src/
     │   ├── test-step-up.helper.ts
     │   ├── verification-code.helper.ts
     │   ├── webauthn-authenticator.helper.ts
+    │   ├── worker-job-names.ts
     │   └── workflow-jobs.helper.ts
     ├── integration/
     │   ├── api/

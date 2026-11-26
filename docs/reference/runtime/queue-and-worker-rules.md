@@ -29,6 +29,12 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    [`worker-registration.registry.ts`](../../../src/infrastructure/queue/worker-runtime/worker-registration.registry.ts)
    — never start it in `bootstrap.ts`. The entry drives startup, the Postgres connection budget and
    scheduler filtering. **(test)** `worker-registration.registry.unit.test.ts`
+   The entry also declares the plan gate of **every job** the queue runs (`jobPlanGates`, the
+   route `config.planGate` shape: `{ gates }` from the entitlement registry, or `{ open }` with a
+   one-line reason; shared reasons in `JOB_PLAN_GATE_OPEN_REASON`). A declaration only — nothing
+   reads it at run time. **(test)** `plan-gate-coverage.global.test.ts` (checks it against the job
+   names the code puts on each queue: the scheduler, every enqueue, the task handlers, the routed
+   `job.name` branches)
 3. Add the queue name to `WORKER_QUEUE_NAMES` in
    [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (and
    `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker). That one list gives the queue its

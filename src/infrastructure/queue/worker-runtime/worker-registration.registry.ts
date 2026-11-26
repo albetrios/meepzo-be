@@ -1,4 +1,9 @@
 import { createMailWorker } from '@/infrastructure/mail/workers/mail.worker.js';
+import {
+  JOB_PLAN_GATE_OPEN_REASON,
+  PLAN_GATE_OPEN_REASON,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
+import type { PlanGateDeclaration } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import { createMailOutboxSweeperWorker } from '@/infrastructure/mail/workers/mail-outbox-sweeper.worker.js';
 import { MAIL_OUTBOX_SWEEPER_QUEUE_NAME } from '@/infrastructure/mail/workers/mail-outbox-sweeper.constants.js';
 import { createCommitDispatchRecoveryWorker } from '@/infrastructure/queue/commit-dispatch/commit-dispatch-recovery.worker.js';
@@ -145,6 +150,13 @@ export type WorkerCriticality = 'throughput' | 'maintenance' | 'observability';
  */
 export type WorkerQueueRegistrationDefinition = {
   readonly queueName: string;
+  /**
+   * Every job name this queue's processor runs → its plan-gate declaration (change-plan-gates JG1,
+   * P33), the same shape as a write route's `config.planGate`: the gates its paid work meets, or the
+   * one-line reason it meets none (`open`). A declaration only — nothing reads it at run time (P12);
+   * the plan-gate coverage test checks it against the job names the code puts on the queue.
+   */
+  readonly jobPlanGates: Readonly<Record<string, PlanGateDeclaration>>;
   readonly family: WorkerQueueFamily;
   readonly logLabel: string;
   readonly usesPostgres: boolean;
@@ -181,6 +193,15 @@ export type WorkerQueueRegistrationDefinition = {
 };
 
 /**
+ * The send claim's two plan checks (change-plan-gates JG2, P12): every message a job sends or starts
+ * meets the month's `message_month_limit` and the account's plan stop (`channel_accounts_max`) at the
+ * claim — the job itself reads no plan.
+ */
+const SEND_CLAIM_PLAN_GATE: PlanGateDeclaration = {
+  gates: ['limit:message_month_limit', 'limit:channel_accounts_max'],
+};
+
+/**
  * Default retention/cron worker: Postgres-bound, single concurrency, maintenance criticality,
  * scheduled via cron. Caller may override `scheduled` or `criticality` for the rare worker
  * that lacks a cron yet (orphans) or has a different criticality.
@@ -206,6 +227,9 @@ function retentionDefinition(
 const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[] = [
   {
     queueName: COMMIT_DISPATCH_RECOVERY_QUEUE_NAME,
+    jobPlanGates: {
+      'replay-stale-commit-dispatch': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'mail',
     logLabel: 'commit dispatch recovery worker',
     usesPostgres: false,
@@ -215,12 +239,18 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   retentionDefinition({
     queueName: MAIL_OUTBOX_SWEEPER_QUEUE_NAME,
+    jobPlanGates: {
+      're-enqueue-stale-pending-mail': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'mail',
     logLabel: 'mail outbox sweeper worker',
     create: () => createMailOutboxSweeperWorker(),
   }),
   {
     queueName: MAIL_QUEUE_NAME,
+    jobPlanGates: {
+      'send-email': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+    },
     family: 'mail',
     logLabel: 'mail worker',
     usesPostgres: true,
@@ -233,6 +263,11 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: WEBHOOK_DELIVERY_QUEUE_NAME,
+    jobPlanGates: {
+      'deliver-webhook': {
+        open: 'delivers an event the organization subscribed to — no plan switch or limit covers outbound webhooks',
+      },
+    },
     family: 'webhook',
     logLabel: 'webhook delivery worker',
     usesPostgres: true,
@@ -249,6 +284,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // between commit and enqueue). One short read, then the adds outside any database context.
   retentionDefinition({
     queueName: WEBHOOK_DELIVERY_RECLAIM_QUEUE_NAME,
+    jobPlanGates: {
+      're-enqueue-stale-pending-webhook-deliveries': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'webhook',
     logLabel: 'webhook delivery reclaim worker',
     holdsConnectionDuringExternalIo: false,
@@ -256,6 +294,12 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   {
     queueName: NOTIFICATION_QUEUE_NAME,
+    jobPlanGates: {
+      'dispatch-notification': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+      'sweep-weekly-summaries': { open: JOB_PLAN_GATE_OPEN_REASON.FAN_OUT },
+      'send-weekly-summary': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+      'notification-contact-details': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+    },
     family: 'notify',
     logLabel: 'notification worker',
     usesPostgres: true,
@@ -276,6 +320,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     // and by email, that its Instagram account must be connected again — one job per account and break,
     // enqueued after the guarded status change commits (API and worker processes alike).
     queueName: INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
+    jobPlanGates: {
+      'send-instagram-reconnect-notice': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+    },
     family: 'notify',
     logLabel: 'Instagram reconnect notice worker',
     usesPostgres: true,
@@ -292,6 +339,10 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: USER_DATA_EXPORT_QUEUE_NAME,
+    jobPlanGates: {
+      'process-user-data-export': { open: PLAN_GATE_OPEN_REASON.USER },
+      'reclaim-pending-user-data-exports': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'notify',
     logLabel: 'user data export worker',
     usesPostgres: true,
@@ -305,6 +356,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: STRIPE_WEBHOOK_QUEUE_NAME,
+    jobPlanGates: {
+      'process-stripe-webhook': { open: PLAN_GATE_OPEN_REASON.PAYING },
+    },
     family: 'stripe',
     logLabel: 'stripe webhook worker',
     usesPostgres: true,
@@ -325,36 +379,54 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   retentionDefinition({
     queueName: AUDIT_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'cleanup-old-logs': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'audit retention worker',
     create: () => createAuditRetentionWorker(),
   }),
   retentionDefinition({
     queueName: AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
+    jobPlanGates: {
+      'drain-pending-audit-outbox': { open: JOB_PLAN_GATE_OPEN_REASON.PLATFORM },
+    },
     family: 'retention',
     logLabel: 'audit outbox drain worker',
     create: () => createAuditOutboxDrainWorker(),
   }),
   retentionDefinition({
     queueName: AUDIT_EXPORT_QUEUE_NAME,
+    jobPlanGates: {
+      'export-audit-logs-s3': { open: JOB_PLAN_GATE_OPEN_REASON.PLATFORM },
+    },
     family: 'retention',
     logLabel: 'audit export worker',
     create: () => createAuditExportWorker(),
   }),
   retentionDefinition({
     queueName: SESSION_CLEANUP_QUEUE_NAME,
+    jobPlanGates: {
+      'cleanup-sessions': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'session cleanup worker',
     create: () => createSessionCleanupWorker(),
   }),
   retentionDefinition({
     queueName: NOTIFICATION_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-notifications': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'notification retention worker',
     create: () => createNotificationRetentionWorker(),
   }),
   retentionDefinition({
     queueName: USER_OFFBOARDING_RECONCILE_QUEUE_NAME,
+    jobPlanGates: {
+      'reconcile-stuck-user-offboardings': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+    },
     family: 'retention',
     logLabel: 'user offboarding reconcile worker',
     create: (workerContainers) =>
@@ -362,6 +434,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   retentionDefinition({
     queueName: ORGANIZATION_OFFBOARDING_RECONCILE_QUEUE_NAME,
+    jobPlanGates: {
+      'reconcile-stuck-organization-offboardings': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+    },
     family: 'retention',
     logLabel: 'organization offboarding reconcile worker',
     create: (workerContainers) =>
@@ -379,6 +454,10 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     // scheduled; the worker stays to drain jobs an older release left, one at a time (R48: so it
     // holds 1 of the worker's Postgres budget, not the family's 4).
     queueName: SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
+    jobPlanGates: {
+      'sync-subscription-seats': { open: PLAN_GATE_OPEN_REASON.PAYING },
+      'reconcile-subscription-seats': { open: PLAN_GATE_OPEN_REASON.PAYING },
+    },
     family: 'stripe',
     logLabel: 'subscription seat sync worker',
     usesPostgres: true,
@@ -394,18 +473,27 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   retentionDefinition({
     queueName: STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-stripe-webhook-events': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'stripe',
     logLabel: 'stripe webhook event retention worker',
     create: () => createStripeWebhookEventRetentionWorker(),
   }),
   retentionDefinition({
     queueName: STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME,
+    jobPlanGates: {
+      'reclaim-failed-stripe-webhook-events': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'stripe',
     logLabel: 'stripe webhook event reclaim worker',
     create: () => createStripeWebhookEventReclaimWorker(),
   }),
   retentionDefinition({
     queueName: STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME,
+    jobPlanGates: {
+      'catchup-missing-stripe-webhook-events': { open: PLAN_GATE_OPEN_REASON.PAYING },
+    },
     family: 'stripe',
     logLabel: 'stripe webhook event catch-up worker',
     create: () => createStripeWebhookEventCatchupWorker(),
@@ -418,6 +506,18 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     // Instagram database limiter, which the budget counts once (SN24, P408). Off until the Meta app
     // is configured (no account can be connected before).
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+    jobPlanGates: {
+      'intake-messages': SEND_CLAIM_PLAN_GATE,
+      'intake-live': SEND_CLAIM_PLAN_GATE,
+      'intake-comments': SEND_CLAIM_PLAN_GATE,
+      'intake-tag-events': SEND_CLAIM_PLAN_GATE,
+      'reclaim-instagram-webhook-events': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'sweep-instagram-missed-comments': { open: JOB_PLAN_GATE_OPEN_REASON.FAN_OUT },
+      'watch-automation-backfill-reads': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'sweep-next-post-linking': { open: JOB_PLAN_GATE_OPEN_REASON.FAN_OUT },
+      'check-owner-problem-emails': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+      'check-month-limit-notices': { open: JOB_PLAN_GATE_OPEN_REASON.NOTICE },
+    },
     family: 'instagram',
     logLabel: 'Instagram intake worker',
     usesPostgres: true,
@@ -468,6 +568,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // supersedes P91's send service): one limiter for the process.
   {
     queueName: INSTAGRAM_SEND_SLOW_QUEUE_NAME,
+    jobPlanGates: {
+      'instagram-send-lane-turn': SEND_CLAIM_PLAN_GATE,
+    },
     family: 'instagram',
     logLabel: 'Instagram send worker (slow, reply and broadcast lane turns)',
     usesPostgres: true,
@@ -485,6 +588,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: INSTAGRAM_SEND_FAST_QUEUE_NAME,
+    jobPlanGates: {
+      'instagram-send-fast-message': SEND_CLAIM_PLAN_GATE,
+    },
     family: 'instagram',
     logLabel: 'Instagram send worker (fast messages)',
     usesPostgres: true,
@@ -502,6 +608,18 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: INSTAGRAM_TASKS_QUEUE_NAME,
+    jobPlanGates: {
+      'instagram-account-setup': { open: JOB_PLAN_GATE_OPEN_REASON.ACCOUNT_UPKEEP },
+      'instagram-starter-question-sync': { open: JOB_PLAN_GATE_OPEN_REASON.ACCOUNT_UPKEEP },
+      'instagram-webhook-subscription-check': { open: JOB_PLAN_GATE_OPEN_REASON.ACCOUNT_UPKEEP },
+      'attachment-upload': {
+        open: 'uploads a message file to Meta — the message it belongs to meets the send claim',
+      },
+      'contact-profile': { open: JOB_PLAN_GATE_OPEN_REASON.READ },
+      'missed-comment-check': SEND_CLAIM_PLAN_GATE,
+      'automation-backfill-read': { gates: ['feature:past_comments'] },
+      'next-post-linking': { open: JOB_PLAN_GATE_OPEN_REASON.READ },
+    },
     family: 'instagram',
     logLabel: 'Instagram task worker',
     usesPostgres: true,
@@ -519,6 +637,14 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
+    jobPlanGates: {
+      'contact-bulk-action': { open: PLAN_GATE_OPEN_REASON.CONTACT },
+      'segment-count': { gates: ['feature:segments'] },
+      'broadcast-audience': SEND_CLAIM_PLAN_GATE,
+      'retry-failed': SEND_CLAIM_PLAN_GATE,
+      'plan-change': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+      'month-wake': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+    },
     family: 'instagram',
     logLabel: 'Instagram database task worker',
     usesPostgres: true,
@@ -537,42 +663,63 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   retentionDefinition({
     queueName: WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-webhooks': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'webhook tombstone retention worker',
     create: () => createWebhookTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: WEBHOOK_DELIVERY_ATTEMPT_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-webhook-delivery-attempts': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'webhook delivery attempt retention worker',
     create: () => createWebhookDeliveryAttemptRetentionWorker(),
   }),
   retentionDefinition({
     queueName: ORGANIZATION_NOTIFICATION_POLICY_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-notification-policies': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'organization notification policy tombstone retention worker',
     create: () => createOrganizationNotificationPolicyTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: USER_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-users': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'user tombstone retention worker',
     create: () => createUserTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: ORGANIZATION_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-organizations': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'organization tombstone retention worker',
     create: () => createOrganizationTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: MEMBERSHIP_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-memberships': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'membership tombstone retention worker',
     create: () => createMembershipTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: MEMBERSHIP_INVITATION_EXPIRY_QUEUE_NAME,
+    jobPlanGates: {
+      'end-long-expired-membership-invitations': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'membership invitation expiry worker',
     create: (workerContainers) =>
@@ -580,18 +727,27 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   retentionDefinition({
     queueName: MEMBER_ROLE_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-roles': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'member role tombstone retention worker',
     create: () => createMemberRoleTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: ORGANIZATION_API_KEY_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-api-keys': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'organization API key tombstone retention worker',
     create: () => createOrganizationApiKeyTombstoneRetentionWorker(),
   }),
   retentionDefinition({
     queueName: UPLOAD_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-uploads': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'upload tombstone retention worker',
     holdsConnectionDuringExternalIo: false,
@@ -599,6 +755,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   retentionDefinition({
     queueName: UPLOAD_PENDING_SWEEP_QUEUE_NAME,
+    jobPlanGates: {
+      'reconcile-stale-pending-uploads': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'upload pending sweep worker',
     holdsConnectionDuringExternalIo: false,
@@ -606,6 +765,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   retentionDefinition({
     queueName: USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-expired-user-data-exports': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'user data export retention worker',
     holdsConnectionDuringExternalIo: false,
@@ -618,6 +780,11 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // short organization contexts, never inside one. Off until the Meta app is configured.
   retentionDefinition({
     queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
+    jobPlanGates: {
+      'sweep-due-channel-connections': { open: JOB_PLAN_GATE_OPEN_REASON.FAN_OUT },
+      'sweep-instagram-webhook-subscriptions': { open: JOB_PLAN_GATE_OPEN_REASON.FAN_OUT },
+      'check-channel-connection-token': { open: JOB_PLAN_GATE_OPEN_REASON.ACCOUNT_UPKEEP },
+    },
     family: 'retention',
     logLabel: 'channel connection token check worker',
     holdsConnectionDuringExternalIo: false,
@@ -637,6 +804,10 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // organization (a grace that ended, the trial notices, a switched-off plan row). No Stripe call.
   retentionDefinition({
     queueName: SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME,
+    jobPlanGates: {
+      'sweep-subscription-plan-states': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+      'check-subscription-plan-state': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+    },
     family: 'retention',
     logLabel: 'subscription plan-state check worker',
     create: (workerContainers) =>
@@ -656,6 +827,24 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // that work send tickets and the Live check ask `mayTakeTickets` first.
   {
     queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+    jobPlanGates: {
+      'repair-month-wake': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+      'repair-plan-stops': { open: JOB_PLAN_GATE_OPEN_REASON.ENFORCES_PLAN },
+      'repair-broadcast-start': SEND_CLAIM_PLAN_GATE,
+      'repair-lost-turns': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'repair-stuck-sends': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'repair-expiry': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      'repair-closed-windows': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      'repair-reply-trim': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      'repair-paused-cancel': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      'repair-counts': { open: 'keeps the send counts true — no paid work' },
+      'repair-broadcast-end': { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      'repair-tag-event-pickup': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'repair-open-run-keys': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+      'outage-check': { open: JOB_PLAN_GATE_OPEN_REASON.OBSERVABILITY },
+      'live-check': { open: JOB_PLAN_GATE_OPEN_REASON.READ },
+      'waiting-estimate': { open: JOB_PLAN_GATE_OPEN_REASON.OBSERVABILITY },
+    },
     family: 'instagram',
     logLabel: 'Instagram sending repair worker',
     usesPostgres: true,
@@ -710,6 +899,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // month-part drops (the shared upkeep, R49). Pure database sweeps: no channel call, no gate.
   retentionDefinition({
     queueName: AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
+    jobPlanGates: {
+      'cancel-long-waiting-automation-runs': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'automation run wait expiry worker',
     create: (workerContainers) =>
@@ -719,6 +911,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   retentionDefinition({
     queueName: AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
+    jobPlanGates: {
+      'purge-old-deleted-automations': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'automation tombstone retention worker',
     create: () => createAutomationTombstoneRetentionWorker(),
@@ -731,12 +926,20 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // whatever is configured.
   retentionDefinition({
     queueName: APP_PARTITION_UPKEEP_QUEUE_NAME,
+    jobPlanGates: {
+      'make-app-partitions': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+      'drop-expired-app-partitions': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+      'clean-up-app-tables': { open: JOB_PLAN_GATE_OPEN_REASON.CLEAN_UP },
+    },
     family: 'retention',
     logLabel: 'app partition upkeep worker',
     create: () => createAppPartitionUpkeepWorker(),
   }),
   {
     queueName: IDEMPOTENCY_CARDINALITY_QUEUE_NAME,
+    jobPlanGates: {
+      'sample-idempotency-cardinality': { open: JOB_PLAN_GATE_OPEN_REASON.OBSERVABILITY },
+    },
     family: 'observability',
     logLabel: 'idempotency cardinality worker',
     usesPostgres: false,
@@ -746,6 +949,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: DLQ_DEPTH_QUEUE_NAME,
+    jobPlanGates: {
+      'sample-dlq-depth': { open: JOB_PLAN_GATE_OPEN_REASON.OBSERVABILITY },
+    },
     family: 'observability',
     logLabel: 'DLQ depth monitoring worker',
     usesPostgres: false,
@@ -755,6 +961,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   retentionDefinition({
     queueName: DLQ_AUTO_RETRY_QUEUE_NAME,
+    jobPlanGates: {
+      'auto-retry-dead-letter-jobs': { open: JOB_PLAN_GATE_OPEN_REASON.RECOVERY },
+    },
     family: 'observability',
     logLabel: 'DLQ auto-retry worker',
     create: () => createDlqAutoRetryWorker(),

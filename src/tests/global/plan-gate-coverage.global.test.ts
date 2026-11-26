@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -11,18 +9,17 @@ import {
   isPlanReadOnlyGuard,
 } from '@/domains/billing/sub-domains/entitlement/entitlement-plan-guard.util.js';
 import type { PlanGateDeclaration } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
-import { PLAN_FEATURE_KEYS } from '@/domains/billing/sub-domains/plan/plan.constants.js';
+import {
+  INSTAGRAM_DATABASE_TASK_QUEUE,
+  INSTAGRAM_META_TASK_QUEUE,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.processor.js';
+import { getWorkerQueueRegistrationDefinitions } from '@/infrastructure/queue/worker-runtime/worker-registration.registry.js';
 import type { RegisteredRouteCapture } from '@/app.js';
 import { routeModelKey } from '@/tests/helpers/route-authorization-model.js';
 import { loadRouteRegistryFromCatalog } from '@/tests/helpers/route-catalog-registry.js';
-import {
-  JOB_PLAN_GATE_KINDS,
-  JOB_PLAN_GATE_MODEL,
-  type JobPlanGateEntry,
-} from '@/tests/helpers/route-plan-gate-model.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
+import { listWorkerJobNamesFromCode } from '@/tests/helpers/worker-job-names.js';
 
-const DOMAINS_ROOT = join(process.cwd(), 'src', 'domains');
 const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
@@ -31,63 +28,42 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DEL
  */
 const QUEUE_DASHBOARD_PREFIX = '/admin/queues';
 
-/** Every gate a route may declare — read from the entitlement registry at run time (RG6). */
-const KNOWN_ROUTE_GATES: ReadonlySet<string> = new Set([
-  'read_only',
+/** Every gate a job may declare — the entitlement registry's switches and limits (JGC3). */
+const KNOWN_JOB_GATES: ReadonlySet<string> = new Set([
   ...ENTITLEMENT_SWITCH_KEYS.map((key) => `feature:${key}`),
   ...ENTITLEMENT_LIMIT_KEYS.map((key) => `limit:${key}`),
 ]);
 
-/** Every gate the job model may use: the fixed kinds and one `feature:<key>` per plan switch. */
-const KNOWN_JOB_GATES: ReadonlySet<string> = new Set([
-  ...JOB_PLAN_GATE_KINDS,
-  ...PLAN_FEATURE_KEYS.map((key) => `feature:${key}`),
+/**
+ * Every gate a route may declare — read from the entitlement registry at run time (RG6): a job's
+ * gates, plus `read_only` (a route's guard; a job has no request to refuse).
+ */
+const KNOWN_ROUTE_GATES: ReadonlySet<string> = new Set(['read_only', ...KNOWN_JOB_GATES]);
+
+/** The two Instagram task queues: their job names are the registered task handlers' (JGC3). */
+const TASK_HANDLER_QUEUE_NAMES: ReadonlySet<string> = new Set([
+  INSTAGRAM_META_TASK_QUEUE.queueName,
+  INSTAGRAM_DATABASE_TASK_QUEUE.queueName,
 ]);
 
-/** What is wrong with one route's live declaration — empty when it is valid. */
-function listDeclarationProblems(planGate: PlanGateDeclaration): string[] {
+/** What is wrong with one route's or job's declaration — empty when it is valid. */
+function listDeclarationProblems({
+  planGate,
+  knownGates,
+}: {
+  planGate: PlanGateDeclaration;
+  knownGates: ReadonlySet<string>;
+}): string[] {
   const hasGates = Array.isArray(planGate.gates) && planGate.gates.length > 0;
   const reason = planGate.open;
   const hasReason = typeof reason === 'string' && reason.trim().length > 0;
   if (hasGates === hasReason) return ['exactly one of gates / a non-empty open reason'];
   const problems: string[] = [];
   for (const gate of planGate.gates ?? []) {
-    if (!KNOWN_ROUTE_GATES.has(gate)) problems.push(`unknown gate ${gate}`);
+    if (!knownGates.has(gate)) problems.push(`unknown gate ${gate}`);
   }
   if (hasReason && /[\r\n]/.test(reason)) problems.push('the open reason is one line');
   return problems;
-}
-
-function listInvalidJobEntries(model: Readonly<Record<string, JobPlanGateEntry>>): string[] {
-  const invalid: string[] = [];
-  for (const [key, entry] of Object.entries(model)) {
-    const hasGates = Array.isArray(entry.gates) && entry.gates.length > 0;
-    const reason = entry.deliberatelyOpen;
-    const hasReason = typeof reason === 'string' && reason.trim().length > 0;
-    if (hasGates === hasReason) {
-      invalid.push(`${key} → exactly one of gates / deliberatelyOpen`);
-      continue;
-    }
-    for (const gate of entry.gates ?? []) {
-      if (!KNOWN_JOB_GATES.has(gate)) invalid.push(`${key} → unknown gate ${gate}`);
-    }
-    if (hasReason && reason.includes('\n')) invalid.push(`${key} → the reason is one line`);
-  }
-  return invalid;
-}
-
-/** The non-test TypeScript source under `src/domains/`, joined — where a job name is declared. */
-function readDomainSource(directory: string = DOMAINS_ROOT, parts: string[] = []): string[] {
-  for (const entry of readdirSync(directory)) {
-    const fullPath = join(directory, entry);
-    if (statSync(fullPath).isDirectory()) {
-      if (entry === '__tests__') continue;
-      readDomainSource(fullPath, parts);
-    } else if (entry.endsWith('.ts') && !entry.endsWith('.test.ts')) {
-      parts.push(readFileSync(fullPath, 'utf8'));
-    }
-  }
-  return parts;
 }
 
 function routeKey(route: RegisteredRouteCapture): string {
@@ -106,7 +82,9 @@ function listPreHandlers(route: RegisteredRouteCapture): unknown[] {
  * hand list: every registered write route declares `config.planGate` (its gates, or the one-line
  * reason it meets none); every gate is a registry key; and the routes declaring `read_only` are
  * exactly the routes the one plan guard was attached to, first in their `preHandler` list. Every
- * job that sends or starts paid work declares its gates too (the hand-kept job model, until part 6).
+ * job of every registered queue declares too, in the worker registry (`jobPlanGates`, JG1, P33):
+ * the test walks the registry and checks it against the job names the code itself puts on each
+ * queue (`listWorkerJobNamesFromCode`) — never a hand list, so a forgotten paid job fails.
  */
 describe('Global: plan-gate coverage', () => {
   let app: FastifyInstance | undefined;
@@ -147,7 +125,9 @@ describe('Global: plan-gate coverage', () => {
     const invalid = writes.flatMap((route) => {
       const planGate = route.routeOptions.config?.planGate;
       if (planGate === undefined) return [];
-      return listDeclarationProblems(planGate).map((problem) => `${routeKey(route)} → ${problem}`);
+      return listDeclarationProblems({ planGate, knownGates: KNOWN_ROUTE_GATES }).map(
+        (problem) => `${routeKey(route)} → ${problem}`,
+      );
     });
     expect(invalid).toEqual([]);
   });
@@ -166,10 +146,53 @@ describe('Global: plan-gate coverage', () => {
     expect(notFirst, `Guard attached but not first:\n${notFirst.join('\n')}`).toEqual([]);
   });
 
-  it('every job entry names known gates and a job name the source still declares', () => {
-    expect(listInvalidJobEntries(JOB_PLAN_GATE_MODEL)).toEqual([]);
-    const source = readDomainSource().join('\n');
-    const stale = Object.keys(JOB_PLAN_GATE_MODEL).filter((name) => !source.includes(`'${name}'`));
-    expect(stale, `Job entries with no declared job name:\n${stale.join('\n')}`).toEqual([]);
+  describe('jobs (the worker registry)', () => {
+    const registrations = getWorkerQueueRegistrationDefinitions();
+    const fromCode = listWorkerJobNamesFromCode();
+
+    it('reads job names for every registered queue from the code', () => {
+      const queuesWithoutJobs = registrations
+        .filter(
+          (registration) => (fromCode.jobNamesByQueue.get(registration.queueName)?.size ?? 0) === 0,
+        )
+        .map((registration) => registration.queueName);
+      expect(
+        queuesWithoutJobs,
+        `Queues the code puts no job on:\n${queuesWithoutJobs.join('\n')}`,
+      ).toEqual([]);
+      const unreadable = fromCode.unresolved
+        .filter((entry) => !TASK_HANDLER_QUEUE_NAMES.has(entry.queueName))
+        .map((entry) => `${entry.file} → ${entry.queueName}: ${entry.expression}`);
+      expect(unreadable, `Job names the test cannot read:\n${unreadable.join('\n')}`).toEqual([]);
+    });
+
+    it('every job a registered queue runs declares its plan gate', () => {
+      const missing = registrations.flatMap((registration) =>
+        [...(fromCode.jobNamesByQueue.get(registration.queueName) ?? [])]
+          .filter((jobName) => registration.jobPlanGates[jobName] === undefined)
+          .map((jobName) => `${registration.queueName} → ${jobName}`),
+      );
+      expect(missing, `Jobs without a plan-gate declaration:\n${missing.join('\n')}`).toEqual([]);
+    });
+
+    it('every declaration names registry gates or a one-line open reason', () => {
+      const invalid = registrations.flatMap((registration) =>
+        Object.entries(registration.jobPlanGates).flatMap(([jobName, planGate]) =>
+          listDeclarationProblems({ planGate, knownGates: KNOWN_JOB_GATES }).map(
+            (problem) => `${registration.queueName} → ${jobName} → ${problem}`,
+          ),
+        ),
+      );
+      expect(invalid).toEqual([]);
+    });
+
+    it('every declared job is a job name the code puts on that queue', () => {
+      const stale = registrations.flatMap((registration) =>
+        Object.keys(registration.jobPlanGates)
+          .filter((jobName) => !fromCode.jobNamesByQueue.get(registration.queueName)?.has(jobName))
+          .map((jobName) => `${registration.queueName} → ${jobName}`),
+      );
+      expect(stale, `Declarations for jobs the queue never runs:\n${stale.join('\n')}`).toEqual([]);
+    });
   });
 });

@@ -118,6 +118,27 @@ const errorResponseSchema = {
           description:
             '`true` when a plan change is what lifts the refusal (`plan_lacks_feature`, `plan_account_limit`, `seat_limit_reached`, `organization_read_only`); pick the plan from `GET /billing/plans` by `feature` / `limit`. Absent otherwise.',
         },
+        missing_permissions: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The Meta permissions a channel connection login did not grant — on `provider_permissions_missing` (feat-meta-connect-flow CN3). Absent otherwise.',
+        },
+        expected_client_business_id: {
+          type: 'string',
+          description:
+            'The business portfolio a reconnect expected — on `channel_connection_business_mismatch` (feat-meta-connect-flow CN3). Absent otherwise.',
+        },
+        plan_room: {
+          type: 'object',
+          properties: {
+            accounts_max: { type: 'integer' },
+            accounts_used: { type: 'integer' },
+            accounts_free: { type: 'integer' },
+          },
+          description:
+            "The plan's room for channel accounts — beside `limit` / `used` on `plan_account_limit` (feat-meta-connect-flow CN6). Absent otherwise.",
+        },
         documentation_url: {
           type: 'string',
           description: 'Link to the documentation page for this error code',

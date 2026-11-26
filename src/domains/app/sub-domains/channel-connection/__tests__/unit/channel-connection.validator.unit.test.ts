@@ -50,9 +50,30 @@ describe('channel connection validators', () => {
       code: 'AQB-code',
       state: STATE,
     });
+    const longest = validateChannelConnectCallback({ code: 'a'.repeat(2000), state: STATE });
+    expect('code' in longest && longest.code).toHaveLength(2000);
+  });
+
+  it("reads Meta's cancel instead of a code, and refuses both or an unknown field (CN1)", () => {
     expect(
-      validateChannelConnectCallback({ code: 'a'.repeat(2000), state: STATE }).code,
-    ).toHaveLength(2000);
+      validateChannelConnectCallback({
+        state: STATE,
+        error: 'access_denied',
+        error_reason: 'user_denied',
+        error_description: 'Permissions error',
+      }),
+    ).toEqual({
+      state: STATE,
+      error: 'access_denied',
+      error_reason: 'user_denied',
+      error_description: 'Permissions error',
+    });
+    expect(() =>
+      validateChannelConnectCallback({ code: 'AQB', state: STATE, error: 'access_denied' }),
+    ).toThrow(ValidationError);
+    expect(() => validateChannelConnectCallback({ state: STATE, error: 'x'.repeat(101) })).toThrow(
+      ValidationError,
+    );
   });
 
   it.each([

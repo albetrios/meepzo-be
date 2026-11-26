@@ -37,6 +37,8 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": 200,
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/shared-assets": 200,
+  "GET /api/v1/app/social/channel-connections/:provider/connect-options": 200,
   "GET /api/v1/app/social/channel-connections/meta/webhooks/instagram": 200,
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/media": 200,
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": 200,

@@ -1,4 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { hasOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { paginatedResponse, successResponse } from '@/shared/utils/http/response.util.js';
 import {
   getActingUserPublicId,
@@ -62,6 +64,38 @@ async function recordPickedAccountAudits({
       },
     });
   }
+}
+
+/**
+ * The connect flow's reads (feat-meta-connect-flow CN7, CN8): route 151 (what the login shares now,
+ * with `meta.is_complete` and `meta.plan_room`) and route 152 (the connect-start preconditions).
+ * Reads only — no audit entry.
+ */
+function createConnectReadHandlers(service: ChannelConnectionService) {
+  return {
+    listChannelConnectionSharedAssets: async (request: ConnectionRequest, _reply: FastifyReply) => {
+      const { data, meta } = await service.listSharedAssets({
+        scope: requireOrganizationScope(request),
+        requestId: getRequestIdentifier(request),
+        channelConnectionPublicId: validateChannelConnectionIdParam(
+          request.params.channel_connection_id,
+        ),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request), extraMeta: meta });
+    },
+    getChannelConnectOptions: async (request: ProviderRequest, _reply: FastifyReply) => {
+      const data = await service.getConnectOptions({
+        scope: requireOrganizationScope(request),
+        provider: validateChannelConnectionProvider(request.params.provider),
+        // CN8: an answer that varies with a permission, not a gate (`hasOrganizationPermission`).
+        canManage: await hasOrganizationPermission({
+          request,
+          permissionCode: APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE,
+        }),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+  };
 }
 
 /**
@@ -162,19 +196,36 @@ function createLoginStartHandlers(service: ChannelConnectionService) {
 export function createChannelConnectionController(service: ChannelConnectionService) {
   return {
     ...createAdPickerHandlers(service),
+    ...createConnectReadHandlers(service),
     ...createLoginStartHandlers(service),
     finishChannelConnection: async (request: ProviderRequest, _reply: FastifyReply) => {
       const auth = requirePrincipal(request);
       const scope = requireOrganizationScope(request);
       const provider = validateChannelConnectionProvider(request.params.provider);
-      const { code, state } = validateChannelConnectCallback(request.body);
+      const body = validateChannelConnectCallback(request.body);
+      if (!('code' in body)) {
+        // CN1: Meta's cancel — the state is spent, nothing saved, so no audit entry.
+        const cancelled = await service.cancelLogin({
+          scope,
+          userPublicId: getActingUserPublicId(auth) ?? '',
+          requestId: getRequestIdentifier(request),
+          provider,
+          state: body.state,
+          errorReason: body.error_reason ?? body.error,
+        });
+        return successResponse({
+          data: cancelled.data,
+          request_id: getRequestIdentifier(request),
+          extraMeta: { error_reason: body.error_reason ?? body.error },
+        });
+      }
       const { data } = await service.finishLogin({
         scope,
         userPublicId: getActingUserPublicId(auth) ?? '',
         requestId: getRequestIdentifier(request),
         provider,
-        code,
-        state,
+        code: body.code,
+        state: body.state,
       });
       await recordScopedAuditEvent({
         request,
@@ -188,7 +239,9 @@ export function createChannelConnectionController(service: ChannelConnectionServ
             channel_connection_public_id: data.channel_connection.id,
             provider,
             is_reconnect: data.is_reconnect,
+            outcome: data.outcome,
             reconnected_account_count: data.reconnected_account_ids.length,
+            marked_not_shared_account_count: data.marked_not_shared_account_ids.length,
           },
         },
       });

@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 207
+  Total routes: 209
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 60
+  Routes: 62
 ================================================================================
 
   — Sub Domains —
@@ -65,7 +65,9 @@ Legend:
   GET    /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts  200  -    team  PERM: channel-account:read
   GET    /api/v1/app/social/channel-connections/:channel_connection_id/ads  200  -    team  PERM: channel-account:read
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id/shared-assets  200  -    team  PERM: channel-account:read
   POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
+  GET    /api/v1/app/social/channel-connections/:provider/connect-options  200  -    team  PERM: channel-account:read
   POST   /api/v1/app/social/channel-connections/:provider/data-deletion  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/deauthorize  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
@@ -298,13 +300,13 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 207
+  Total routes    : 209
   Public          : 23
   Authenticated   : 55
   Role-guarded    : 12
-  Perm-guarded    : 112
+  Perm-guarded    : 114
   Token-guarded   : 5
-  Team-only (O)   : 68
+  Team-only (O)   : 70
 
 ================================================================================
   IDEMPOTENCY-REQUIRED WRITES (33) — X-Idempotency-Key required

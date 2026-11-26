@@ -44,9 +44,13 @@ export function validateChannelConnectStartBody(data: unknown): { withPage: bool
   return { withPage: parsed?.with_page === true };
 }
 
-/** Route 2's body: `code` (trailing `#_` stripped) and `state` (1.8). */
+/**
+ * Route 2's body: `code` (trailing `#_` stripped) and `state` (1.8), or Meta's cancel — `state`,
+ * `error`, `error_reason`, `error_description` (feat-meta-connect-flow CN1).
+ */
 export function validateChannelConnectCallback(data: unknown): ChannelConnectCallbackInput {
   const parsed = parseWithSchema({ schema: channelConnectCallbackDto, data });
+  if (!('code' in parsed)) return parsed;
   return {
     ...parsed,
     code: parsed.code.endsWith(CHANNEL_CONNECT_CODE_REDIRECT_SUFFIX)

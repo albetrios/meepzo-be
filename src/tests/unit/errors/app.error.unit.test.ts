@@ -44,6 +44,9 @@ describe('AppError', () => {
       used: 'integer',
       grace_ends_at: 'timestamp_or_null',
       upgrade_required: 'boolean',
+      missing_permissions: 'string_list',
+      expected_client_business_id: 'string',
+      plan_room: 'plan_room',
     });
     expect([...APP_ERROR_FIELD_NAMES]).toEqual(Object.keys(APP_ERROR_FIELD_KINDS));
   });

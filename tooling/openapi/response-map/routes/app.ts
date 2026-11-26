@@ -22,6 +22,23 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapSuccess(schemas.channelConnectResultSchema, schemas.channelConnectResultExample),
     example: null,
   },
+  'GET /api/v1/app/social/channel-connections/{provider}/connect-options': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectOptionsSchema, schemas.channelConnectOptionsExample),
+    example: null,
+  },
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/shared-assets': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      { type: 'array', items: schemas.channelSharedAssetSchema },
+      [schemas.channelSharedAssetExample],
+      {
+        is_complete: { type: 'boolean' },
+        plan_room: schemas.channelAccountPlanRoomSchema,
+      },
+    ),
+    example: null,
+  },
   'POST /api/v1/app/social/channel-connections/{channel_connection_id}/reconnect': {
     statusCode: 200,
     schema: wrapSuccess(schemas.channelConnectStartSchema, schemas.channelConnectStartExample),

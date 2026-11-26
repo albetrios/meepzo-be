@@ -12,7 +12,9 @@ import {
 import {
   type InstagramAccountProfile,
   type MetaAssignedInstagramAccount,
+  type MetaAssignedInstagramAccountList,
   type MetaConnectionReadOptions,
+  isMetaConfigured,
   listMetaAdAccountAds,
   listMetaAdAccounts,
   listMetaAssignedInstagramAccounts,
@@ -55,6 +57,7 @@ import {
   channelConnectionNotFoundError,
   instagramPageLoginNotConfiguredError,
   planAccountLimitError,
+  providerNoAccountsSharedError,
   providerPermissionsMissingError,
   isMetaAdPermissionMissing,
   isMetaTokenRefused,
@@ -68,6 +71,7 @@ import type {
   ChannelConnectionRow,
 } from './channel-connection.repository.js';
 import {
+  type ChannelConnectStatePayload,
   type ChannelConnectionProvider,
   consumeChannelConnectState,
   mintChannelConnectState,
@@ -80,11 +84,14 @@ import {
   serializeChannelConnectionAccount,
   serializeMetaAd,
   serializeMetaAdAccount,
+  serializeNotSharedAnyMoreAsset,
 } from './channel-connection.serializer.js';
 import type {
   ChannelAccountPickItemOutput,
   ChannelAccountPickResultOutput,
   ChannelConnectAccountOutput,
+  ChannelConnectCancelledOutput,
+  ChannelConnectOptionsOutput,
   ChannelConnectionAdAccountList,
   ChannelConnectionAdPage,
   ChannelConnectResultOutput,
@@ -94,6 +101,7 @@ import type {
   ChannelConnectionLanePort,
   ChannelConnectionOutput,
   ChannelConnectionTrialPort,
+  ChannelSharedAssetListOutput,
 } from './channel-connection.types.js';
 
 /**
@@ -162,6 +170,20 @@ interface AdPickerAccess {
 interface CallerOrganization {
   organizationId: number;
   userId: number | null;
+}
+
+/** What the callback read from Meta after the code exchange (MC5 steps 2–4). */
+interface ChannelConnectionLogin {
+  encryptedAccessToken: string;
+  /** The token's end from the exchange (P355), `null` when it never ends. */
+  tokenExpiresAt: Date | null;
+  clientBusinessId: string;
+  /** The token's Meta system user (`/me` `id`, F3), or `null`. */
+  providerUserId: string | null;
+  assignedAccounts: MetaAssignedInstagramAccount[];
+  /** Whether Meta's assigned list was read whole (P353) — only then are missing accounts marked. */
+  isAssignedListComplete: boolean;
+  grantedPermissions: string[];
 }
 
 /** A Meta read that may take at most `milliseconds`; `null` when it failed or ran out (fails open). */
@@ -370,14 +392,13 @@ export class ChannelConnectionService {
     }
 
     const login = await this.readLogin({ code, requestId });
-    if (boundConnection !== null && boundConnection.client_business_id !== login.clientBusinessId) {
-      throw channelConnectionBusinessMismatchError();
-    }
-    const granted = new Set(login.grantedPermissions);
-    if (META_REQUIRED_PERMISSIONS.some((permission) => !granted.has(permission))) {
-      this.logFailedConnect({ requestId, step: 'permissions' });
-      throw providerPermissionsMissingError();
-    }
+    const isNoAccountShared = await this.assertLoginAcceptable({
+      scope,
+      provider,
+      requestId,
+      boundConnection,
+      login,
+    });
     const elsewhere = await this.findAccountsLiveElsewhere({
       scope,
       providerAccountIds: login.assignedAccounts.map((account) => account.instagramUserId),
@@ -386,68 +407,7 @@ export class ChannelConnectionService {
 
     const committed = await withAppDatabaseContext({
       scope,
-      callback: async () => {
-        const { connection, isReconnect } = await this.connectionRepository.upsertConnected({
-          organizationId: caller.organizationId,
-          provider,
-          clientBusinessId: login.clientBusinessId,
-          providerUserId: login.providerUserId,
-          // P356: the configuration the login address carried, kept in its one-use state.
-          configId: payload.config_id,
-          scopes: [...new Set(login.grantedPermissions)].slice(0, META_PERMISSION_NAMES_MAX),
-          connectedByUserId: caller.userId,
-        });
-        const channelConnection = {
-          organizationId: caller.organizationId,
-          channelConnectionId: connection.id,
-        };
-        await this.tokenService.storeAccessToken({
-          scope,
-          channelConnection,
-          token: {
-            encryptedAccessToken: login.encryptedAccessToken,
-            encryptedRefreshToken: null,
-            tokenType: 'system_user',
-            // P355: whether it ends depends on the login configuration — Meta's `expires_in`.
-            expiresAt: login.tokenExpiresAt,
-          },
-        });
-        const reconnected = await this.accountPort.reconnectAccounts({
-          scope,
-          organizationId: caller.organizationId,
-          channelConnectionId: connection.id,
-          providerAccountIds: login.assignedAccounts.map((account) => account.instagramUserId),
-        });
-        for (const { account } of reconnected) {
-          await this.lanePort?.endLoginStops({
-            scope,
-            organizationId: caller.organizationId,
-            channelAccountId: account.internalId,
-          });
-        }
-        await this.releaseMovedFromConnections({
-          scope,
-          organizationId: caller.organizationId,
-          previousChannelConnectionIds: reconnected
-            .map(({ previousChannelConnectionId }) => previousChannelConnectionId)
-            .filter((identifier) => identifier !== connection.id),
-        });
-        const here = await this.accountPort.findAccountsByProviderIds({
-          scope,
-          organizationId: caller.organizationId,
-          providerAccountIds: login.assignedAccounts.map((account) => account.instagramUserId),
-        });
-        const accountsUsed = await this.accountPort.countLiveAccounts({
-          scope,
-          organizationId: caller.organizationId,
-        });
-        const output = await this.toConnectionOutput({
-          scope,
-          organizationId: caller.organizationId,
-          connection,
-        });
-        return { connection, isReconnect, reconnected, here, accountsUsed, output };
-      },
+      callback: () => this.commitLogin({ scope, caller, provider, requestId, payload, login }),
     });
 
     await this.accountPort.startAccountSetups({
@@ -462,19 +422,354 @@ export class ChannelConnectionService {
       expiresAt: login.tokenExpiresAt,
     });
 
+    let outcome: ChannelConnectResultOutput['outcome'] = 'connected';
+    if (isNoAccountShared) outcome = 'no_accounts_shared';
+    else if (committed.isReconnect) outcome = 'reconnected';
     return {
       data: {
+        outcome,
         is_reconnect: committed.isReconnect,
         channel_connection: committed.output,
         accounts: login.assignedAccounts.map((assigned) =>
           this.toConnectAccount({ assigned, here: committed.here, elsewhere }),
         ),
         reconnected_account_ids: committed.reconnected.map(({ account }) => account.publicId),
+        marked_not_shared_account_ids: committed.markedNotShared,
         plan_room: serializeChannelAccountPlanRoom({
           accounts_max: accountsMax,
           accounts_used: committed.accountsUsed,
         }),
       },
+    };
+  }
+
+  /**
+   * The callback's checks after Meta's reads (MC5 step 4; feat-meta-connect-flow CN3, CN4): a
+   * reconnect into another business, a missing required permission, a first connect sharing no
+   * Instagram account — each refused with its named error, nothing saved. Answers whether the login
+   * shares no account (a reconnect that does goes on, CN4).
+   */
+  private async assertLoginAcceptable({
+    scope,
+    provider,
+    requestId,
+    boundConnection,
+    login,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    provider: ChannelConnectionProvider;
+    requestId: string;
+    boundConnection: ChannelConnectionRow | null;
+    login: ChannelConnectionLogin;
+  }): Promise<boolean> {
+    if (boundConnection !== null && boundConnection.client_business_id !== login.clientBusinessId) {
+      throw channelConnectionBusinessMismatchError({
+        expectedClientBusinessId: boundConnection.client_business_id,
+      });
+    }
+    const granted = new Set(login.grantedPermissions);
+    const missingPermissions = META_REQUIRED_PERMISSIONS.filter(
+      (permission) => !granted.has(permission),
+    );
+    if (missingPermissions.length > 0) {
+      this.logFailedConnect({ requestId, step: 'permissions' });
+      throw providerPermissionsMissingError({ missingPermissions });
+    }
+    const isNoAccountShared = login.assignedAccounts.length === 0;
+    if (
+      isNoAccountShared &&
+      !(await this.isBusinessConnected({
+        scope,
+        provider,
+        boundConnection,
+        clientBusinessId: login.clientBusinessId,
+      }))
+    ) {
+      // CN4: a first connect sharing no Instagram account saves nothing (no token held for none).
+      this.logFailedConnect({ requestId, step: 'no_accounts' });
+      throw providerNoAccountsSharedError();
+    }
+    return isNoAccountShared;
+  }
+
+  /**
+   * The callback's commit (MC5 step 6, MC6; feat-meta-connect-flow CN5), inside the caller's unit:
+   * the connection upserted with its token, the organization's assigned accounts reconnected (their
+   * login stops ended, a connection a move emptied released), this connection's accounts Meta no
+   * longer lists marked not shared (only from a complete list), and what the answer needs.
+   */
+  private async commitLogin({
+    scope,
+    caller,
+    provider,
+    requestId,
+    payload,
+    login,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    caller: CallerOrganization;
+    provider: ChannelConnectionProvider;
+    requestId: string;
+    payload: ChannelConnectStatePayload;
+    login: ChannelConnectionLogin;
+  }) {
+    const { connection, isReconnect } = await this.connectionRepository.upsertConnected({
+      organizationId: caller.organizationId,
+      provider,
+      clientBusinessId: login.clientBusinessId,
+      providerUserId: login.providerUserId,
+      // P356: the configuration the login address carried, kept in its one-use state.
+      configId: payload.config_id,
+      scopes: [...new Set(login.grantedPermissions)].slice(0, META_PERMISSION_NAMES_MAX),
+      connectedByUserId: caller.userId,
+    });
+    const channelConnection = {
+      organizationId: caller.organizationId,
+      channelConnectionId: connection.id,
+    };
+    await this.tokenService.storeAccessToken({
+      scope,
+      channelConnection,
+      token: {
+        encryptedAccessToken: login.encryptedAccessToken,
+        encryptedRefreshToken: null,
+        tokenType: 'system_user',
+        // P355: whether it ends depends on the login configuration — Meta's `expires_in`.
+        expiresAt: login.tokenExpiresAt,
+      },
+    });
+    const reconnected = await this.accountPort.reconnectAccounts({
+      scope,
+      organizationId: caller.organizationId,
+      channelConnectionId: connection.id,
+      providerAccountIds: login.assignedAccounts.map((account) => account.instagramUserId),
+    });
+    for (const { account } of reconnected) {
+      await this.lanePort?.endLoginStops({
+        scope,
+        organizationId: caller.organizationId,
+        channelAccountId: account.internalId,
+      });
+    }
+    await this.releaseMovedFromConnections({
+      scope,
+      organizationId: caller.organizationId,
+      previousChannelConnectionIds: reconnected
+        .map(({ previousChannelConnectionId }) => previousChannelConnectionId)
+        .filter((identifier) => identifier !== connection.id),
+    });
+    // CN5: accounts of this connection Meta no longer lists — only from a complete list (P353).
+    const markedNotShared = login.isAssignedListComplete
+      ? await this.markUnsharedAccounts({
+          scope,
+          organizationId: caller.organizationId,
+          channelConnectionId: connection.id,
+          assignedIds: new Set(login.assignedAccounts.map((account) => account.instagramUserId)),
+          requestId,
+        })
+      : [];
+    const here = await this.accountPort.findAccountsByProviderIds({
+      scope,
+      organizationId: caller.organizationId,
+      providerAccountIds: login.assignedAccounts.map((account) => account.instagramUserId),
+    });
+    const accountsUsed = await this.accountPort.countLiveAccounts({
+      scope,
+      organizationId: caller.organizationId,
+    });
+    const output = await this.toConnectionOutput({
+      scope,
+      organizationId: caller.organizationId,
+      connection,
+    });
+    return {
+      connection,
+      isReconnect,
+      reconnected,
+      markedNotShared,
+      here,
+      accountsUsed,
+      output,
+    };
+  }
+
+  /**
+   * Route 2 with Meta's cancel (feat-meta-connect-flow CN1): the person closed or cancelled the Meta
+   * dialog.
+   *
+   * @remarks
+   * Algorithm: the team check; the state read and deleted (this caller's, else `400
+   * channel_connect_state_invalid`); no Meta call; `outcome: cancelled`.
+   * Failure modes: `400 channel_connect_state_invalid`, `422` for a personal organization.
+   * Side effects: Redis (the state is spent); an info log with Meta's `error_reason` only.
+   */
+  async cancelLogin({
+    scope,
+    userPublicId,
+    requestId,
+    provider,
+    state,
+    errorReason,
+  }: ChannelConnectionCaller & {
+    provider: ChannelConnectionProvider;
+    state: string;
+    errorReason: string | null;
+  }): Promise<{ data: ChannelConnectCancelledOutput }> {
+    await this.requireWritableCaller({ scope, userPublicId });
+    await consumeChannelConnectState({
+      redis: this.redis,
+      state,
+      provider,
+      organizationPublicId: scope.organizationPublicId,
+      userPublicId,
+    });
+    logger.info(
+      { requestId, organizationPublicId: scope.organizationPublicId, errorReason },
+      'app.channel_connection.connect_cancelled',
+    );
+    return { data: { outcome: 'cancelled' } };
+  }
+
+  /**
+   * Route 151 (feat-meta-connect-flow CN7): what the connection's login shares now, each asset with
+   * its pick state, re-read from Meta (P55 — never cached).
+   *
+   * @remarks
+   * Algorithm: one unit — the team read check, the connection (`404`; not `connected` → `409`) and its
+   * token; outside it, Meta's assigned list (every page, capped); the accounts here and live elsewhere;
+   * this connection's accounts Meta no longer lists (`not_shared_any_more`, only from a complete
+   * list); the plan room.
+   * Failure modes: `404 channel_connection_not_found`, `409 channel_connection_not_connected`; a token
+   * Meta refuses (190) breaks the connection, then `409`; Meta down → `503 instagram_unavailable`.
+   * Side effects: Meta calls and their usage; a 190 breaks the connection (K2).
+   */
+  async listSharedAssets({
+    scope,
+    requestId,
+    channelConnectionPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    requestId: string;
+    channelConnectionPublicId: string;
+  }): Promise<ChannelSharedAssetListOutput> {
+    const { organizationId, connection, encryptedAccessToken } = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const readableOrganizationId = await this.requireReadableOrganization(scope);
+        const row = await this.findConnection({
+          scope,
+          organizationId: readableOrganizationId,
+          channelConnectionPublicId,
+        });
+        if (row === null) throw channelConnectionNotFoundError();
+        if (row.status !== CHANNEL_CONNECTION_STATUS.CONNECTED) {
+          throw channelConnectionNotConnectedError();
+        }
+        const token = await this.tokenService.findAccessToken({
+          scope,
+          channelConnection: {
+            organizationId: readableOrganizationId,
+            channelConnectionId: row.id,
+          },
+        });
+        if (token === null) throw channelConnectionNotConnectedError();
+        return {
+          organizationId: readableOrganizationId,
+          connection: row,
+          encryptedAccessToken: token.encryptedAccessToken,
+        };
+      },
+    });
+    let assigned: MetaAssignedInstagramAccountList;
+    try {
+      assigned = await listMetaAssignedInstagramAccounts({
+        encryptedAccessToken,
+        requestId,
+        recordUsage: this.usageService.buildUsageRecorder({
+          scope,
+          channelConnectionPublicId: connection.public_id,
+        }),
+      });
+    } catch (error) {
+      if (isMetaTokenRefused(error)) {
+        await this.markConnectionBroken({
+          scope,
+          channelConnection: { organizationId, channelConnectionId: connection.id },
+          lastCheckError: describeMetaGraphError(error),
+          requestId,
+        });
+      }
+      throw toChannelConnectionReadError(error);
+    }
+    const providerAccountIds = assigned.accounts.map((account) => account.instagramUserId);
+    const elsewhere = await this.findAccountsLiveElsewhere({ scope, providerAccountIds });
+    const here = await this.accountPort.findAccountsByProviderIds({
+      scope,
+      organizationId,
+      providerAccountIds,
+    });
+    const listed = new Set(providerAccountIds);
+    const notSharedAnyMore = assigned.isComplete
+      ? (
+          await this.accountPort.listAccountsOfConnections({
+            scope,
+            organizationId,
+            channelConnectionIds: [connection.id],
+          })
+        ).filter((account) => !listed.has(account.providerAccountId))
+      : [];
+    const accountsMax = await this.readAccountsMax(scope);
+    const accountsUsed = await this.accountPort.countLiveAccounts({ scope, organizationId });
+    return {
+      data: [
+        ...assigned.accounts.map((account) =>
+          this.toConnectAccount({ assigned: account, here, elsewhere }),
+        ),
+        ...notSharedAnyMore.map(serializeNotSharedAnyMoreAsset),
+      ],
+      meta: {
+        is_complete: assigned.isComplete,
+        plan_room: serializeChannelAccountPlanRoom({
+          accounts_max: accountsMax,
+          accounts_used: accountsUsed,
+        }),
+      },
+    };
+  }
+
+  /**
+   * Route 152 (feat-meta-connect-flow CN8): whether this caller can connect now, and how — never a
+   * `503` (an unconfigured Meta answers `is_configured: false`).
+   *
+   * @remarks
+   * Algorithm: one unit — the team read check, the plan room; the Meta settings read without
+   * throwing. `canManage` is the controller's read of the caller's `channel-account:manage`.
+   * Failure modes: `404 team_organization_required`. Side effects: none.
+   */
+  async getConnectOptions({
+    scope,
+    provider,
+    canManage,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    provider: ChannelConnectionProvider;
+    canManage: boolean;
+  }): Promise<ChannelConnectOptionsOutput> {
+    const organizationId = await withAppDatabaseContext({
+      scope,
+      callback: () => this.requireReadableOrganization(scope),
+    });
+    const accountsMax = await this.readAccountsMax(scope);
+    const accountsUsed = await this.accountPort.countLiveAccounts({ scope, organizationId });
+    return {
+      provider,
+      is_configured: isMetaConfigured(),
+      is_page_login_offered: readMetaPageConfigId() !== null,
+      can_manage: canManage,
+      plan_room: serializeChannelAccountPlanRoom({
+        accounts_max: accountsMax,
+        accounts_used: accountsUsed,
+      }),
     };
   }
 
@@ -999,16 +1294,13 @@ export class ChannelConnectionService {
   }
 
   /** MC5 steps 2–3: the code exchange, then the business, the assigned accounts and permissions. */
-  private async readLogin({ code, requestId }: { code: string; requestId: string }): Promise<{
-    encryptedAccessToken: string;
-    /** The token's end from the exchange (P355), `null` when it never ends. */
-    tokenExpiresAt: Date | null;
-    clientBusinessId: string;
-    /** The token's Meta system user (`/me` `id`, F3), or `null`. */
-    providerUserId: string | null;
-    assignedAccounts: MetaAssignedInstagramAccount[];
-    grantedPermissions: string[];
-  }> {
+  private async readLogin({
+    code,
+    requestId,
+  }: {
+    code: string;
+    requestId: string;
+  }): Promise<ChannelConnectionLogin> {
     let encryptedAccessToken: string;
     let tokenExpiresAt: Date | null;
     try {
@@ -1025,10 +1317,8 @@ export class ChannelConnectionService {
         encryptedAccessToken,
         requestId,
       });
-      const { accounts: assignedAccounts } = await listMetaAssignedInstagramAccounts({
-        encryptedAccessToken,
-        requestId,
-      });
+      const { accounts: assignedAccounts, isComplete: isAssignedListComplete } =
+        await listMetaAssignedInstagramAccounts({ encryptedAccessToken, requestId });
       const grantedPermissions = await readMetaGrantedPermissions({
         encryptedAccessToken,
         requestId,
@@ -1039,6 +1329,7 @@ export class ChannelConnectionService {
         clientBusinessId,
         providerUserId,
         assignedAccounts,
+        isAssignedListComplete,
         grantedPermissions,
       };
     } catch (error) {
@@ -1087,7 +1378,7 @@ export class ChannelConnectionService {
     error,
   }: {
     requestId: string;
-    step: 'exchange' | 'read' | 'permissions';
+    step: 'exchange' | 'read' | 'permissions' | 'no_accounts';
     error?: unknown;
   }): void {
     const details =
@@ -1134,6 +1425,74 @@ export class ChannelConnectionService {
       if (holder !== null && holder !== scope.organizationPublicId) elsewhere.add(identifier);
     }
     return elsewhere;
+  }
+
+  /**
+   * CN4: whether this business already has a connection in the organization — a reconnect (the bound
+   * connection of route 40's state) or a later login of a business connected before, not revoked.
+   */
+  private async isBusinessConnected({
+    scope,
+    provider,
+    boundConnection,
+    clientBusinessId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    provider: ChannelConnectionProvider;
+    boundConnection: ChannelConnectionRow | null;
+    clientBusinessId: string;
+  }): Promise<boolean> {
+    if (boundConnection !== null) return true;
+    const rows = await withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.connectionRepository.listByBusiness({
+          organizationPublicId: scope.organizationPublicId,
+          provider,
+          clientBusinessId,
+        }),
+    });
+    return rows.some((row) => row.status !== CHANNEL_CONNECTION_STATUS.REVOKED);
+  }
+
+  /**
+   * CN5: this connection's `connected` accounts missing from Meta's complete list leave `connected`
+   * with the token check's `account_not_shared` stop (MC10 reused), inside the caller's unit; their
+   * public ids.
+   */
+  private async markUnsharedAccounts({
+    scope,
+    organizationId,
+    channelConnectionId,
+    assignedIds,
+    requestId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    channelConnectionId: number;
+    assignedIds: ReadonlySet<string>;
+    requestId: string;
+  }): Promise<string[]> {
+    const accounts = await this.accountPort.listAccountsOfConnections({
+      scope,
+      organizationId,
+      channelConnectionIds: [channelConnectionId],
+    });
+    const marked: string[] = [];
+    for (const account of accounts) {
+      if (account.connectionStatus !== 'connected' || assignedIds.has(account.providerAccountId)) {
+        continue;
+      }
+      const changed = await this.accountPort.markAccountBroken({
+        scope,
+        organizationId,
+        channelAccountId: account.internalId,
+        requestId,
+        stopReason: 'account_not_shared',
+      });
+      if (changed) marked.push(account.publicId);
+    }
+    return marked;
   }
 
   /** The plan's `channel_accounts_max` (Free's when the organization has no readable plan). */

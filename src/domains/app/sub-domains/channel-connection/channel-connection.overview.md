@@ -37,6 +37,8 @@ each connected account's profile and `display_name` (P17), re-encrypts a token s
 | 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | `channel-account:manage` | — |
 | 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | `channel-account:read` | — |
 | 15 | GET | `/social/channel-connections/{channel_connection_id}/ads?ad_account_id=…` | `channel-account:read` | — |
+| 151 | GET | `/social/channel-connections/{channel_connection_id}/shared-assets` | `channel-account:read` | — |
+| 152 | GET | `/social/channel-connections/{provider}/connect-options` | `channel-account:read` | — |
 | 16 | POST | `/social/channel-connections/{provider}/deauthorize` | PUBLIC (Meta's `signed_request`) | — |
 | 17 | POST | `/social/channel-connections/{provider}/data-deletion` | PUBLIC (Meta's `signed_request`) | — |
 

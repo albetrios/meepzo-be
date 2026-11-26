@@ -171,6 +171,8 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ad-accounts`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ads`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/shared-assets`,
+      `GET ${APP_PREFIX}/social/channel-connections/:provider/connect-options`,
       `GET ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
       `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/media`,
       `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/sending-status`,

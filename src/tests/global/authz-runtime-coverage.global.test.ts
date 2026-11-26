@@ -135,6 +135,13 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-resource: channel connection ad accounts',
   'GET /api/v1/app/social/channel-connections/:channel_connection_id/ads':
     'cross-organization-resource: channel connection ads',
+  // feat-meta-connect-flow R3: channel-connection.integration.test.ts lists another organization's
+  // connection's shared assets → 404 channel_connection_not_found, no Meta call; connect-options
+  // carries no object id — it answers from the caller's own permission and the app's Meta config.
+  'GET /api/v1/app/social/channel-connections/:channel_connection_id/shared-assets':
+    'cross-organization-resource: channel connection shared assets',
+  'GET /api/v1/app/social/channel-connections/:provider/connect-options':
+    'cross-organization-resource: no object id, the caller organization permission only',
   'DELETE /api/v1/app/social/channel-connections/:channel_connection_id':
     'cross-organization-mutation: channel connection DELETE',
   'POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts':

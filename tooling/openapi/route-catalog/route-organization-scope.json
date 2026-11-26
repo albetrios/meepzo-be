@@ -176,6 +176,8 @@
   "DELETE /api/v1/billing/payment-methods/:payment_method_id": "team",
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": "team",
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": "team",
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/shared-assets": "team",
+  "GET /api/v1/app/social/channel-connections/:provider/connect-options": "team",
   "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": "team",
   "POST /api/v1/billing/payment-methods/:payment_method_id/default": "team",
   "GET /api/v1/app/social/channel-connections/meta/webhooks/instagram": "both",

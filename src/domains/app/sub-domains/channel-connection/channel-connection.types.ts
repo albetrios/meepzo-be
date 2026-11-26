@@ -64,12 +64,58 @@ export interface ChannelConnectAccountOutput {
   channel_account_id: string | null;
 }
 
-/** Route 2's answer — the Channel connect result (1.6). */
+/**
+ * Which case a callback was (feat-meta-connect-flow CN2): a first connect, a reconnect, the person's
+ * cancel, or a reconnect whose login shares no Instagram account (CN4).
+ */
+export type ChannelConnectOutcome =
+  | 'connected'
+  | 'reconnected'
+  | 'cancelled'
+  | 'no_accounts_shared';
+
+/** Route 2's answer to Meta's cancel (CN1): the state was spent, nothing saved. */
+export interface ChannelConnectCancelledOutput {
+  outcome: 'cancelled';
+}
+
+/** Route 2's answer — the Channel connect result (1.6), with its `outcome` (CN2). */
 export interface ChannelConnectResultOutput {
+  outcome: Exclude<ChannelConnectOutcome, 'cancelled'>;
   is_reconnect: boolean;
   channel_connection: ChannelConnectionOutput;
   accounts: ChannelConnectAccountOutput[];
   reconnected_account_ids: string[];
+  /** Accounts of this connection the login no longer shares, marked not shared now (CN5). */
+  marked_not_shared_account_ids: string[];
+  plan_room: ChannelAccountPlanRoomOutput;
+}
+
+/**
+ * One asset of route 151's answer (feat-meta-connect-flow CN7): an account Meta's login shares now,
+ * with its pick state — or one of this connection's accounts Meta no longer lists
+ * (`not_shared_any_more`). Carries its `channel`, so a Facebook Page joins as one more value.
+ */
+export interface ChannelSharedAssetOutput extends Omit<ChannelConnectAccountOutput, 'state'> {
+  /** `free` · `connected_here` · `connected_elsewhere` · `not_shared_any_more`. */
+  state: ChannelConnectAccountOutput['state'] | 'not_shared_any_more';
+}
+
+/** Route 151's answer: the shared assets, whether Meta's list was read whole, the plan room. */
+export interface ChannelSharedAssetListOutput {
+  data: ChannelSharedAssetOutput[];
+  meta: { is_complete: boolean; plan_room: ChannelAccountPlanRoomOutput };
+}
+
+/** Route 152's answer (feat-meta-connect-flow CN8): whether this caller can connect now, and how. */
+export interface ChannelConnectOptionsOutput {
+  provider: ChannelConnectionProvider;
+  /** Every Meta app setting is set — else route 1 answers `503 instagram_not_configured`. */
+  is_configured: boolean;
+  /** The Page login configuration is set — `with_page: true` is offered. */
+  is_page_login_offered: boolean;
+  /** The caller holds `channel-account:manage` (can start, finish, pick, reconnect). */
+  can_manage: boolean;
   plan_room: ChannelAccountPlanRoomOutput;
 }
 

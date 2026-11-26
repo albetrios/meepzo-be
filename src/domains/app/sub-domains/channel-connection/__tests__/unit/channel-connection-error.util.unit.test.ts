@@ -72,6 +72,11 @@ describe('planAccountLimitError', () => {
   it('is 409 plan_account_limit with limit, used and upgrade_required', () => {
     const error = planAccountLimitError({ limit: 3, used: 3 });
     expect(error).toMatchObject({ statusCode: 409, reason: 'plan_account_limit' });
-    expect(error.fields).toEqual({ limit: 3, used: 3, upgrade_required: true });
+    expect(error.fields).toEqual({
+      limit: 3,
+      used: 3,
+      upgrade_required: true,
+      plan_room: { accounts_max: 3, accounts_used: 3, accounts_free: 0 },
+    });
   });
 });

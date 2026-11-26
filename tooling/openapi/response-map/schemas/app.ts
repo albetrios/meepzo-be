@@ -289,7 +289,7 @@ export const channelConnectStartExample = {
   state_expires_at: '2026-11-24T09:10:00.000Z',
 };
 
-const channelAccountPlanRoomSchema = {
+export const channelAccountPlanRoomSchema = {
   type: 'object',
   properties: {
     accounts_max: { type: 'integer' },
@@ -304,6 +304,12 @@ const channelAccountPlanRoomExample = { accounts_max: 3, accounts_used: 1, accou
 export const channelConnectResultSchema = {
   type: 'object',
   properties: {
+    outcome: {
+      type: 'string',
+      enum: ['connected', 'reconnected', 'cancelled', 'no_accounts_shared'],
+      description:
+        "Which case the callback was (feat-meta-connect-flow CN2). `cancelled` (Meta's cancel, CN1) answers `{ outcome }` only, with `meta.error_reason`.",
+    },
     is_reconnect: { type: 'boolean' },
     channel_connection: channelConnectionSchema,
     accounts: {
@@ -321,11 +327,13 @@ export const channelConnectResultSchema = {
       },
     },
     reconnected_account_ids: { type: 'array', items: { type: 'string' } },
+    marked_not_shared_account_ids: { type: 'array', items: { type: 'string' } },
     plan_room: channelAccountPlanRoomSchema,
   },
 };
 
 export const channelConnectResultExample = {
+  outcome: 'connected',
   is_reconnect: false,
   channel_connection: { ...channelConnectionExample, channel_accounts: [] },
   accounts: [
@@ -339,7 +347,53 @@ export const channelConnectResultExample = {
     },
   ],
   reconnected_account_ids: [],
+  marked_not_shared_account_ids: [],
   plan_room: { accounts_max: 3, accounts_used: 0, accounts_free: 3 },
+};
+
+// Route 151 (feat-meta-connect-flow CN7) — mirrors serializeNotSharedAnyMoreAsset / toConnectAccount.
+export const channelSharedAssetSchema = {
+  type: 'object',
+  properties: {
+    channel: { type: 'string', enum: ['instagram'] },
+    provider_account_id: { type: 'string' },
+    username: { type: 'string', nullable: true },
+    profile_picture_url: { type: 'string', nullable: true },
+    state: {
+      type: 'string',
+      enum: ['free', 'connected_here', 'connected_elsewhere', 'not_shared_any_more'],
+    },
+    channel_account_id: { type: 'string', nullable: true },
+  },
+};
+
+export const channelSharedAssetExample = {
+  channel: 'instagram',
+  provider_account_id: '17841400000000001',
+  username: 'handmade.shop',
+  profile_picture_url: null,
+  state: 'free',
+  channel_account_id: null,
+};
+
+// Route 152 (feat-meta-connect-flow CN8).
+export const channelConnectOptionsSchema = {
+  type: 'object',
+  properties: {
+    provider: { type: 'string', enum: ['meta'] },
+    is_configured: { type: 'boolean' },
+    is_page_login_offered: { type: 'boolean' },
+    can_manage: { type: 'boolean' },
+    plan_room: channelAccountPlanRoomSchema,
+  },
+};
+
+export const channelConnectOptionsExample = {
+  provider: 'meta',
+  is_configured: true,
+  is_page_login_offered: false,
+  can_manage: true,
+  plan_room: { accounts_max: 3, accounts_used: 1, accounts_free: 2 },
 };
 
 // Route 3.

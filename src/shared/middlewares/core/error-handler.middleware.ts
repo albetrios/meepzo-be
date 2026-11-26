@@ -96,7 +96,24 @@ function isAppErrorFieldKind({
       return value === null || (typeof value === 'string' && !Number.isNaN(Date.parse(value)));
     case 'boolean':
       return typeof value === 'boolean';
+    case 'string_list':
+      return (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every((item) => typeof item === 'string' && item.length > 0)
+      );
+    case 'plan_room':
+      return isPlanRoomField(value);
   }
+}
+
+/** Whether `value` is a plan room: three non-negative integers (feat-meta-connect-flow CN6). */
+function isPlanRoomField(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const room = value as Record<string, unknown>;
+  return ['accounts_max', 'accounts_used', 'accounts_free'].every(
+    (name) => Number.isInteger(room[name]) && (room[name] as number) >= 0,
+  );
 }
 
 /** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_KINDS}) whose value is of their kind. */

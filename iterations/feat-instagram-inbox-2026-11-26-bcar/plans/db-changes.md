@@ -7,31 +7,32 @@
 | Intake mode | brief (from scratch) |
 | Intake hash | `1082fd1734e6` |
 | Date | 2026-11-26 |
-| Stage | Steps 1–3 draft — names and domain pending Q1; retention Q4; team-send source Q8 |
+| Stage | Step 4 — I-D1 (Instagram-prefixed names), I-D5 (12 months), I-D9 (team replies stored here only) |
 
-WHAT must be true — logical types only. Proposed names follow "children carry the parent prefix" (pending Q1).
+WHAT must be true — logical types only. Every Instagram table carries the `instagram_` prefix ([I-D1](decisions.md)).
 
 ```mermaid
 erDiagram
-  contacts ||--|| contact_threads : "one thread"
-  contact_threads ||--o{ contact_thread_messages : "messages (monthly)"
-  contact_threads ||--o{ contact_thread_notes : "notes"
-  organizations ||--o{ saved_replies : "saved replies"
-  contact_thread_messages }o--o| instagram_messages : "outbound link"
+  contacts ||--|| instagram_conversations : "one conversation"
+  instagram_conversations ||--o{ instagram_conversation_messages : "messages (monthly, 12 months)"
+  instagram_conversations ||--o{ instagram_conversation_notes : "notes"
+  organizations ||--o{ saved_replies : "saved replies (shared)"
+  instagram_conversation_messages }o--o| instagram_messages : "automation / broadcast link"
 ```
 
 ## Stage 1 — NEW tables
 
 | # | Table (proposed) | Holds | Key facts |
 | --- | --- | --- | --- |
-| DB-1 | `app.contact_threads` | one per contact (1:1): `state` (`open` · `waiting_on_us` · `waiting_on_contact` · `closed`), `assignee` (a membership, or "Instagram app"), `snoozed_until`, `unread_count`, `last_read_at`, `last_message_at`, `last_message_preview`, `first_response_at`, `last_response_at`, `taken_at`, `channel`, Meta `conversation_id` (nullable, backfill only) | narrow, updated often; the 24-hour window is **derived** from `contact_activities` (rule 11), never stored |
-| DB-2 | `app.contact_thread_messages` | every message both ways: `direction` (`in` · `out`), `source` (`contact` · `automation` · `broadcast` · `team` · `instagram_app`), `text`, attachments (type + upload ref or Meta URL), `reply_to` (a message), `reaction`, `meta_message_id` (unique per account), `is_edited`, `is_unsent`, `seen_at`, the outbound link (`instagram_message_id`), `sent_at`, `channel` | split by **month** of `sent_at`; keyset by (contact, `sent_at` desc); kept the retention time (Q4) |
-| DB-3 | `app.contact_thread_notes` | internal notes on a thread: text, author membership, time | never sent; soft delete by the author |
-| DB-4 | `app.saved_replies` | organization-wide saved replies: title, text, created by | the reply box inserts one |
+| DB-1 | `app.instagram_conversations` | one per contact (1:1): `state` (`open` · `waiting_on_us` · `waiting_on_contact` · `closed`), `assignee` (a membership, or "Instagram app"), `snoozed_until`, `unread_count`, `last_read_at`, `last_message_at`, `last_message_preview`, `first_response_at`, `last_response_at`, `taken_at`, Meta `conversation_id` (nullable, backfill only) | narrow, updated often; the 24-hour window is **derived** from `contact_activities` (rule 11), never stored |
+| DB-2 | `app.instagram_conversation_messages` | every message both ways: `direction` (`in` · `out`), `source` (`contact` · `automation` · `broadcast` · `team` · `instagram_app`), `text`, attachments (type + upload ref or Meta URL), `reply_to` (a message), `reaction`, `meta_message_id` (unique per account), `is_edited`, `is_unsent`, `seen_at`, the automation / broadcast link (`instagram_message_id`), a team reply's send `status` (`sending` · `sent` · `failed`) and failure reason, `sent_by` member, `sent_at` | split by **month** of `sent_at`; keyset by (conversation, `sent_at` desc); kept **12 months** ([I-D5](decisions.md)); team replies live **only** here ([I-D9](decisions.md)) |
+| DB-3 | `app.instagram_conversation_notes` | internal notes on a thread: text, author membership, time | never sent; soft delete by the author |
+| DB-4 | `app.saved_replies` | organization-wide saved replies: title, text, created by | shared across channels ([I-D2](decisions.md)); the reply box inserts one |
 
 ## Stage 2 — CHANGED tables
 
 | # | Table | Before | After |
 | --- | --- | --- | --- |
-| DB-5 | `app.instagram_messages` | a row is exactly one of an automation run or a broadcast | pending Q8: + a `team` source (a thread message), or unchanged with a team send path of its own |
-| DB-6 | partition upkeep (`app.fn_manage_time_partitions`) | its CASE lists today's split tables | + `contact_thread_messages` (monthly) |
+| DB-5 | `app.instagram_messages` | a row is exactly one of an automation run or a broadcast | **unchanged** — team replies do not go through it ([I-D9](decisions.md)) |
+| DB-7 | upload purposes (`src/domains/upload/upload.constants.ts`) | `avatar` … `message-media` | + an Instagram inbound-file purpose for copied DM files ([I-D7](decisions.md)) |
+| DB-6 | partition upkeep (`app.fn_manage_time_partitions`) | its CASE lists today's split tables | + `instagram_conversation_messages` (monthly, dropped after 12 months) |

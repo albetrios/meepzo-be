@@ -11,6 +11,7 @@ import {
   emptyChannelAccountBodyDto,
   listChannelAccountsQueryDto,
 } from './channel-account.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Returns the Fastify plugin that registers the channel account routes (routes-final § 1B.7),
@@ -63,7 +64,10 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.ACCOUNT },
+        },
         schema: {
           summary: 'Disconnect a channel account',
           description:
@@ -79,7 +83,10 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.ACCOUNT },
+        },
         schema: {
           summary: 'Pause a channel account',
           description:
@@ -96,7 +103,12 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'lifts the owner pause only — the account is already in the plan (CA9)',
+          },
+        },
         schema: {
           summary: 'Resume a channel account',
           description:
@@ -113,7 +125,11 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['limit:channel_accounts_max'] },
+        },
         schema: {
           summary: 'Choose an active channel account',
           description:

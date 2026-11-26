@@ -13,6 +13,7 @@ import {
   sendBroadcastBodyDto,
   updateBroadcastBodyDto,
 } from './broadcast.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** The draft fields as the create and edit descriptions name them (BC8). */
 const DRAFT_FIELDS_DESCRIPTION =
@@ -64,7 +65,11 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:broadcasts'] },
+        },
         schema: {
           summary: 'Create a broadcast draft',
           description: `Makes a draft broadcast on one channel account: channel_account_id (fixed) and ${DRAFT_FIELDS_DESCRIPTION} Nothing is sent until send. A plan without broadcasts answers 403 plan_lacks_feature; a message kind the account's channel cannot send 422 channel_lacks_feature; 409 permission_not_granted when the connection lacks the messaging permission. 404 instagram_not_connected when the account is not this organization's or is disconnected. Answers the broadcast. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_CREATE permission.`,
@@ -94,7 +99,10 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.DRAFT },
+        },
         schema: {
           summary: 'Update a broadcast draft',
           description: `Edits a draft — at least one of ${DRAFT_FIELDS_DESCRIPTION} Sending one audience clears the other; null clears a field. Optional expected_updated_at answers 409 record_changed when the broadcast changed since it was read. 409 broadcast_not_draft once it was sent or cancelled. Open on every plan. 404 broadcast_not_found. Answers the broadcast. Team organizations only. Requires AUTOMATION_UPDATE permission.`,
@@ -110,7 +118,10 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete a broadcast',
           description:
@@ -129,7 +140,11 @@ export function broadcastRoutes({
           planAccessPreHandler,
           requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
         ],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['read_only', 'feature:broadcasts', 'limit:message_month_limit'] },
+        },
         schema: {
           summary: 'Send a broadcast',
           description:
@@ -146,7 +161,11 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Cancel a broadcast',
           description:

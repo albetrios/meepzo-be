@@ -12,6 +12,7 @@ import { createInstagramWebhookController } from './instagram-webhook.controller
 import { InstagramWebhookSubscriptionQueryDto } from './instagram-webhook.dto.js';
 import type { InstagramWebhookService } from './instagram-webhook.service.js';
 import { instagramWebhookIngressPlugin } from './instagram-webhook-ingress.plugin.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Returns the Fastify plugin for the Instagram webhook (feat-instagram-dm-sending routes-final § 5,
@@ -78,6 +79,7 @@ export function instagramWebhookRoutes({
             rawBodySignatureHeader: INSTAGRAM_WEBHOOK_SIGNATURE_HEADER,
             raw_response: true,
             overloadShedLast: true,
+            planGate: { open: PLAN_GATE_OPEN_REASON.META_CALLBACK },
           },
           bodyLimit: WEBHOOK_INGRESS_BODY_LIMIT_BYTES,
           schema: {

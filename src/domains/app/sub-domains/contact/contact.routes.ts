@@ -14,6 +14,7 @@ import {
   listContactsQueryDto,
   updateContactBodyDto,
 } from './contact.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Returns the Fastify plugin that registers the contact routes (routes-final § 3.7, routes 18–26),
@@ -67,7 +68,10 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.CONTACT },
+        },
         schema: {
           summary: 'Update a contact',
           description:
@@ -84,7 +88,11 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.CONTACT },
+        },
         schema: {
           summary: 'Run a bulk action on contacts',
           description:
@@ -146,7 +154,11 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['limit:message_month_limit'] },
+        },
         schema: {
           summary: "Retry a contact's failed messages",
           description:
@@ -163,7 +175,10 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_DELETE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.CONTACT },
+        },
         schema: {
           summary: 'Delete a contact',
           description:

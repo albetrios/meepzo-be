@@ -15,6 +15,7 @@ import {
   listChannelConnectionAdsQueryDto,
   listChannelConnectionsQueryDto,
 } from './channel-connection.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Returns the Fastify plugin that registers the channel connection routes (routes-final § 1.7),
@@ -43,7 +44,10 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: 'mints a one-use login state — nothing is connected yet' },
+        },
         schema: {
           summary: 'Start a channel connection',
           description:
@@ -60,7 +64,13 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: "re-attaches the organization's own accounts only — a new account joins through the pick (account_limit)",
+          },
+        },
         schema: {
           summary: 'Finish a channel connection',
           description:
@@ -77,7 +87,10 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.ACCOUNT },
+        },
         schema: {
           summary: 'Start a reconnect of a channel connection',
           description:
@@ -94,7 +107,11 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['limit:channel_accounts_max'] },
+        },
         schema: {
           summary: 'Connect picked channel accounts',
           description:
@@ -173,7 +190,10 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.ACCOUNT },
+        },
         schema: {
           summary: 'Disconnect a business',
           description:

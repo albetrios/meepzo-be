@@ -12,6 +12,7 @@ import {
   segmentIdParamsDto,
   updateSegmentBodyDto,
 } from './broadcast-segment.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** The conditions as every route's description names them (BC12). */
 const CONDITIONS_DESCRIPTION =
@@ -54,7 +55,11 @@ export function broadcastSegmentRoutes(service: BroadcastSegmentService): Fastif
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:segments'] },
+        },
         schema: {
           summary: 'Create a segment',
           description: `Saves an audience on one channel account: channel_account_id (fixed), name (1–255 after trim; duplicates allowed) and conditions. ${CONDITIONS_DESCRIPTION} A plan without segments answers 403 plan_lacks_feature. 404 channel_account_not_found when the account is not this organization's (a revoked one may still hold segments). Answers the segment. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_CREATE permission.`,
@@ -69,7 +74,11 @@ export function broadcastSegmentRoutes(service: BroadcastSegmentService): Fastif
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_READ)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:segments'] },
+        },
         schema: {
           summary: 'Count a segment audience',
           description: `Counts the audience of channel_account_id for a saved segment_id of that account or unsaved conditions — exactly one. ${CONDITIONS_DESCRIPTION} Answers matched (the live contacts the conditions match, always leaving out opted-out, paused and deleted contacts and anyone who got a broadcast in the last 24 hours) and can_receive_now (of those, the ones whose chat is open: their last message within 24 hours less 15 minutes), with counted_at. A count that takes longer than 2 seconds goes to the background: the answer says is_counting true with null numbers — ask again: the background count keeps its numbers for 60 seconds. A plan without segments answers 403 plan_lacks_feature. 404 channel_account_not_found or segment_not_found; a segment of another account answers 400 on segment_id. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_READ permission.`,
@@ -99,7 +108,10 @@ export function broadcastSegmentRoutes(service: BroadcastSegmentService): Fastif
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:segments'] },
+        },
         schema: {
           summary: 'Update a segment',
           description: `Changes a segment's name or conditions — at least one; drafts that use it follow it, sent broadcasts keep their copy. ${CONDITIONS_DESCRIPTION} Optional expected_updated_at answers 409 record_changed when the segment changed since it was read. A plan without segments answers 403 plan_lacks_feature. 404 segment_not_found when it is not this organization's or was deleted. Answers the segment. Team organizations only. Requires AUTOMATION_UPDATE permission.`,
@@ -115,7 +127,10 @@ export function broadcastSegmentRoutes(service: BroadcastSegmentService): Fastif
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete a segment',
           description:

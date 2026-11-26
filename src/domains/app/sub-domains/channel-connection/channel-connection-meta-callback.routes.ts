@@ -8,6 +8,7 @@ import { channelConnectionProviderParamsDto } from './channel-connection.dto.js'
 import type { ChannelConnectionProvider } from './channel-connection-state.js';
 import { channelConnectionMetaCallbackIngressPlugin } from './channel-connection-meta-callback-ingress.plugin.js';
 import type { ChannelConnectionMetaCallbackService } from './channel-connection-meta-callback.service.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Route 17's config: the webhook rate limit, and `raw_response` so the envelope middleware
@@ -46,7 +47,10 @@ export function channelConnectionMetaCallbackRoutes(
     zodApplication.post<{ Params: { provider: ChannelConnectionProvider } }>(
       '/social/channel-connections/:provider/deauthorize',
       {
-        ...WEBHOOK_RATE_LIMIT,
+        config: {
+          ...WEBHOOK_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.META_CALLBACK },
+        },
         bodyLimit: META_CALLBACK_BODY_LIMIT_BYTES,
         schema: {
           summary: 'Meta: the app was removed (deauthorize)',
@@ -63,7 +67,10 @@ export function channelConnectionMetaCallbackRoutes(
       '/social/channel-connections/:provider/data-deletion',
       {
         ...WEBHOOK_RATE_LIMIT,
-        config: DATA_DELETION_ROUTE_CONFIG,
+        config: {
+          ...DATA_DELETION_ROUTE_CONFIG,
+          planGate: { open: PLAN_GATE_OPEN_REASON.META_CALLBACK },
+        },
         bodyLimit: META_CALLBACK_BODY_LIMIT_BYTES,
         schema: {
           summary: "Meta: delete the person's data (data deletion)",

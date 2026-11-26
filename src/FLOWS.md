@@ -346,9 +346,10 @@ sequenceDiagram
   participant Sub as SubscriptionService
   participant DB as Postgres
   Client->>Ctx: GET /auth/me/context
-  Ctx->>Sub: getPlanAccess(active organization)
+  Ctx->>Ent: resolve(active organization)
+  Ent->>Sub: getPlanAccess
   Sub->>DB: organization + current subscription + its plan + the Free plan (one query, the context's own transaction)
-  Sub-->>Ctx: active | grace (grace_ends_at) | read_only (grace_ends_at)
+  Ent-->>Ctx: snapshot.planAccess — active | grace (grace_ends_at) | read_only (grace_ends_at)
   Ctx-->>Client: 200 active_organization.plan_access
   Client->>Guard: POST go-live / broadcast send (declares read_only)
   Guard->>Ent: resolve(org claim)

@@ -2815,6 +2815,7 @@ src/
     │   ├── no-direct-db-in-services.global.test.ts
     │   ├── no-global-admin-in-tenancy.global.test.ts
     │   ├── no-nodeenv-branching.global.test.ts
+    │   ├── no-plan-access-outside-entitlement.global.test.ts
     │   ├── no-stripe-shaped-literals.global.test.ts
     │   ├── object-params.global.test.ts
     │   ├── openapi-completeness.global.test.ts

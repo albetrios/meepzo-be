@@ -271,15 +271,20 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
       getByPublicId: vi.fn().mockResolvedValue({ id: 'org_active', type: 'TEAM' }),
     },
     authorizationService: { resolveUserOrganizationPermissions: vi.fn().mockResolvedValue([]) },
-    planAccessService: {
-      getPlanAccess: vi.fn().mockResolvedValue({
-        state: 'read_only',
-        graceEndsAt,
-        trialEndsAt: null,
-        plan: null,
-        features: null,
-        isPlanChoiceRequired: false,
+    // The entitlement module's snapshot carries the one plan read unchanged (EN7).
+    entitlementService: {
+      resolve: vi.fn().mockResolvedValue({
+        planAccess: {
+          state: 'read_only',
+          graceEndsAt,
+          trialEndsAt: null,
+          plan: null,
+          features: null,
+          isPlanChoiceRequired: false,
+        },
       }),
+    },
+    channelAccountCountService: {
       countConnectedChannelAccounts: vi.fn().mockResolvedValue(3),
     },
   });
@@ -291,12 +296,13 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
       wired.organizationService as never,
       wired.authorizationService as never,
       undefined,
-      wired.planAccessService as never,
+      wired.entitlementService as never,
+      wired.channelAccountCountService as never,
     );
 
     const data = await service.getContext({ scope: meScope, globalRole: undefined });
 
-    expect(wired.planAccessService.getPlanAccess).toHaveBeenCalledExactlyOnceWith({
+    expect(wired.entitlementService.resolve).toHaveBeenCalledExactlyOnceWith({
       organizationPublicId: 'org_active',
     });
     expect(data.planAccess).toMatchObject({ state: 'read_only', graceEndsAt });
@@ -310,7 +316,8 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
       wired.organizationService as never,
       wired.authorizationService as never,
       undefined,
-      wired.planAccessService as never,
+      wired.entitlementService as never,
+      wired.channelAccountCountService as never,
     );
 
     const data = await service.getContext({
@@ -319,7 +326,7 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
     });
 
     expect(data.planAccess).toBeNull();
-    expect(wired.planAccessService.getPlanAccess).not.toHaveBeenCalled();
+    expect(wired.entitlementService.resolve).not.toHaveBeenCalled();
   });
 
   it('getActiveOrganizationContext puts plan_access on the switched-to organization', async () => {
@@ -329,7 +336,8 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
       wired.organizationService as never,
       wired.authorizationService as never,
       undefined,
-      wired.planAccessService as never,
+      wired.entitlementService as never,
+      wired.channelAccountCountService as never,
     );
 
     const data = await service.getActiveOrganizationContext({

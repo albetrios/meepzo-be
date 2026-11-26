@@ -62,7 +62,7 @@ changes as the checklist. Parallel lanes once dependencies are done: rows 3 ∥ 
 
 | # | Work item | Kind | Depends on | Skill/driver | Acceptance | Assignee | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | The pre-handler order test for go-live and broadcast send, **first** (§3 RGC1) | feature | — | `/be-build-requirement` (be-test-generator) | AC-10 | Claude | open |
+| 1 | The pre-handler order test for go-live and broadcast send, **first** (§3 RGC1) | feature | — | `/be-build-requirement` (be-test-generator) | AC-10 | Claude | done |
 | 2 | Entitlement module: registry, `resolve` with sources, `can` / `limit`, `buildPlanRefusal`, `sources` on the read (§1 ENC1–ENC5, ENC8) | sub-domain | — | `/be-build-requirement` (route 1 output: be-api-contract-guard → be-route-schema-doc-guard → be-openapi-multilingual) | AC-5, AC-6, AC-7, AC-8, AC-11 | Claude | open |
 | 3 | Free plan data: data migration + seed, the two "on Free" tests flipped (§2 PLC1–PLC4) | table | 2 | `/be-build-requirement` (be-db-migration-maintainer → be-seed-maintainer) | AC-15 | Claude | open |
 | 4 | Read-only flag default `false`: schema, `.env.example`, env catalog, schema comment (P5) | feature | — | `/be-build-requirement` (be-env-schema-add; if it refuses, stop and ask) | AC-14 | Claude | open |

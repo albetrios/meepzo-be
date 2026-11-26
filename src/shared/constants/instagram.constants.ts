@@ -171,5 +171,13 @@ export const INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY = 8;
  */
 export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-store';
 
-/** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
-export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;
+/**
+ * The longest Meta message id (`mid`) the message row stores (feat-instagram-dm-sending 6.B.3).
+ *
+ * @remarks
+ * Meta documents no maximum and its real ids run to 167 characters, past the 128 first assumed, which
+ * failed every result save of a sent message (migration
+ * `20261126140000_app_instagram_messages_message_id_length.sql`). 1024 leaves room for Meta to grow
+ * the id without another migration.
+ */
+export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 1024;

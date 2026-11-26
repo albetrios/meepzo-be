@@ -199,8 +199,11 @@ scope never change — a lane only runs a row early when everything it depends o
 **Setup.** The main checkout (the iteration branch) is lane A: it merges and closes. Each other lane is a
 `git worktree` on its own branch, with its own test databases, its own Redis DB and its own range of
 decision numbers. Every test run **and every `git commit`** (the pre-commit hook runs database tests)
-goes through one wrapper that holds a single global lock (e.g. `flock`) around the command. Read-only
-helpers (audits, docs comparisons, reviewers) run beside the builders and need no lock.
+goes through **`pnpm test:lane`** (`tooling/vitest/run-in-lane.ts`): it gives the worktree its own test
+databases and Redis database (`TEST_DATABASE_NAME_SUFFIX` / `TEST_REDIS_DATABASE`, from the worktree's
+folder name and position), and with `--serial` holds the one lock all worktrees share —
+`pnpm test:lane --serial -- git commit -F <message file>`, `pnpm test:lane -- pnpm vitest run <files>`.
+Read-only helpers (audits, docs comparisons, reviewers) run beside the builders and need no lock.
 
 | # | Rule | Why |
 | --- | --- | --- |

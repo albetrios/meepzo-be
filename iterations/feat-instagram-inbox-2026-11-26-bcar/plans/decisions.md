@@ -23,6 +23,7 @@ Add-only. Kind: `RED` (answered by the user), `AMBER` (safe default, still open)
 | I-D17 | Step 5 — route review sub-domain 3, Saved reply (SR1–SR6) | confirm · change | **confirmed as drafted** (rev 1); the route review is final | 2026-11-26 | user | RED |
 | I-D18 | Reframe after the merged "Column length Issue fix" (`f3ca17f`) | as planned · adopt | **adopt**: migrations after `20261126150100`; Meta message ids `INSTAGRAM_OPAQUE_ID_MAX_LENGTH` (1,024) with no format CHECK; numeric ids `INSTAGRAM_ID_*`; every Meta value bounded in code when read, the CHECK as backstop. The ledger rename (R1) carries the widened `instagram_message_id` | 2026-11-26 | Claude | AMBER |
 | I-D19 | Step 7 — approve the plan (KICKOFF.md, ROUTE R1–R14, routes-final, requirements, stories, acceptance) | approve · not yet | **approve** | 2026-11-26 | user | RED |
+| I-D20 | R1 — apply the ledger rename (~103 files; dry run `2026-11-26_inbox-R1-rename-dry-run_v1.md`) | apply · pause | **pause the inbox** — nothing applied; R1 stays open until the user resumes | 2026-11-26 | user | SCOPE |
 
 ## Owner items (need the Meta dev app)
 

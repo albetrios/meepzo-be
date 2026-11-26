@@ -83,7 +83,7 @@ describe('BroadcastService', () => {
   let organization: { id: number; type: string };
   let account: typeof ACCOUNT | null;
   let featureCheck: ReturnType<typeof vi.fn>;
-  let monthStop: string | null;
+  let monthReached: { limit: number; used: number; resetsOn: string } | null;
   let sendQueue: {
     enqueueBroadcastAudience: ReturnType<typeof vi.fn>;
     enqueueBroadcastMatchedCount: ReturnType<typeof vi.fn>;
@@ -94,7 +94,7 @@ describe('BroadcastService', () => {
     vi.clearAllMocks();
     organization = { id: 7, type: 'TEAM' };
     account = { ...ACCOUNT };
-    monthStop = null;
+    monthReached = null;
     broadcastRepository = {
       list: vi.fn(),
       findLiveByPublicId: vi.fn(async () => draftRow()),
@@ -123,7 +123,7 @@ describe('BroadcastService', () => {
       vi.fn(async () => account) as never,
       featureCheck as never,
       {
-        monthLimit: { readOrganizationPlanStop: vi.fn(async () => monthStop) },
+        monthLimit: { readMonthLimitReached: vi.fn(async () => monthReached) },
         sendQueue,
       } as never,
     );
@@ -210,8 +210,27 @@ describe('BroadcastService', () => {
     await expect(send()).rejects.toMatchObject({ reason: 'instagram_not_connected' });
     account = { ...ACCOUNT };
 
-    monthStop = 'plan_limit';
+    monthReached = { limit: 1000, used: 1000, resetsOn: '2026-12-01' };
     await expect(send()).rejects.toMatchObject({ reason: 'message_month_limit_reached' });
+    // change-plan-gates AP4, P6, P38: the module's refusal carries the month's numbers — limit,
+    // used and resets_on, in that order — and no upgrade hint.
+    const monthRefusal = await send().catch((error: unknown) => error);
+    expect(monthRefusal).toBeInstanceOf(ConflictError);
+    expect(monthRefusal).toMatchObject({
+      statusCode: 409,
+      reason: 'message_month_limit_reached',
+      messageKey: 'errors:messageMonthLimitReached',
+    });
+    expect((monthRefusal as ConflictError).fields).toEqual({
+      limit: 1000,
+      used: 1000,
+      resets_on: '2026-12-01',
+    });
+    expect(Object.keys((monthRefusal as ConflictError).fields ?? {})).toEqual([
+      'limit',
+      'used',
+      'resets_on',
+    ]);
     expect(broadcastRepository.markSent).not.toHaveBeenCalled();
     expect(sendQueue.enqueueBroadcastAudience).not.toHaveBeenCalled();
   });

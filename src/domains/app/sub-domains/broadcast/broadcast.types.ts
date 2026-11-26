@@ -1,5 +1,6 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type {
   AutomationChannelAccount,
   ChannelFeatureCheckResult,
@@ -129,6 +130,8 @@ export type BroadcastFeatureCheck = (options: {
   organizationId: number;
   channelAccountId: number;
   feature: ChannelFeature;
+  /** The route guard's snapshot on the send (K2); without one the check resolves once. */
+  entitlement?: EntitlementSnapshot | undefined;
 }) => Promise<ChannelFeatureCheckResult>;
 
 /**
@@ -142,14 +145,17 @@ export type BroadcastAccountRead = (options: {
 }) => Promise<AutomationChannelAccount | null>;
 
 /**
- * Sub-domain 6's month count as route 75 asks it (BC10): `plan_limit` when the organization's DMs of
- * this month are used up — `MessageMonthCountService.readOrganizationPlanStop` (R18).
+ * Sub-domain 6's month count as route 75 asks it (BC10): this month's numbers when the
+ * organization's DMs are used up, else `null` — `MessageMonthCountService.readMonthLimitReached`
+ * (R18), reading the ceiling from the request's entitlement snapshot (change-plan-gates AP4, P6).
  */
 export interface BroadcastMonthLimitPort {
-  readOrganizationPlanStop(input: {
+  readMonthLimitReached(input: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
-  }): Promise<'plan_limit' | null>;
+    /** The route guard's snapshot (K2); without one the month count resolves once. */
+    entitlement?: EntitlementSnapshot | undefined;
+  }): Promise<{ limit: number; used: number; resetsOn: string } | null>;
 }
 
 /** The upload domain's usable-file read (R12) — a message's file at send (BC10, D58). */

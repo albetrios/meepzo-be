@@ -435,6 +435,30 @@ describe('Channel connection routes', () => {
         used: 0,
         upgrade_required: true,
       });
+      // change-plan-gates AP4: the entitlement module's refusal builder answers the body the pick
+      // built itself before — every field, its value and its order.
+      const refusal = (response.json() as { error: Record<string, unknown> }).error;
+      expect(refusal).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'plan_account_limit',
+        detail:
+          'Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.',
+        limit: 1,
+        used: 0,
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(Object.keys(refusal)).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'upgrade_required',
+        'documentation_url',
+      ]);
       expect(await readInstagramAccountRows(team.organization.id)).toHaveLength(0);
     });
 

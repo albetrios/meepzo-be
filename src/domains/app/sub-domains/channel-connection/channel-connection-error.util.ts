@@ -67,23 +67,6 @@ export function channelConnectionBusinessMismatchError(): ConflictError {
   );
 }
 
-/**
- * `409 plan_account_limit` — the picks would exceed the plan's `channel_accounts_max` (MC7, CA9),
- * with the plan refusal contract's fields (P269): `limit` (the plan's `channel_accounts_max`),
- * `used` (the organization's counted accounts before this write) and `upgrade_required: true`.
- */
-export function planAccountLimitError({
-  limit,
-  used,
-}: {
-  limit: number;
-  used: number;
-}): ConflictError {
-  return new ConflictError('errors:planAccountLimit')
-    .withReason('plan_account_limit')
-    .withFields({ limit, used, upgrade_required: true });
-}
-
 /** `409 instagram_account_connected_elsewhere` — a pick raced another organization's (MC7). */
 export function channelAccountConnectedElsewhereError(): ConflictError {
   return new ConflictError('errors:instagramAccountConnectedElsewhere').withReason(

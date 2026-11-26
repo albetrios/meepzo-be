@@ -7,6 +7,8 @@ import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notificatio
 import { BILLING_FRONTEND_PATH } from '@/domains/billing/sub-domains/subscription/workers/subscription-plan-state-check.constants.js';
 import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 import { PLAN_STATE_CHANGE } from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
+import { can } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
 import type { AutomationBackfillService } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.service.js';
 import type { BroadcastService } from '@/domains/app/sub-domains/broadcast/broadcast.service.js';
@@ -97,8 +99,9 @@ export interface InstagramPlanChangeResult {
  *   `plan_downgrade`, the kept ones and then the oldest connected stay; a move up lets
  *   `plan_downgrade` accounts back up to the new limit; every account in the plan takes the
  *   organization's own stop: `plan_ended` while the plan has ended, else `plan_limit` while the
- *   month is full, else none); (2) on a move down or a trial end, exactly the switches the new plan
- *   lacks (P83): `broadcasts` off → scheduled and waiting broadcasts `cancelled` ·
+ *   month is full, else none) — over one entitlement snapshot resolved there, whose switches this
+ *   job reads with `can()` (change-plan-gates AP1, P24); (2) on a move down or a trial end, exactly
+ *   the switches the new plan lacks (P83): `broadcasts` off → scheduled and waiting broadcasts `cancelled` ·
  *   `plan_feature_off`; `past_comments` off → unfinished reads `failed` · `plan_feature_off`. The
  *   email and phone asks and the other PRO parts are read per job by the engine and the lanes
  *   (AUC10), so they need no step; segments stay saved. (3) After those commits, the lanes of each
@@ -124,7 +127,7 @@ export async function runInstagramPlanChangeTask({
   runInDatabaseSlot: <T>(callback: () => Promise<T>) => Promise<T>;
 }): Promise<InstagramPlanChangeResult> {
   const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
-  const { organizationId, features, planName, moves } = await runInDatabaseSlot(() =>
+  const { organizationId, entitlement, moves } = await runInDatabaseSlot(() =>
     services.channelAccountService.applyOrganizationPlanStops({
       scope,
       keptChannelAccountPublicIds: taskInput.keptChannelAccountPublicIds,
@@ -134,12 +137,12 @@ export async function runInstagramPlanChangeTask({
   let cancelledBroadcastCount = 0;
   let failedBackfillCount = 0;
   if (MOVE_DOWN_CHANGES.has(taskInput.change)) {
-    if (features?.feature_switches.broadcasts !== true) {
+    if (!can({ snapshot: entitlement, key: 'broadcasts' })) {
       cancelledBroadcastCount = await runInDatabaseSlot(() =>
         services.broadcastService.cancelBroadcastsForPlanFeatureOff({ scope, organizationId }),
       );
     }
-    if (features?.feature_switches.past_comments !== true) {
+    if (!can({ snapshot: entitlement, key: 'past_comments' })) {
       failedBackfillCount = await runInDatabaseSlot(() =>
         services.automationBackfillService.failOpenBackfillsForPlanFeatureOff({
           scope,
@@ -154,8 +157,7 @@ export async function runInstagramPlanChangeTask({
           services,
           scope,
           organizationId,
-          features,
-          planName,
+          entitlement,
         }),
       )
     : 0;
@@ -203,18 +205,22 @@ async function tellQuestionStepsOff({
   services,
   scope,
   organizationId,
-  features,
-  planName,
+  entitlement,
 }: {
   services: InstagramPlanChangeServices;
   scope: OrganizationPrincipalDatabaseScope;
   organizationId: number;
-  features: { feature_switches: { email_ask?: boolean; phone_ask?: boolean } } | null;
-  planName: string | null;
+  /** The change's one entitlement snapshot (P24): the asks' switches and the plan's name. */
+  entitlement: EntitlementSnapshot;
 }): Promise<number> {
-  const switches = features?.feature_switches;
   if (services.automationService === undefined) return 0;
-  if (switches?.email_ask === true && switches.phone_ask === true) return 0;
+  if (
+    can({ snapshot: entitlement, key: 'email_ask' }) &&
+    can({ snapshot: entitlement, key: 'phone_ask' })
+  ) {
+    return 0;
+  }
+  const planName = entitlement.plan?.name ?? null;
   const count = await services.automationService.countAutomationsWithQuestionStepsOn({
     scope,
     organizationId,

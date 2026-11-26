@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelSendingPort } from '@/domains/app/app.channel-ports.js';
-import type { ChannelAccountPlanAccessService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountEntitlementService } from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 import type { AutomationRunChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
@@ -174,7 +175,8 @@ function createHarness() {
     async (): Promise<AutomationRunChannelAccount | null> => accountRow(),
   );
   const lockLiveContact = vi.fn(async (): Promise<ContactRow | null> => contactRow());
-  const getPlanAccess = vi.fn(async () => ({ features: { feature_switches: null } }));
+  const entitlementService = entitlementServiceOf({ features: null });
+  const resolveEntitlement = entitlementService.resolve;
   const port = {
     saveWaitingMessage: vi.fn(),
     cancelWaitingMessages: vi.fn(async () => 1),
@@ -183,12 +185,12 @@ function createHarness() {
   const service = new AutomationRunService({
     channelAccountService: { readAutomationRunAccount },
     contactService: { lockLiveContact } as unknown as ContactService,
-    planAccessService: { getPlanAccess } as unknown as ChannelAccountPlanAccessService,
+    entitlementService,
     countService: {} as AutomationCountService,
     replyStateService: {} as AutomationReplyStateService,
     sendingPorts: { instagram: port },
   });
-  return { service, readAutomationRunAccount, lockLiveContact, getPlanAccess, port };
+  return { service, readAutomationRunAccount, lockLiveContact, resolveEntitlement, port };
 }
 
 describe('AutomationRunService', () => {
@@ -216,7 +218,7 @@ describe('AutomationRunService', () => {
         failedErrorType: null,
       });
       expect(withAppDatabaseContext).not.toHaveBeenCalled();
-      expect(harness.getPlanAccess).not.toHaveBeenCalled();
+      expect(harness.resolveEntitlement).not.toHaveBeenCalled();
     });
 
     it("answers account_unavailable for another account's contact", async () => {
@@ -235,7 +237,7 @@ describe('AutomationRunService', () => {
       const service = new AutomationRunService({
         channelAccountService: { readAutomationRunAccount: harness.readAutomationRunAccount },
         contactService: {} as ContactService,
-        planAccessService: {} as ChannelAccountPlanAccessService,
+        entitlementService: {} as ChannelAccountEntitlementService,
         countService: {} as AutomationCountService,
         replyStateService: {} as AutomationReplyStateService,
         sendingPorts: {},
@@ -253,7 +255,7 @@ describe('AutomationRunService', () => {
       const result = await harness.service.startTagRun(tagInput());
 
       expect(result.outcome).toBe('ignored');
-      expect(harness.getPlanAccess).toHaveBeenCalledWith({
+      expect(harness.resolveEntitlement).toHaveBeenCalledWith({
         organizationPublicId: ORGANIZATION_PUBLIC_ID,
       });
       expect(automations.lockForRunChanges).not.toHaveBeenCalled();

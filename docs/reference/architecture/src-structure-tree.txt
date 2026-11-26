@@ -29,6 +29,8 @@ src/
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
     │   │   │   ├── instagram-retention-erasure.helper.ts
     │   │   │   └── instagram-send-flow.helper.ts
+    │   │   ├── factories/
+    │   │   │   └── entitlement.factory.ts
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/
@@ -250,6 +252,7 @@ src/
     │   │   │   │   ├── channel-account.bulk.seed.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-account-capabilities.constants.ts
+    │   │   │   ├── channel-account-entitlement.util.ts
     │   │   │   ├── channel-account-error.util.ts
     │   │   │   ├── channel-account-plan-stop.service.ts
     │   │   │   ├── channel-account-plan-stop.util.ts

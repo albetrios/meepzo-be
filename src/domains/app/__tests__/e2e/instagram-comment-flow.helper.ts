@@ -340,7 +340,7 @@ export class InstagramCommentFlow {
     this.engine = new AutomationRunService({
       channelAccountService: appDomain.channelAccountService,
       contactService: appDomain.contactService,
-      planAccessService: app.billingDomain.subscriptionService,
+      entitlementService: app.billingDomain.entitlementService,
       countService: appDomain.automationCountService,
       replyStateService: appDomain.automationReplyStateService,
       sendingPorts: { instagram: this.instagram.sendingPort },

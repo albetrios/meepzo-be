@@ -536,6 +536,26 @@ describe('Segment routes (list, save, open, change, delete, count)', () => {
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');
         expect(errorOf(refused)).toMatchObject({ feature: 'segments' });
+        // change-plan-gates AP2: the plan step's refusal comes from the entitlement module's builder —
+        // the body as before, every field, its value and its order.
+        expect(errorOf(refused)).toEqual({
+          type: 'request_error',
+          code: 'forbidden',
+          reason: 'plan_lacks_feature',
+          detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+          feature: 'segments',
+          upgrade_required: true,
+          documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+        });
+        expect(Object.keys(errorOf(refused))).toEqual([
+          'type',
+          'code',
+          'reason',
+          'detail',
+          'feature',
+          'upgrade_required',
+          'documentation_url',
+        ]);
       }
       const list = await injectAuthenticated(app, {
         method: 'GET',

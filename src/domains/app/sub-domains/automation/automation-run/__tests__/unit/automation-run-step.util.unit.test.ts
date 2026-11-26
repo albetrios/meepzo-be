@@ -8,6 +8,15 @@ import {
   questionStepOf,
   uploadPublicIdsOf,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run-step.util.js';
+import {
+  entitlementSnapshotOf,
+  planFeaturesWithSwitches,
+} from '@/domains/app/__tests__/factories/entitlement.factory.js';
+
+/** A job's entitlement snapshot holding exactly these switches (change-plan-gates AP3: `can()`). */
+function entitlementWith(switches: Parameters<typeof planFeaturesWithSwitches>[0]) {
+  return entitlementSnapshotOf({ features: planFeaturesWithSwitches(switches) });
+}
 
 /**
  * The run engine's step rules as pure functions (feat-instagram-dm-sending routes-final § 4.B —
@@ -81,10 +90,16 @@ describe('the step parts (AU26, AU27)', () => {
 
   it('a version beyond 1 needs the plan’s message_versions switch', () => {
     const drawInteger = () => 1;
-    expect(pickVersionNumber({ count: 3, switches: null, drawInteger })).toBe(1);
-    expect(pickVersionNumber({ count: 3, switches: { message_versions: true }, drawInteger })).toBe(
-      2,
+    expect(pickVersionNumber({ count: 3, entitlement: entitlementSnapshotOf(), drawInteger })).toBe(
+      1,
     );
+    expect(
+      pickVersionNumber({
+        count: 3,
+        entitlement: entitlementWith({ message_versions: true }),
+        drawInteger,
+      }),
+    ).toBe(2);
   });
 
   it('a wording is never the last one sent when there are two or more', () => {
@@ -94,8 +109,12 @@ describe('the step parts (AU26, AU27)', () => {
 
   it('the email ask needs its PRO switch (a move down skips it)', () => {
     const steps = { email: { on: true, wordings: ['Your email?'] } };
-    expect(questionStepOf({ steps, part: 'email', switches: { email_ask: false } })).toBeNull();
-    expect(questionStepOf({ steps, part: 'email', switches: { email_ask: true } })).not.toBeNull();
+    expect(
+      questionStepOf({ steps, part: 'email', entitlement: entitlementWith({ email_ask: false }) }),
+    ).toBeNull();
+    expect(
+      questionStepOf({ steps, part: 'email', entitlement: entitlementWith({ email_ask: true }) }),
+    ).not.toBeNull();
   });
 
   it('only a "sends your next step" button makes the run wait for a tap', () => {

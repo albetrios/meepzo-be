@@ -45,6 +45,10 @@ import { createTestOrganization } from '@/tests/factories/organization.factory.j
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import {
+  entitlementSnapshotOf,
+  planFeaturesWithSwitches,
+} from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -124,10 +128,11 @@ describe('AutomationRunService (database, recording sending port)', () => {
         [],
         async () => null,
       ),
-      planAccessService: {
-        getPlanAccess: (async () => ({
-          features: planSwitches === null ? null : { feature_switches: planSwitches },
-        })) as never,
+      entitlementService: {
+        resolve: async () =>
+          entitlementSnapshotOf({
+            features: planSwitches === null ? null : planFeaturesWithSwitches(planSwitches),
+          }),
       },
       countService: new AutomationCountService(new AutomationCountRepository()),
       replyStateService: new AutomationReplyStateService(new AutomationReplyStateRepository()),

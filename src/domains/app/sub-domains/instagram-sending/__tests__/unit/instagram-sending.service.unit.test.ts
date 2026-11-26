@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  ChannelAccountPlanAccessService,
-  ChannelAccountService,
-} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import {
+  entitlementSnapshotOf,
+  planFeaturesWithSwitches,
+} from '@/domains/app/__tests__/factories/entitlement.factory.js';
 import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import type { InstagramSendDayCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import type { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
@@ -103,8 +104,12 @@ function setup({
       return SENDING_STATE;
     }),
   };
-  const planAccess = { features, state: 'active' };
-  const planAccessService = { getPlanAccess: vi.fn(async () => planAccess) };
+  // The entitlement module's snapshot of this plan read (change-plan-gates AP5).
+  const entitlement = entitlementSnapshotOf({
+    state: 'active',
+    features: features === null ? null : { ...planFeaturesWithSwitches({}), ...features },
+  });
+  const entitlementService = { resolve: vi.fn(async () => entitlement) };
   const service = new InstagramSendingService({
     organizationService: organizationService as unknown as OrganizationService,
     channelAccountService: channelAccountService as unknown as ChannelAccountService,
@@ -112,7 +117,7 @@ function setup({
     dayCountRepository: dayCountRepository as unknown as InstagramSendDayCountRepository,
     messageMonthCountService: monthCountService as unknown as MessageMonthCountService,
     sendingStateService: sendingStateService as unknown as SendingStateService,
-    planAccessService: planAccessService as unknown as ChannelAccountPlanAccessService,
+    entitlementService,
     sources,
   });
   return {
@@ -122,8 +127,8 @@ function setup({
     laneService,
     dayCountRepository,
     monthCountService,
-    planAccessService,
-    planAccess,
+    entitlementService,
+    entitlement,
   };
 }
 
@@ -237,19 +242,19 @@ describe('InstagramSendingService.getSendingStatus (route 63)', () => {
 
 describe('InstagramSendingService.getUsage (route 64)', () => {
   it("hands the month, the plan's limits and the active-account count to the serializer", async () => {
-    const { service, monthCountService, planAccessService, planAccess } = setup();
+    const { service, monthCountService, entitlementService, entitlement } = setup();
 
     await service.getUsage({ scope });
 
     expect(monthCountService.readMonth).toHaveBeenCalledWith({ scope, organizationId: 7 });
-    expect(planAccessService.getPlanAccess).toHaveBeenCalledWith({
+    expect(entitlementService.resolve).toHaveBeenCalledWith({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
     });
     expect(serializeAppUsage).toHaveBeenCalledWith({
       month: MONTH,
       limit: 1000,
       accounts: { used: 2, maximum: 3 },
-      planAccess,
+      planAccess: entitlement,
       hasLiveAccount: true,
       now: NOW,
     });
@@ -269,7 +274,7 @@ describe('InstagramSendingService.getUsage (route 64)', () => {
   });
 
   it('answers 404 team_organization_required for a personal organization before any read', async () => {
-    const { service, monthCountService, planAccessService } = setup({
+    const { service, monthCountService, entitlementService } = setup({
       organizationType: 'PERSONAL',
     });
 
@@ -277,6 +282,6 @@ describe('InstagramSendingService.getUsage (route 64)', () => {
       reason: 'team_organization_required',
     });
     expect(monthCountService.readMonth).not.toHaveBeenCalled();
-    expect(planAccessService.getPlanAccess).not.toHaveBeenCalled();
+    expect(entitlementService.resolve).not.toHaveBeenCalled();
   });
 });

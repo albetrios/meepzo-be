@@ -20,6 +20,7 @@ import {
   type ChannelFeature,
 } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { channelFeatureRefusalError } from '@/domains/app/sub-domains/channel-account/channel-account-error.util.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.mock('@/infrastructure/database/contexts/database-context.js', async (importOriginal) => {
   const original =
@@ -58,19 +59,17 @@ function serviceWith({
   const connectionRepository = {
     findByIds: vi.fn(async () => [{ id: 9, scopes }]),
   } as unknown as ChannelConnectionRepository;
-  const planAccessService = {
-    getPlanAccess: vi.fn(async () => ({
-      state: 'active' as const,
-      graceEndsAt: null,
-      trialEndsAt: null,
-      plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
-      features,
-      seatLimit: null,
-      defaultedKeys: [],
-      overrides: [],
-      isPlanChoiceRequired: false,
-    })),
-  };
+  const entitlementService = entitlementServiceOf({
+    state: 'active' as const,
+    graceEndsAt: null,
+    trialEndsAt: null,
+    plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
+    features,
+    seatLimit: null,
+    defaultedKeys: [],
+    overrides: [],
+    isPlanChoiceRequired: false,
+  });
   const unused = {} as never;
   return new ChannelAccountService(
     accountRepository,
@@ -80,7 +79,7 @@ function serviceWith({
     connectionRepository,
     unused,
     unused,
-    planAccessService,
+    entitlementService,
     undefined,
     undefined,
     new Set(untested),

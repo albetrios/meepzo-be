@@ -79,7 +79,7 @@ export function createDomainContainers(
   // Built after the domains it reads, as `domainContainersPlugin` does for the API.
   const appDomain = createAppContainer({
     organizationService: tenancyDomain.organizationService,
-    planAccessService: billingDomain.subscriptionService,
+    entitlementService: billingDomain.entitlementService,
     trialPort: billingDomain.subscriptionTrialService,
     messageFilePort: uploadDomain.uploadService,
   });

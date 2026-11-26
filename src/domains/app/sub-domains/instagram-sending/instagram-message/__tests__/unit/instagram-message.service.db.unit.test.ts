@@ -36,6 +36,7 @@ import { createTestOrganization } from '@/tests/factories/organization.factory.j
 import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -94,7 +95,7 @@ describe('InstagramMessageService (database)', () => {
         [],
         async () => null,
       ),
-      planAccessService: { getPlanAccess: (async () => ({ features: null })) as never },
+      entitlementService: entitlementServiceOf({ features: null }),
       countService: new AutomationCountService(new AutomationCountRepository()),
       replyStateService: new AutomationReplyStateService(new AutomationReplyStateRepository()),
       sendingPorts: { instagram: messages },

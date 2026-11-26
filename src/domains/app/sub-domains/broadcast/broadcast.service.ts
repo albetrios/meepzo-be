@@ -8,6 +8,8 @@ import {
   assertTeamOrganizationForRead,
 } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { channelFeatureRefusalError } from '@/domains/app/sub-domains/channel-account/channel-account-error.util.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import { CHANNEL_CAPABILITIES } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import type { AutomationChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import { listAutomationUploads } from '@/domains/app/sub-domains/automation/automation.validator.js';
@@ -391,21 +393,27 @@ export class BroadcastService {
    * `broadcasts` and the messages' kinds (BC3, BC18); then one unit under the row lock — not `draft`
    * → `409 transition_not_allowed`; the account not `connected` (or its connection `error` /
    * `revoked`) → `409 instagram_not_connected`; the month count at its limit → `409
-   * message_month_limit_reached`; no messages, no live audience or a file not usable → `422
+   * message_month_limit_reached` with `limit`, `used` and `resets_on` (the module's
+   * `buildPlanRefusal`, change-plan-gates AP4, P6); no messages, no live audience or a file not usable → `422
    * broadcast_incomplete` with `errors[]`; the copy of the conditions (a segment's, so a later
    * segment edit never changes it — AC-9.8); the move to `sending`, `scheduled` or
    * `waiting_for_chats` with its times (`started_at` now except for `scheduled`, which the start duty
    * sets — R47). After the commit, the send queue (R46). Failure modes: as the class lists. Side
-   * effects: one row; one queued task through the port.
+   * effects: one row; one queued task through the port. Notes: the feature check and the month
+   * check read the plan from `entitlement` — the route guard's snapshot (change-plan-gates RG5,
+   * P24) — so the send reads the plan once.
    */
   async sendBroadcast({
     caller,
     broadcastPublicId,
     input,
+    entitlement,
   }: {
     caller: BroadcastCaller;
     broadcastPublicId: string;
     input: BroadcastSendInput;
+    /** The route guard's snapshot (`request.entitlementSnapshot`); absent, each check resolves. */
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<BroadcastOutput> {
     const { organizationId, broadcast } = await withAppDatabaseContext({
       scope: caller.scope,
@@ -430,6 +438,7 @@ export class BroadcastService {
       organizationId,
       account,
       messages: broadcast.messages,
+      entitlement,
     });
     const sent = await withAppDatabaseContext({
       scope: caller.scope,
@@ -437,7 +446,7 @@ export class BroadcastService {
         const locked = await this.lockBroadcast({ organizationId, broadcastPublicId });
         if (locked.status !== 'draft') throw transitionNotAllowedError();
         if (!isAccountUsable(account)) throw accountNotConnectedConflict();
-        await this.assertMonthLimitNotReached({ scope: caller.scope, organizationId });
+        await this.assertMonthLimitNotReached({ scope: caller.scope, organizationId, entitlement });
         const conditions = await this.requireCompleteDraft({ scope: caller.scope, locked });
         const now = Date.now();
         const isUpdated = await this.broadcastRepository.markSent({
@@ -667,17 +676,20 @@ export class BroadcastService {
     organizationId,
     account,
     messages,
+    entitlement,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     account: AutomationChannelAccount;
     messages: BroadcastMessages;
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<void> {
     const check = await this.featureCheck({
       scope,
       organizationId,
       channelAccountId: account.id,
       feature: 'broadcasts',
+      entitlement,
     });
     if (!check.isAllowed) {
       throw channelFeatureRefusalError({ reason: check.reason, feature: 'broadcasts' });
@@ -688,19 +700,27 @@ export class BroadcastService {
     }
   }
 
-  /** `409 message_month_limit_reached` when sub-domain 6's month count says the DMs are used up. */
+  /**
+   * `409 message_month_limit_reached` with `limit`, `used` and `resets_on` (change-plan-gates AP4,
+   * P6) when sub-domain 6's month count says the DMs are used up — refused through the
+   * entitlement module's `buildPlanRefusal`.
+   */
   private async assertMonthLimitNotReached({
     scope,
     organizationId,
+    entitlement,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
+    entitlement: EntitlementSnapshot | undefined;
   }): Promise<void> {
-    const stop = await this.ports.monthLimit?.readOrganizationPlanStop({ scope, organizationId });
-    if (stop === 'plan_limit') {
-      throw new ConflictError('errors:messageMonthLimitReached').withReason(
-        'message_month_limit_reached',
-      );
+    const reached = await this.ports.monthLimit?.readMonthLimitReached({
+      scope,
+      organizationId,
+      entitlement,
+    });
+    if (reached != null) {
+      throw buildPlanRefusal({ reason: 'message_month_limit_reached', ...reached });
     }
   }
 

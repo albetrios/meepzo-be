@@ -3,7 +3,12 @@ import {
   type OrganizationPrincipalDatabaseScope,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
-import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
+import {
+  type ChannelAccountEntitlementService,
+  readChannelAccountsMax,
+  readEntitlementSnapshot,
+} from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   assertTeamOrganization,
@@ -40,7 +45,6 @@ import {
 import { CHANNEL_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import { instagramReconnectRequiredError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import {
-  CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN,
   CHANNEL_CONNECTION_AD_ACCESS,
   CHANNEL_CONNECTION_STATUS,
   META_ADS_PERMISSION,
@@ -53,7 +57,6 @@ import {
   channelConnectionNotConnectedError,
   channelConnectionNotFoundError,
   instagramPageLoginNotConfiguredError,
-  planAccountLimitError,
   providerPermissionsMissingError,
   isMetaAdPermissionMissing,
   isMetaTokenRefused,
@@ -94,14 +97,6 @@ import type {
   ChannelConnectionOutput,
   ChannelConnectionTrialPort,
 } from './channel-connection.types.js';
-
-/**
- * The plan read the pick and the callback take the account limit from (sub-domain 8, P47).
- *
- * @remarks
- * Notes: structural, so a test can stub it; billing's `SubscriptionService` satisfies it.
- */
-export type ChannelConnectionPlanAccessService = Pick<SubscriptionService, 'getPlanAccess'>;
 
 /**
  * The caller of a channel connection route: its organization scope and user.
@@ -238,7 +233,7 @@ export class ChannelConnectionService {
     private readonly usageService: ChannelConnectionUsageService,
     private readonly accountPort: ChannelConnectionAccountPort,
     private readonly organizationService: OrganizationService,
-    private readonly planAccessService: ChannelConnectionPlanAccessService,
+    private readonly entitlementService: ChannelAccountEntitlementService,
     private readonly redis: Redis,
     private readonly lanePort?: ChannelConnectionLanePort | undefined,
     private readonly trialPort?: ChannelConnectionTrialPort | undefined,
@@ -550,12 +545,14 @@ export class ChannelConnectionService {
         }),
       );
     }
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    // One plan read for the pick (change-plan-gates AP4, P24): the limit (Free's 1 when it reads
+    // `null`, P39) and the trial end.
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
     });
-    const accountsMax =
-      planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
-    const isTrialing = planAccess.trialEndsAt !== null && this.trialPort !== undefined;
+    const accountsMax = readChannelAccountsMax(entitlement);
+    const isTrialing = entitlement.trialEndsAt !== null && this.trialPort !== undefined;
 
     const committed = await this.commitPick({
       scope,
@@ -948,7 +945,11 @@ export class ChannelConnectionService {
         const toConnect = candidates.filter((identifier) => !liveHere.has(identifier));
         const liveCount = await this.accountPort.countLiveAccounts({ scope, organizationId });
         if (liveCount + toConnect.length > accountsMax) {
-          throw planAccountLimitError({ limit: accountsMax, used: liveCount });
+          throw buildPlanRefusal({
+            reason: 'plan_account_limit',
+            limit: accountsMax,
+            used: liveCount,
+          });
         }
         if (isTrialing && toConnect.length > 0) {
           await this.trialPort?.assertAccountsMayTrial({ providerAccountIds: toConnect });
@@ -1088,12 +1089,14 @@ export class ChannelConnectionService {
     return elsewhere;
   }
 
-  /** The plan's `channel_accounts_max` (Free's when the organization has no readable plan). */
+  /**
+   * The plan's `channel_accounts_max` — one entitlement resolve, `limit()` (change-plan-gates AP1),
+   * Free's 1 when it reads `null` (no plan in the catalog, P39).
+   */
   private async readAccountsMax(scope: OrganizationPrincipalDatabaseScope): Promise<number> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
-    });
-    return planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
+    return readChannelAccountsMax(
+      await readEntitlementSnapshot({ entitlementService: this.entitlementService, scope }),
+    );
   }
 
   /** MC6: a connection a reconnect moved every account away from is revoked with its token. */

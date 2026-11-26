@@ -270,6 +270,26 @@ describe('Automation backfill routes 38–39 (past comments, § 4.C)', () => {
       const response = await start({ automationPublicId: automation.public_id });
       expect(response.statusCode).toBe(403);
       expect(errorOf(response).reason).toBe('plan_lacks_feature');
+      // change-plan-gates AP2: the plan step's refusal comes from the entitlement module's builder —
+      // the body as before, every field, its value and its order.
+      expect(errorOf(response)).toEqual({
+        type: 'request_error',
+        code: 'forbidden',
+        reason: 'plan_lacks_feature',
+        detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+        feature: 'past_comments',
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+      });
+      expect(Object.keys(errorOf(response))).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'feature',
+        'upgrade_required',
+        'documentation_url',
+      ]);
       expect(await readAutomationBackfillRows(automation.id)).toEqual([]);
     });
 

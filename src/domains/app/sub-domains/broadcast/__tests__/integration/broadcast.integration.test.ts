@@ -478,6 +478,31 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       const limited = await send(broadcast.id);
       expect(limited.statusCode).toBe(409);
       expect(errorOf(limited).reason).toBe('message_month_limit_reached');
+      // change-plan-gates AP4, P6, P38 — the one planned wire change: the entitlement module's month
+      // refusal gains the ceiling, this month's count and the day it starts again, after the reason
+      // and the detail; no upgrade hint.
+      const monthRefusal = (limited.json() as { error: Record<string, unknown> }).error;
+      expect(monthRefusal).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'message_month_limit_reached',
+        detail: 'You used all your DMs this month. Upgrade, or wait until the 1st.',
+        limit: CREATOR_PLAN_FEATURES.message_month_limit,
+        used: expect.any(Number),
+        resets_on: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(monthRefusal.used).toBeGreaterThanOrEqual(100000);
+      expect(Object.keys(monthRefusal)).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'resets_on',
+        'documentation_url',
+      ]);
       await operatorQuery`
         UPDATE app.channel_accounts SET connection_status = 'error' WHERE id = ${account.channel_account_id}`;
       const broken = await send(broadcast.id);
@@ -751,6 +776,26 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');
         expect(errorOf(refused)).toMatchObject({ feature: 'broadcasts', upgrade_required: true });
+        // change-plan-gates AP2: the feature check's plan refusal comes from the entitlement
+        // module's builder — the body as before, every field, its value and its order.
+        expect(errorOf(refused)).toEqual({
+          type: 'request_error',
+          code: 'forbidden',
+          reason: 'plan_lacks_feature',
+          detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+          feature: 'broadcasts',
+          upgrade_required: true,
+          documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+        });
+        expect(Object.keys(errorOf(refused))).toEqual([
+          'type',
+          'code',
+          'reason',
+          'detail',
+          'feature',
+          'upgrade_required',
+          'documentation_url',
+        ]);
       }
       const list = await injectAuthenticated(app, {
         url: `${BROADCASTS_PATH}?channel_account_id=${account.public_id}`,

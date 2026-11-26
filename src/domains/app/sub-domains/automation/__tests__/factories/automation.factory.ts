@@ -14,6 +14,7 @@ import { AutomationReplyStateService } from '@/domains/app/sub-domains/automatio
 import type { AutomationOpenRunCancelStep } from '@/domains/app/sub-domains/automation/automation.types.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { entitlementSnapshotOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 /** `GET` / `POST /app/automations` (routes 27–28). */
 export const AUTOMATIONS_PATH = testApiPath('/app/automations');
@@ -337,7 +338,7 @@ export function createTestAutomationService({
       readAutomationAccount: async () => null,
       listChannelAccountAutomationProblems: async () => [],
     },
-    { getPlanAccess: async () => ({ features: null }) } as never,
+    { resolve: async () => entitlementSnapshotOf({ features: null }) },
     organizationService,
     openRunCancelSteps,
   );

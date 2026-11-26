@@ -33,14 +33,14 @@ const APP_PREFIX = `${buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1)}/app`;
  */
 describe('app domain wiring', () => {
   const organizationService = {} as OrganizationService;
-  const planAccessService = { getPlanAccess: vi.fn() };
+  const entitlementService = { resolve: vi.fn() };
   const trialPort = { assertAccountsMayTrial: vi.fn(), recordTrialAccounts: vi.fn() };
 
   it('registerAppContainer decorates appDomain with the Instagram account, contact, automation, run engine and webhook services', async () => {
     const application = Fastify();
     application.decorate('tenancyDomain', { organizationService } as never);
     application.decorate('billingDomain', {
-      subscriptionService: planAccessService,
+      entitlementService,
       subscriptionTrialService: trialPort,
     } as never);
     // The automation go-live's file check reads the upload domain's usable-file read (R13, R12).
@@ -110,7 +110,7 @@ describe('app domain wiring', () => {
     );
     expect(application.appDomain.instagramWebhookService).toBeInstanceOf(InstagramWebhookService);
     expect(
-      createAppContainer({ organizationService, planAccessService, trialPort })
+      createAppContainer({ organizationService, entitlementService, trialPort })
         .instagramAccountSettingsService,
     ).toBeInstanceOf(InstagramAccountSettingsService);
     expect(application.appDomain.instagramMediaService).toBeInstanceOf(InstagramMediaService);
@@ -131,7 +131,7 @@ describe('app domain wiring', () => {
     application.decorate('authenticate', async () => undefined);
     application.decorate(
       'appDomain',
-      createAppContainer({ organizationService, planAccessService, trialPort }),
+      createAppContainer({ organizationService, entitlementService, trialPort }),
     );
     const registeredRoutes: string[] = [];
     application.addHook('onRoute', (route) => {

@@ -651,6 +651,29 @@ describe('Channel account routes', () => {
       expect(errorOf(refused).reason).toBe('plan_account_limit');
       // The plan refusal contract (P269): Free's one account, one in use, a plan change lifts it.
       expect(errorOf(refused)).toMatchObject({ limit: 1, used: 1, upgrade_required: true });
+      // change-plan-gates AP4: the entitlement module's refusal builder answers the body the app
+      // built itself before — every field, its value and its order.
+      expect(errorOf(refused)).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'plan_account_limit',
+        detail:
+          'Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.',
+        limit: 1,
+        used: 1,
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(Object.keys(errorOf(refused))).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'upgrade_required',
+        'documentation_url',
+      ]);
 
       const swapped = await act({
         channelAccountPublicId: outside,

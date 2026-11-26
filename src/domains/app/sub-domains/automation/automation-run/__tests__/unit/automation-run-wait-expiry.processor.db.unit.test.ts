@@ -27,6 +27,7 @@ import { createTestOrganization } from '@/tests/factories/organization.factory.j
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -87,7 +88,7 @@ function createRunService(port: RecordingSendingPort): AutomationRunService {
   return new AutomationRunService({
     channelAccountService: { readAutomationRunAccount: async () => null },
     contactService: {} as ContactService,
-    planAccessService: { getPlanAccess: (async () => ({ features: null })) as never },
+    entitlementService: entitlementServiceOf({ features: null }),
     countService: {} as never,
     replyStateService: {} as never,
     sendingPorts: { instagram: port },

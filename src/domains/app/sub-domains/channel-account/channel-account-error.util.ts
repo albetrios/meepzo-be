@@ -1,6 +1,6 @@
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
 import {
   ConflictError,
-  ForbiddenError,
   NotFoundError,
   UnprocessableEntityError,
   fieldValidationError,
@@ -46,7 +46,9 @@ export function stopChannelAccountInvalidError(): ValidationError {
  * @remarks
  * Every refusal carries `error.feature` — the plan feature key the feature reads (its
  * `CHANNEL_FEATURES` plan switch) — and `plan_lacks_feature` also `error.upgrade_required: true`
- * (the plan refusal contract, P269), so a client shows the upgrade without parsing `detail`.
+ * (the plan refusal contract, P269), so a client shows the upgrade without parsing `detail`. The
+ * plan refusal is the entitlement module's (`buildPlanRefusal`, change-plan-gates AP2); the three
+ * channel reasons are channel facts and stay here.
  */
 export function channelFeatureRefusalError({
   reason,
@@ -64,9 +66,7 @@ export function channelFeatureRefusalError({
     case 'permission_not_granted':
       return new ConflictError('errors:permissionNotGranted').withReason(reason).withFields(fields);
     case 'plan_lacks_feature':
-      return new ForbiddenError('errors:planLacksFeature')
-        .withReason(reason)
-        .withFields({ ...fields, upgrade_required: true });
+      return buildPlanRefusal({ reason, feature: fields.feature });
     case 'feature_not_offered':
       return new UnprocessableEntityError('errors:featureNotOffered')
         .withReason(reason)

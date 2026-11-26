@@ -15,10 +15,10 @@ import type {
   SaveWaitingMessageResult,
 } from '@/domains/app/app.channel-ports.js';
 import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
-import type {
-  ChannelAccountPlanAccessService,
-  ChannelAccountService,
-} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountEntitlementService } from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
+import { can } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { AutomationRunChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
@@ -94,13 +94,11 @@ import {
   pickPhoneAnswer,
 } from './automation-run-matching.util.js';
 import {
-  type AutomationPlanSwitches,
   type AutomationRandomSource,
   buildOnceKey,
   followStepOf,
   helloHasNextButton,
   helloStepOf,
-  isPlanSwitchOn,
   isSheMessagedFirst,
   messagesOf,
   organizationDayOf,
@@ -134,8 +132,11 @@ export interface AutomationRunServiceDependencies {
   /** The channel account's run read (AU34) — the engine reaches no channel's own sub-domain. */
   channelAccountService: Pick<ChannelAccountService, 'readAutomationRunAccount'>;
   contactService: ContactService;
-  /** The plan read — the PRO switches, read once per job (AU26, D57). */
-  planAccessService: ChannelAccountPlanAccessService;
+  /**
+   * The entitlement module — the PRO switches, resolved once per job and read with `can()` (AU26,
+   * D57; change-plan-gates AP1, AP3).
+   */
+  entitlementService: ChannelAccountEntitlementService;
   countService: AutomationCountService;
   replyStateService: AutomationReplyStateService;
   /**
@@ -192,7 +193,8 @@ interface AutomationRunUnit extends AutomationRunRepositories {
   scope: OrganizationPrincipalDatabaseScope;
   organizationId: number;
   channelAccountId: number;
-  switches: AutomationPlanSwitches;
+  /** The job's entitlement snapshot, resolved once (P24) — every PRO step asks `can()` of it. */
+  entitlement: EntitlementSnapshot;
   port: ChannelSendingPort;
   /** Her live contact, locked `FOR KEY SHARE` until the unit ends (CT8). */
   contact: ContactRow;
@@ -583,7 +585,7 @@ export class AutomationRunService {
           scope: input.scope,
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
-          switches: await this.readPlanSwitches(input.scope),
+          entitlement: await this.readEntitlement(input.scope),
           port,
           contact,
           now: input.occurredAt,
@@ -800,14 +802,16 @@ export class AutomationRunService {
     };
   }
 
-  /** The plan's feature switches (P83), or `null` when the organization has no readable plan. */
-  private async readPlanSwitches(
+  /**
+   * The organization's entitlement for this job (P83; change-plan-gates AP1, P24) — one resolve
+   * through the entitlement module; with no plan in the catalog every PRO switch reads off.
+   */
+  private async readEntitlement(
     scope: OrganizationPrincipalDatabaseScope,
-  ): Promise<AutomationPlanSwitches> {
-    const planAccess = await this.dependencies.planAccessService.getPlanAccess({
+  ): Promise<EntitlementSnapshot> {
+    return this.dependencies.entitlementService.resolve({
       organizationPublicId: scope.organizationPublicId,
     });
-    return planAccess.features?.feature_switches ?? null;
   }
 
   /**
@@ -846,7 +850,7 @@ export class AutomationRunService {
     if (port === undefined) {
       throw new Error(`automation run engine: no sending port wired for ${account.channel}`);
     }
-    const switches = await this.readPlanSwitches(input.scope);
+    const entitlement = await this.readEntitlement(input.scope);
     return withAppDatabaseContext({
       scope: input.scope,
       callback: async (databaseHandle) => {
@@ -869,7 +873,7 @@ export class AutomationRunService {
           scope: input.scope,
           organizationId: account.organizationId,
           channelAccountId: account.id,
-          switches,
+          entitlement,
           port,
           contact,
           now: new Date(),
@@ -1414,7 +1418,11 @@ export class AutomationRunService {
   }): Promise<AutomationRunHandlingResult> {
     const part = run.waiting_for === 'email' ? 'email' : 'phone';
     const nextStage = part === 'email' ? 'phone' : 'messages';
-    const question = questionStepOf({ steps: automation.steps, part, switches: unit.switches });
+    const question = questionStepOf({
+      steps: automation.steps,
+      part,
+      entitlement: unit.entitlement,
+    });
     if (question === null) {
       // The step is off or the plan lost its PRO switch: the run moves on (AU26).
       await this.proceed({ unit, run, automation, from: nextStage });
@@ -1714,7 +1722,7 @@ export class AutomationRunService {
     if (hello !== null) {
       versionNumbers.hello = pickVersionNumber({
         count: hello.versions.length,
-        switches: unit.switches,
+        entitlement: unit.entitlement,
         drawInteger: this.drawInteger,
       });
     }
@@ -1722,7 +1730,7 @@ export class AutomationRunService {
     if (follow !== null) {
       versionNumbers.follow = pickVersionNumber({
         count: follow.versions.length,
-        switches: unit.switches,
+        entitlement: unit.entitlement,
         drawInteger: this.drawInteger,
       });
     }
@@ -1789,7 +1797,8 @@ export class AutomationRunService {
         return true;
       case 'email':
       case 'phone':
-        if (questionStepOf({ steps, part: stage, switches: unit.switches }) === null) return false;
+        if (questionStepOf({ steps, part: stage, entitlement: unit.entitlement }) === null)
+          return false;
         if ((stage === 'email' ? unit.contact.email : unit.contact.phone) !== null) return false;
         await this.askQuestion({ unit, run, automation, part: stage });
         return true;
@@ -1999,7 +2008,7 @@ export class AutomationRunService {
       answersEventId: message.answersEventId ?? null,
       organizationPublicId: unit.scope.organizationPublicId,
       answerDelay: answerDelayOf(unit),
-      isExtraDelayAllowed: isPlanSwitchOn({ switches: unit.switches, feature: 'extra_delay' }),
+      isExtraDelayAllowed: can({ snapshot: unit.entitlement, key: 'extra_delay' }),
     });
   }
 
@@ -2530,7 +2539,7 @@ export class AutomationRunService {
     if (isDuplicate) return 'duplicate';
     const isLikePerson =
       automation.is_reply_like_person_enabled &&
-      isPlanSwitchOn({ switches: unit.switches, feature: 'reply_like_person' });
+      can({ snapshot: unit.entitlement, key: 'reply_like_person' });
     if (
       isLikePerson &&
       this.drawInteger(AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE) >=

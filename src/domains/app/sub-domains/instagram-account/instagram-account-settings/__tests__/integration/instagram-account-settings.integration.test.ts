@@ -469,6 +469,26 @@ describe('Instagram account settings route (route 12)', () => {
       });
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('plan_lacks_feature');
+      // change-plan-gates AP2: the plan step's refusal comes from the entitlement module's builder —
+      // the body as before, every field, its value and its order.
+      expect(errorOf(refused)).toEqual({
+        type: 'request_error',
+        code: 'forbidden',
+        reason: 'plan_lacks_feature',
+        detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+        feature: 'extra_delay',
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+      });
+      expect(Object.keys(errorOf(refused))).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'feature',
+        'upgrade_required',
+        'documentation_url',
+      ]);
       const cleared = await patchSettings({
         accountId: id,
         payload: { extra_delay_seconds_min: null, extra_delay_seconds_max: null },

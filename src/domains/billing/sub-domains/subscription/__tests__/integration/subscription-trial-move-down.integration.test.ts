@@ -11,6 +11,7 @@ import {
   FREE_PLAN_FEATURES,
   STUDIO_PLAN_FEATURES,
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { trial_accounts } from '@/domains/billing/sub-domains/subscription/trial-account.schema.js';
@@ -544,6 +545,33 @@ describe('Billing — the trial, the move down and the plan in the context (R24)
       });
       expect(repeated.statusCode, repeated.body).toBe(400);
       expect(paymentProviderCalls).toEqual([]);
+    });
+    it('reads the new plan’s account limit with the organization’s overrides laid over it (P270)', async () => {
+      const { organization, creator, token, subscription, accounts } = await onStudio();
+      await getOperatorDatabase()
+        .insert(organization_entitlement_overrides)
+        .values({
+          public_id: generatePublicId('organizationEntitlementOverride'),
+          organization_id: organization.id,
+          key: 'channel_accounts_max',
+          value: accounts.length,
+          expires_at: null,
+          reason: 'Agency deal',
+        });
+
+      const moved = await post({
+        token,
+        path: `/billing/subscriptions/${subscription.id}/change-plan`,
+        payload: {
+          plan_id: creator.public_id,
+          keep_channel_account_ids: accounts.map((account) => account.public_id),
+        },
+      });
+
+      expect(moved.statusCode, moved.body).toBe(200);
+      expect(subscriptionOf(moved).scheduled_change?.keep_channel_account_ids).toHaveLength(
+        accounts.length,
+      );
     });
   });
 

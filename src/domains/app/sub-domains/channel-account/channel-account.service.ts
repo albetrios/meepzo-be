@@ -529,7 +529,9 @@ export class ChannelAccountService
           stopChannelAccountPublicId,
         });
         const activeCount = await this.accountRepository.countActive(organizationId);
-        if (activeCount >= accountsMax && stopAccount === null) throw planAccountLimitError();
+        if (activeCount >= accountsMax && stopAccount === null) {
+          throw planAccountLimitError({ limit: accountsMax, used: activeCount });
+        }
         if (stopAccount !== null) {
           await this.accountRepository.setPlanStop({
             organizationId,

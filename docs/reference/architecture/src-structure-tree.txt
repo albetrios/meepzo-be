@@ -1080,6 +1080,26 @@ src/
     │   ├── seed/
     │   │   └── index.ts
     │   ├── sub-domains/
+    │   │   ├── entitlement/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── entitlement-override.integration.test.ts
+    │   │   │   │   │   └── entitlements.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
+    │   │   │   │   │   └── entitlement.serializer.unit.test.ts
+    │   │   │   ├── entitlement-override.repository.ts
+    │   │   │   ├── entitlement-override.schema.ts
+    │   │   │   ├── entitlement-override.util.ts
+    │   │   │   ├── entitlement.constants.ts
+    │   │   │   ├── entitlement.controller.ts
+    │   │   │   ├── entitlement.dto.ts
+    │   │   │   ├── entitlement.overview.md
+    │   │   │   ├── entitlement.routes.ts
+    │   │   │   ├── entitlement.serializer.ts
+    │   │   │   ├── entitlement.service.ts
+    │   │   │   ├── entitlement.types.ts
+    │   │   │   └── entitlement.validator.ts
     │   │   ├── plan/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/

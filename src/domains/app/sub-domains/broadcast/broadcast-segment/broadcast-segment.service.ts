@@ -664,7 +664,8 @@ export class BroadcastSegmentService {
       channelAccountId,
       feature: 'segments',
     });
-    if (!check.isAllowed) throw channelFeatureRefusalError(check.reason);
+    if (!check.isAllowed)
+      throw channelFeatureRefusalError({ reason: check.reason, feature: 'segments' });
   }
 
   /** The tree's automations as internal ids — every one the account's, else `400` (BC12). */

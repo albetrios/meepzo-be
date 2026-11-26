@@ -208,3 +208,23 @@ role-change test (P263–P268).
 | --- | --- | --- | --- |
 | `plans/decisions.md` (tail) | ours P263–P268 (lane B); theirs P358–P363 (lane C) | both, ours first | none: no duplicate numbers |
 | `migrations/` | lane B `20261126100000_…plan_downgrade_reason.sql`; lane C `20261126024021_…messages_webhook_watch.sql` | both kept; independent (different tables/constraints), so the timestamp order does not matter | none |
+
+## Main ← lane C f9045e7..2a6ed05 (fast-forward) and lane B 4f32d3a..9417e7b (plan gating, 2026-11-26)
+
+Owner answers (2026-11-26): build the refusal contract, the gate coverage test, the audit of system plan
+changes, the one entitlements GET, per-organization overrides and the hard month cap; keep no plan versions
+(P80) and flag-after-plan (CA11 / P61). Lane C: P364–P369; lane B: P269–P274.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `AS-BUILT.md` (rows) | ours lane C's three "Plan gating" rows; theirs lane B's three "Close × plan gating" rows | all six kept | none |
+| `plans/decisions.md` (tail) | ours P364–P369; theirs P269–P274 | both | none: no duplicate numbers |
+| `subscription.service.ts`, `app-plan-access.ts`, `domain-containers.plugin.ts` | lane C's audit wiring and guard mark; lane B's refusal fields and overrides | auto-merged | re-run below |
+
+After the merge:
+- `plan-gate-coverage.global.test.ts` failed as designed on lane B's two new write routes. Both are
+  listed as deliberately open (global-admin routes, no organization plan): 6/6.
+- Lane B's open point fixed: route 103's `keep_channel_account_ids` limit now reads the new plan with the
+  organization's active overrides laid over it. Test: `subscription-trial-move-down.integration.test.ts`
+  (an override of `channel_accounts_max` lets the move keep every account) — with the entitlement suite
+  5 files / 33 tests.

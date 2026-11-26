@@ -7,7 +7,11 @@ import {
   type AppError,
   type ValidationError,
 } from '@/shared/errors/index.js';
-import type { ChannelFeatureRefusalReason } from './channel-account-capabilities.constants.js';
+import {
+  CHANNEL_FEATURES,
+  type ChannelFeature,
+  type ChannelFeatureRefusalReason,
+} from './channel-account-capabilities.constants.js';
 
 /**
  * The channel account's route errors (routes-final § 1B.9) and the one feature check's refusals
@@ -38,16 +42,34 @@ export function stopChannelAccountInvalidError(): ValidationError {
  * The one feature check's refusal as a route error, with the statuses of P61 (CAQ2):
  * `422 channel_lacks_feature`, `409 permission_not_granted`, `403 plan_lacks_feature`,
  * `422 feature_not_offered`.
+ *
+ * @remarks
+ * Every refusal carries `error.feature` — the plan feature key the feature reads (its
+ * `CHANNEL_FEATURES` plan switch) — and `plan_lacks_feature` also `error.upgrade_required: true`
+ * (the plan refusal contract, P269), so a client shows the upgrade without parsing `detail`.
  */
-export function channelFeatureRefusalError(reason: ChannelFeatureRefusalReason): AppError {
+export function channelFeatureRefusalError({
+  reason,
+  feature,
+}: {
+  reason: ChannelFeatureRefusalReason;
+  feature: ChannelFeature;
+}): AppError {
+  const fields = { feature: CHANNEL_FEATURES[feature].planSwitch };
   switch (reason) {
     case 'channel_lacks_feature':
-      return new UnprocessableEntityError('errors:channelLacksFeature').withReason(reason);
+      return new UnprocessableEntityError('errors:channelLacksFeature')
+        .withReason(reason)
+        .withFields(fields);
     case 'permission_not_granted':
-      return new ConflictError('errors:permissionNotGranted').withReason(reason);
+      return new ConflictError('errors:permissionNotGranted').withReason(reason).withFields(fields);
     case 'plan_lacks_feature':
-      return new ForbiddenError('errors:planLacksFeature').withReason(reason);
+      return new ForbiddenError('errors:planLacksFeature')
+        .withReason(reason)
+        .withFields({ ...fields, upgrade_required: true });
     case 'feature_not_offered':
-      return new UnprocessableEntityError('errors:featureNotOffered').withReason(reason);
+      return new UnprocessableEntityError('errors:featureNotOffered')
+        .withReason(reason)
+        .withFields(fields);
   }
 }

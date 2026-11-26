@@ -47,6 +47,7 @@ const FREE = {
   price_monthly: '0.00',
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
+  included_seats: null,
 };
 const CREATOR = {
   public_id: 'pln_creator',
@@ -55,6 +56,7 @@ const CREATOR = {
   price_monthly: '29.00',
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
+  included_seats: null,
 };
 
 /** A TEAM organization whose Creator plan's payment failed, its period ended `days` ago. */
@@ -67,6 +69,7 @@ const dunningOrganization = (days: number): PlanAccessSubject => ({
     plan: CREATOR,
   },
   freePlan: FREE,
+  overrides: [],
 });
 
 describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', () => {
@@ -85,6 +88,8 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
     await expect(
@@ -99,6 +104,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       organization: { type: 'TEAM' },
       subscription: null,
       freePlan: FREE,
+      overrides: [],
     });
 
     const access = await service.getPlanAccess({ organizationPublicId: 'org_new' });
@@ -110,13 +116,16 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
 
   it('refuses a write from a read-only organization with 403 organization_read_only', async () => {
     env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
-    const { service } = serviceReading(dunningOrganization(40));
+    const subject = dunningOrganization(40);
+    const { service } = serviceReading(subject);
 
     const refusal = await service
       .assertOrganizationWritable({ organizationPublicId: 'org_old' })
@@ -127,6 +136,15 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       statusCode: 403,
       messageKey: 'errors:organizationReadOnly',
       reason: 'organization_read_only',
+    });
+    // The plan refusal contract (P269): when write access ended — the dunning grace end.
+    const graceEndsAt = new Date(
+      (subject.subscription?.current_period_end.getTime() ?? 0) +
+        env.BILLING_DUNNING_GRACE_DAYS * DAY,
+    );
+    expect((refusal as ForbiddenError).fields).toEqual({
+      grace_ends_at: graceEndsAt.toISOString(),
+      upgrade_required: true,
     });
   });
 

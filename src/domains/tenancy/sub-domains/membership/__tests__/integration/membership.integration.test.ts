@@ -537,6 +537,8 @@ describe('Membership Sub-Domain — Integration', () => {
       expect(response.statusCode).toBe(409);
       const body = response.json() as { error: { reason?: string } };
       expect(body.error.reason).toBe('seat_limit_reached');
+      // The plan refusal contract (P269): the one seat, held by the owner.
+      expect(body.error).toMatchObject({ limit: 1, used: 1, upgrade_required: true });
     });
 
     it('allows the add when the plan still has free seats', async () => {

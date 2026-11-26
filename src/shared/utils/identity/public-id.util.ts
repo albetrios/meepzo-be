@@ -79,6 +79,11 @@ export const PUBLIC_ID_PREFIXES = {
    * chosen at kickoff, P22) — carried in its messages' button payloads.
    */
   broadcast: 'brc',
+  /**
+   * One organization's exception to its plan — a feature switch or a limit
+   * (`billing.organization_entitlement_overrides`, plan-gating close P270).
+   */
+  organizationEntitlementOverride: 'ovr',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */
@@ -164,6 +169,7 @@ export const PARAM_NAME_TO_ENTITY = {
   channel_account_id: 'channelAccount',
   segment_id: 'segment',
   broadcast_id: 'broadcast',
+  entitlement_override_id: 'organizationEntitlementOverride',
 } as const satisfies Record<string, PublicIdEntity>;
 
 /** Deterministic placeholder id for an entity (valid shape, never a real row). */

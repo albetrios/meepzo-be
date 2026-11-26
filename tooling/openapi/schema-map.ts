@@ -110,6 +110,7 @@ import {
   ChangePlanDto,
   emptyPaymentMethodBodyDto,
 } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
+import { SetEntitlementOverrideDto } from '@/domains/billing/sub-domains/entitlement/entitlement.dto.js';
 
 // ─── Upload ────────────────────────────────────────────────────────────
 import { createUploadDto } from '@/domains/upload/upload.dto.js';
@@ -216,6 +217,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/billing/subscriptions': CreateSubscriptionDto,
   'POST /api/v1/billing/subscriptions/{subscription_id}/change-plan': ChangePlanDto,
   'POST /api/v1/billing/payment-methods/{payment_method_id}/default': emptyPaymentMethodBodyDto,
+  'POST /api/v1/billing/entitlement-overrides': SetEntitlementOverrideDto,
 
   // ── Webhooks ──
   'POST /api/v1/notify/webhooks': CreateWebhookDto,

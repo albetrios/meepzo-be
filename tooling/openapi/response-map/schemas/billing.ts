@@ -223,3 +223,127 @@ export const webhookReceivedSchema = {
 };
 
 export const webhookReceivedExample = { received: true };
+
+// ── Entitlement override (plan-gating close, P270) ──
+export const entitlementOverrideSchema = {
+  type: 'object',
+  description:
+    "One organization's override of a plan key — a feature switch (`value` boolean) or a limit (`value` integer) — set by a global admin.",
+  properties: {
+    id: { type: 'string', description: '`ovr_…`' },
+    organization_id: { type: 'string', description: '`org_…`' },
+    key: {
+      type: 'string',
+      description: 'A plan feature key, `message_month_limit` or `channel_accounts_max`.',
+    },
+    value: { oneOf: [{ type: 'boolean' }, { type: 'integer' }] },
+    expires_at: { type: 'string', format: 'date-time', nullable: true },
+    is_active: { type: 'boolean', description: 'In force now (not past `expires_at`).' },
+    reason: { type: 'string' },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+  required: [
+    'id',
+    'organization_id',
+    'key',
+    'value',
+    'expires_at',
+    'is_active',
+    'reason',
+    'created_at',
+    'updated_at',
+  ],
+};
+
+export const entitlementOverrideExample = {
+  id: 'ovr_a1b2c3d4e5f6g7h8i9j0k',
+  organization_id: 'org_a1b2c3d4e5f6g7h8i9j0k',
+  key: 'broadcasts',
+  value: true,
+  expires_at: '2026-12-31T00:00:00.000Z',
+  is_active: true,
+  reason: 'Support deal',
+  created_at: '2026-11-26T12:00:00.000Z',
+  updated_at: '2026-11-26T12:00:00.000Z',
+};
+
+// ── Entitlements (plan-gating close, P271) ──
+const entitlementLimitSchema = {
+  type: 'object',
+  properties: {
+    used: { type: 'integer' },
+    limit: { type: 'integer', nullable: true, description: 'null = unlimited (or no plan).' },
+  },
+  required: ['used', 'limit'],
+};
+
+export const entitlementsSchema = {
+  type: 'object',
+  description:
+    "The active organization's entitlements: plan state, plan, features after overrides, limits with usage, dates and the overrides in force.",
+  properties: {
+    state: planAccessSchema.properties.state,
+    plan: planAccessSchema.properties.plan,
+    features: {
+      ...planSchema.properties.features,
+      nullable: true,
+      description: "The plan's typed features with the active overrides laid over them.",
+    },
+    limits: {
+      type: 'object',
+      properties: {
+        direct_messages: {
+          ...entitlementLimitSchema,
+          properties: {
+            ...entitlementLimitSchema.properties,
+            resets_on: { type: 'string', format: 'date', description: 'The 1st of next month.' },
+          },
+          required: ['used', 'limit', 'resets_on'],
+        },
+        channel_accounts: entitlementLimitSchema,
+        seats: entitlementLimitSchema,
+      },
+      required: ['direct_messages', 'channel_accounts', 'seats'],
+    },
+    trial_ends_at: planAccessSchema.properties.trial_ends_at,
+    grace_ends_at: planAccessSchema.properties.grace_ends_at,
+    is_plan_choice_required: planAccessSchema.properties.is_plan_choice_required,
+    overrides: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          key: { type: 'string' },
+          expires_at: { type: 'string', format: 'date-time', nullable: true },
+        },
+        required: ['key', 'expires_at'],
+      },
+    },
+  },
+  required: [
+    'state',
+    'plan',
+    'features',
+    'limits',
+    'trial_ends_at',
+    'grace_ends_at',
+    'is_plan_choice_required',
+    'overrides',
+  ],
+};
+
+export const entitlementsExample = {
+  state: 'active',
+  plan: { id: 'pln_j5h8t3rwy6m1k9n2a1b2c', name: 'Creator' },
+  features: planExample.features,
+  limits: {
+    direct_messages: { used: 1240, limit: 25000, resets_on: '2026-12-01' },
+    channel_accounts: { used: 2, limit: 3 },
+    seats: { used: 4, limit: null },
+  },
+  trial_ends_at: null,
+  grace_ends_at: null,
+  is_plan_choice_required: false,
+  overrides: [{ key: 'channel_accounts_max', expires_at: '2026-12-31T00:00:00.000Z' }],
+};

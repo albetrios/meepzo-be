@@ -281,6 +281,10 @@
     "model": "global-role",
     "verifyNoMutation": true
   },
+  "DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id": {
+    "model": "global-role",
+    "verifyNoMutation": true
+  },
   "POST /api/v1/users/:user_id/suspend": {
     "model": "global-role",
     "verifyNoMutation": true

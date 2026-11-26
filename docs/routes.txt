@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 203
+  Total routes: 207
 ================================================================================
 
 Legend:
@@ -128,10 +128,14 @@ Legend:
 
 ================================================================================
   DOMAIN: BILLING (/api/v1/billing)
-  Routes: 15
+  Routes: 19
 ================================================================================
 
   — Sub Domains —
+  GET    /api/v1/billing/entitlement-overrides                    200  -    both  ROLE: super_admin
+  POST   /api/v1/billing/entitlement-overrides                    200  -    both  ROLE: super_admin
+  DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id  204  -    both  ROLE: super_admin
+  GET    /api/v1/billing/entitlements                             200  -    both  PERM: subscription:read
   GET    /api/v1/billing/invoices                                 200  -    both  PERM: subscription:read
   GET    /api/v1/billing/payment-methods                          200  -    both  PERM: subscription:read
   DELETE /api/v1/billing/payment-methods/:payment_method_id       204  -    team  PERM: subscription:manage
@@ -294,11 +298,11 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 203
+  Total routes    : 207
   Public          : 23
   Authenticated   : 55
-  Role-guarded    : 9
-  Perm-guarded    : 111
+  Role-guarded    : 12
+  Perm-guarded    : 112
   Token-guarded   : 5
   Team-only (O)   : 68
 

@@ -2228,6 +2228,40 @@ erDiagram
   plan ||--o{ trial_account : "ADDED: is trialled as"
 ```
 
+### organization_entitlement_override
+
+- **Holds:** one organization's exception to its plan (plan-gating close, [P270](decisions.md)): a plan
+  feature switch turned on or off, or `message_month_limit` / `channel_accounts_max` raised or lowered,
+  optionally until `expires_at`, set by a global admin with a reason. Merged in the plan entitlement's
+  one read (BL2) while not expired.
+- **Table:** `billing.organization_entitlement_overrides`
+- **Sources:** plan-gating audit § 2; [P270](decisions.md), [P273](decisions.md).
+- **Added:** new (Close).
+- **Replaced:** none.
+- **Open:** none — **Built at Close** ([AS-BUILT](../AS-BUILT.md) › "Close × plan gating — overrides"): prefix
+  `ovr`; migration `20261126120000_billing_organization_entitlement_overrides.sql`; columns `public_id`,
+  `organization_id` (CASCADE), `key` (CHECK), `value` (jsonb boolean · number), `expires_at`, `reason`,
+  `created_by_user_id`, `updated_by_user_id`, `deleted_at`, `created_at`, `updated_at`; unique `public_id`,
+  unique live `(organization_id, key) WHERE deleted_at IS NULL`; FORCE RLS (organization `USING` + `WITH
+  CHECK`); resolver `billing.resolve_organization_public_id_for_entitlement_override(text)`.
+
+```mermaid
+erDiagram
+  organization_entitlement_override["organization_entitlement_override · NEW · billing.organization_entitlement_overrides"] {
+    id id PK
+    id organization_id FK
+    text key "a plan feature key or a limit; one live row per organization and key"
+    json value "boolean (switch) or integer (limit)"
+    datetime expires_at "optional"
+    text reason
+    datetime deleted_at "soft delete"
+  }
+  organization["organization · CHANGED · tenancy.organizations"] {
+    id id PK
+  }
+  organization ||--o{ organization_entitlement_override : "ADDED: has plan exceptions"
+```
+
 ## Before → after
 
 One row per `CHANGED` or `REMOVED` table. Plan decisions are `D<n>`; this plan's are `P<n>`.

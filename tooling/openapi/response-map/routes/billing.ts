@@ -105,6 +105,32 @@ export const billingRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
 
+  // ── Entitlements (plan-gating close, P271) ──
+  'GET /api/v1/billing/entitlements': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.entitlementsSchema, schemas.entitlementsExample),
+    example: null,
+  },
+
+  // ── Entitlement overrides (plan-gating close, P270 — global admin) ──
+  'GET /api/v1/billing/entitlement-overrides': {
+    statusCode: 200,
+    schema: wrapSuccess({ type: 'array', items: schemas.entitlementOverrideSchema }, [
+      schemas.entitlementOverrideExample,
+    ]),
+    example: null,
+  },
+  'POST /api/v1/billing/entitlement-overrides': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.entitlementOverrideSchema, schemas.entitlementOverrideExample),
+    example: null,
+  },
+  'DELETE /api/v1/billing/entitlement-overrides/{entitlement_override_id}': {
+    statusCode: 204,
+    schema: null,
+    example: null,
+  },
+
   // ── Stripe webhook (protocol-owned 200) ──
   'POST /api/v1/billing/webhook': {
     statusCode: 200,

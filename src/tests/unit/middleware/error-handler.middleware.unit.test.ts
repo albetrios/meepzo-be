@@ -58,6 +58,30 @@ async function createErrorHandlerApp() {
       .withRetryAfter(120)
       .withFields({ retry_after_seconds: 120, tries_left: 0 });
   });
+  application.get('/plan-refusal-with-fields', async () => {
+    throw new AppError('FORBIDDEN', 403, 'errors:organizationReadOnly', undefined, 'Read-only')
+      .withReason('organization_read_only')
+      .withFields({
+        grace_ends_at: '2026-11-01T00:00:00.000Z',
+        upgrade_required: true,
+        feature: 'broadcasts',
+        limit: 3,
+        used: 2,
+      });
+  });
+  application.get('/plan-refusal-with-wrong-kinds', async () => {
+    const error = new AppError('CONFLICT', 409, 'errors:planAccountLimit', undefined, 'Limit');
+    // A value of the wrong kind (only reachable around the type) is dropped, never sent.
+    error.fields = {
+      limit: 2.5,
+      used: Number.NaN,
+      feature: '',
+      grace_ends_at: 'not a date',
+      upgrade_required: 'yes',
+      unknown_field: 1,
+    } as unknown as NonNullable<AppError['fields']>;
+    throw error;
+  });
   application.get('/server-error-with-fields', async () => {
     throw new AppError('INTERNAL_ERROR', 500, 'errors:internal', undefined, 'Internal').withFields({
       tries_left: 2,
@@ -170,6 +194,33 @@ describe('error-handler.middleware', () => {
       retry_after_seconds: 120,
       tries_left: 0,
     });
+  });
+
+  it('P269: serializes the plan refusal fields on a 4xx', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({ method: 'GET', url: '/plan-refusal-with-fields' });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toMatchObject({
+      reason: 'organization_read_only',
+      grace_ends_at: '2026-11-01T00:00:00.000Z',
+      upgrade_required: true,
+      feature: 'broadcasts',
+      limit: 3,
+      used: 2,
+    });
+  });
+
+  it('P269: drops an extra field whose value is not of its kind, and an unknown name', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({
+      method: 'GET',
+      url: '/plan-refusal-with-wrong-kinds',
+    });
+    const error = response.json().error;
+    for (const name of ['limit', 'used', 'feature', 'grace_ends_at', 'upgrade_required']) {
+      expect(error[name]).toBeUndefined();
+    }
+    expect(error.unknown_field).toBeUndefined();
   });
 
   it('AT3: never serializes the extra fields on a masked 5xx', async () => {

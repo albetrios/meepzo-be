@@ -1,4 +1,9 @@
-export { AppError, APP_ERROR_FIELD_NAMES, ERROR_CODE_TO_SNAKE } from './app.error.js';
+export {
+  AppError,
+  APP_ERROR_FIELD_KINDS,
+  APP_ERROR_FIELD_NAMES,
+  ERROR_CODE_TO_SNAKE,
+} from './app.error.js';
 export type { AppErrorCode, AppErrorFields } from './app.error.js';
 export { fieldValidationError, ValidationError } from './validation.error.js';
 export type { ValidationErrorItem } from './validation.error.js';

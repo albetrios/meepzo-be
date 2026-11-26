@@ -3967,6 +3967,43 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 | 8.C Cards | `subscription/` (the payment-method service and serializer) | — (Stripe only) | 104–106 | final (rev 4, confirmed 2026-11-24) |
 | 8.D Stripe webhook | `stripe-webhook/` | `billing.stripe_webhook_events` (unchanged) | 107 | final (rev 4, confirmed 2026-11-24) |
 
+### 8.13 Close × plan gating (P269–P271, owner 2026-11-26)
+
+Added at Close from the plan-gating audit; built as written here (AS-BUILT › "Close × plan gating").
+
+**Refusal contract (P269, P272).** Every plan refusal carries snake_case body fields beside its `reason` (`AppError.withFields`,
+`APP_ERROR_FIELD_KINDS`; the error handler drops a value of the wrong kind; never on a 5xx):
+
+| Reason | Status | Extra fields |
+| --- | --- | --- |
+| `plan_lacks_feature` | 403 | `feature` (the plan feature key), `upgrade_required: true` |
+| `channel_lacks_feature` · `permission_not_granted` · `feature_not_offered` | 422 · 409 · 422 | `feature` |
+| `plan_account_limit` | 409 | `limit` (`channel_accounts_max`), `used`, `upgrade_required: true` |
+| `seat_limit_reached` | 409 | `limit`, `used`, `upgrade_required: true` |
+| `organization_read_only` | 403 | `grace_ends_at` (when write access ended), `upgrade_required: true` |
+| `message_month_limit_reached` | 409 | none — the month's numbers are on the entitlements read |
+
+**Per-organization overrides (P270, P273).** Table `billing.organization_entitlement_overrides` (`ovr_…`): one live
+override per organization and key — a plan feature switch (boolean) or `message_month_limit` (≥ 0) /
+`channel_accounts_max` (1–100), optional `expires_at`, a `reason`. Merged inside `resolvePlanAccess` from the same one
+query (BL2), over whichever plan applies, strictly typed (BL12); never changes the state. Global admin only:
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| C1 | GET | `/billing/entitlement-overrides?organization_id=org_…` | One organization's overrides (`is_active` false once expired) | ROLE super_admin | |
+| C2 | POST | `/billing/entitlement-overrides` | Set one key (`organization_id`, `key`, `value`, `expires_at?`, `reason`); replaces the live one; audited `billing.entitlement_override.set` | ROLE super_admin | |
+| C3 | DELETE | `/billing/entitlement-overrides/{entitlement_override_id}` | Remove (soft delete) → 204; audited `billing.entitlement_override.remove`; `404 entitlement_override_not_found` | ROLE super_admin | |
+
+A set or remove that moves the features emits `subscription.plan_state_changed` (`upgraded` / `moved_down`, BL8).
+Errors: `400` (value type or bounds, unknown key, past `expires_at`), `403` (not a global admin), `404` (organization,
+override), `409 entitlement_override_conflict` (two sets of a new key racing).
+
+**One entitlements read (P271, P274).** `GET /billing/entitlements` (`subscription:read`, team and personal, no
+idempotency): `{ state, plan, features, limits: { direct_messages: { used, limit, resets_on }, channel_accounts: { used,
+limit }, seats: { used, limit } }, trial_ends_at, grace_ends_at, is_plan_choice_required, overrides: [{ key, expires_at }]
+}` — the one plan read (BL2, overrides merged), the app's usage through a port (8.10) and the member count; `limit`
+`null` = unlimited. Errors: 8.5.
+
 ---
 
 ### 8.A Plans — `billing/sub-domains/plan/` — final (rev 4, confirmed 2026-11-24)

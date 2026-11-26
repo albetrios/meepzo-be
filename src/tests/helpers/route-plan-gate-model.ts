@@ -190,6 +190,16 @@ export const ROUTE_PLAN_GATE_MODEL: RoutePlanGateModel = {
   'POST /api/v1/auth/webauthn/authenticate/options': { deliberatelyOpen: IDENTITY_OPEN },
   'POST /api/v1/auth/webauthn/authenticate/verify': { deliberatelyOpen: IDENTITY_OPEN },
   // ── billing (routes 102–107; BL10) ───────────────────────────────────────────────────────
+  // The super-admin entitlement overrides (P270): a global admin sets an organization's exception;
+  // no organization plan governs the admin, so no plan gate applies.
+  'DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id': {
+    deliberatelyOpen:
+      'global-admin route: sets an organization exception, no organization plan applies',
+  },
+  'POST /api/v1/billing/entitlement-overrides': {
+    deliberatelyOpen:
+      'global-admin route: sets an organization exception, no organization plan applies',
+  },
   'DELETE /api/v1/billing/payment-methods/:payment_method_id': { deliberatelyOpen: PAYING_OPEN },
   'POST /api/v1/billing/payment-methods/:payment_method_id/default': {
     deliberatelyOpen: PAYING_OPEN,

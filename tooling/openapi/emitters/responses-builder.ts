@@ -80,7 +80,7 @@ const errorResponseSchema = {
         reason: {
           type: 'string',
           description:
-            'Stable snake_case sub-code on select 4xx errors — the field to branch on, never `detail`. Every 403 for a permission the caller lacks carries `missing_permission` (the route gate and the service checks alike); others: `field_permission_required`, `mfa_required`, `organization_read_only` (an organization whose grace without a paid plan has ended), … (docs/reference/api/response-codes.md). Absent on 5xx.',
+            'Stable snake_case sub-code on select 4xx errors — the field to branch on, never `detail`. Every 403 for a permission the caller lacks carries `missing_permission` (the route gate and the service checks alike); others: `field_permission_required`, `mfa_required`, `organization_read_only` (an organization whose paid plan has ended — its grace or its cancelled period is over; Free never ends), … (docs/reference/api/response-codes.md). Absent on 5xx.',
         },
         tries_left: {
           type: 'integer',
@@ -91,6 +91,32 @@ const errorResponseSchema = {
           type: 'integer',
           description:
             'Seconds to wait before retrying — on the 429s that know the wait (`code_resend_too_soon`, `code_day_limit`), beside the `Retry-After` header. Absent otherwise.',
+        },
+        feature: {
+          type: 'string',
+          description:
+            "The plan feature key a feature refusal names (one of the plan `features.feature_switches` keys) — on `plan_lacks_feature` and the feature check's `channel_lacks_feature`, `permission_not_granted`, `feature_not_offered`. Absent otherwise.",
+        },
+        limit: {
+          type: 'integer',
+          description:
+            "The plan's limit a limit refusal hit — `plan_account_limit` (`channel_accounts_max`), `seat_limit_reached` (seats). Absent otherwise.",
+        },
+        used: {
+          type: 'integer',
+          description:
+            'How much of `limit` the organization uses before this write — beside `limit` on `plan_account_limit` and `seat_limit_reached`. Absent otherwise.',
+        },
+        grace_ends_at: {
+          type: ['string', 'null'],
+          format: 'date-time',
+          description:
+            "When write access ended — on `organization_read_only` (the dunning grace end or the cancelled plan's period end). Absent otherwise.",
+        },
+        upgrade_required: {
+          type: 'boolean',
+          description:
+            '`true` when a plan change is what lifts the refusal (`plan_lacks_feature`, `plan_account_limit`, `seat_limit_reached`, `organization_read_only`); pick the plan from `GET /billing/plans` by `feature` / `limit`. Absent otherwise.',
         },
         documentation_url: {
           type: 'string',

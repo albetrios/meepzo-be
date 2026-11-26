@@ -25,6 +25,8 @@ import type {
   SubscriptionUpdateData,
   StripeSubscriptionOrderingState,
 } from './subscription.types.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
+import { parseEntitlementOverrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 
 /** A joined plan's columns as one {@link PlanAccessPlan}, its features parsed; `null` when no row joined. */
 function toPlanAccessPlan(columns: {
@@ -34,6 +36,7 @@ function toPlanAccessPlan(columns: {
   price_monthly: string | null;
   price_yearly: string | null;
   features: unknown;
+  included_seats: number | null;
 }): PlanAccessPlan | null {
   if (
     columns.public_id === null ||
@@ -51,6 +54,7 @@ function toPlanAccessPlan(columns: {
     price_monthly: columns.price_monthly,
     price_yearly: columns.price_yearly,
     features: planFeaturesSchema.parse(columns.features),
+    included_seats: columns.included_seats,
   };
 }
 
@@ -322,12 +326,32 @@ export class SubscriptionRepository {
         plan_price_monthly: plans.price_monthly,
         plan_price_yearly: plans.price_yearly,
         plan_features: plans.features,
+        plan_included_seats: plans.included_seats,
         free_plan_public_id: freePlan.public_id,
         free_plan_name: freePlan.name,
         free_plan_is_active: freePlan.is_active,
         free_plan_price_monthly: freePlan.price_monthly,
         free_plan_price_yearly: freePlan.price_yearly,
         free_plan_features: freePlan.features,
+        free_plan_included_seats: freePlan.included_seats,
+        // P270: the organization's not-deleted overrides, in the same read (BL2) — expired ones too;
+        // `resolvePlanAccess` keeps those in force at its clock.
+        overrides: sql<unknown>`(
+          SELECT coalesce(
+            jsonb_agg(
+              jsonb_build_object(
+                'key', ${organization_entitlement_overrides.key},
+                'value', ${organization_entitlement_overrides.value},
+                'expires_at', ${organization_entitlement_overrides.expires_at}
+              )
+              ORDER BY ${organization_entitlement_overrides.key}
+            ),
+            '[]'::jsonb
+          )
+          FROM ${organization_entitlement_overrides}
+          WHERE ${organization_entitlement_overrides.organization_id} = ${organizations.id}
+            AND ${organization_entitlement_overrides.deleted_at} IS NULL
+        )`,
       })
       .from(organizations)
       .leftJoin(subscriptions, eq(subscriptions.organization_id, organizations.id))
@@ -365,6 +389,7 @@ export class SubscriptionRepository {
                 price_monthly: row.plan_price_monthly,
                 price_yearly: row.plan_price_yearly,
                 features: row.plan_features,
+                included_seats: row.plan_included_seats,
               }),
             },
       freePlan: toPlanAccessPlan({
@@ -374,7 +399,13 @@ export class SubscriptionRepository {
         price_monthly: row.free_plan_price_monthly,
         price_yearly: row.free_plan_price_yearly,
         features: row.free_plan_features,
+        included_seats: row.free_plan_included_seats,
       }),
+      overrides: parseEntitlementOverrides(
+        Array.isArray(row.overrides)
+          ? (row.overrides as { key: unknown; value: unknown; expires_at: unknown }[])
+          : [],
+      ),
     };
   }
 

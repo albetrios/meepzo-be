@@ -28,6 +28,8 @@ const access = (overrides: Partial<PlanAccess> = {}): PlanAccess => ({
   trialEndsAt: null,
   plan: { publicId: 'pln_creator', name: 'Creator' },
   features: CREATOR_PLAN_FEATURES,
+  seatLimit: null,
+  overrides: [],
   isPlanChoiceRequired: false,
   ...overrides,
 });

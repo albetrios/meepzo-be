@@ -32,14 +32,45 @@ export const ERROR_CODE_TO_SNAKE: Record<AppErrorCode, string> = {
 
 /**
  * The only extra fields an error body may carry beside `type`, `code`, `reason`, `detail` and
- * `errors[]` (AT3): `tries_left` (the wrong-code tries left on this code) and `retry_after_seconds`
- * (the wait of a `429`, beside the `Retry-After` header, so a browser app need not read headers).
- * A unit test pins this list; a new field is a contract change.
+ * `errors[]`, each with the JSON kind the error handler lets through (anything else is dropped):
+ *
+ * - AT3: `tries_left` (the wrong-code tries left on this code) and `retry_after_seconds` (the wait of
+ *   a `429`, beside the `Retry-After` header, so a browser app need not read headers);
+ * - the plan refusal contract (plan-gating close, P269): `feature` (the plan feature key a
+ *   `plan_lacks_feature` names), `limit` and `used` (`plan_account_limit`, `seat_limit_reached`),
+ *   `grace_ends_at` (`organization_read_only`: when write access ended, ISO 8601 or `null`) and
+ *   `upgrade_required` (`true` when a plan change is what lifts the refusal — the client picks the
+ *   plan from `GET /billing/plans` by `feature` / `limit`).
+ *
+ * A unit test pins this map; a new field is a contract change.
  */
-export const APP_ERROR_FIELD_NAMES = ['tries_left', 'retry_after_seconds'] as const;
+export const APP_ERROR_FIELD_KINDS = {
+  tries_left: 'integer',
+  retry_after_seconds: 'integer',
+  feature: 'string',
+  limit: 'integer',
+  used: 'integer',
+  grace_ends_at: 'timestamp_or_null',
+  upgrade_required: 'boolean',
+} as const;
 
-/** The extra error-body fields set with {@link AppError.withFields} — see {@link APP_ERROR_FIELD_NAMES}. */
-export type AppErrorFields = Partial<Record<(typeof APP_ERROR_FIELD_NAMES)[number], number>>;
+/** The names of {@link APP_ERROR_FIELD_KINDS}, in their order. */
+export const APP_ERROR_FIELD_NAMES = Object.keys(APP_ERROR_FIELD_KINDS) as ReadonlyArray<
+  keyof typeof APP_ERROR_FIELD_KINDS
+>;
+
+/** The JSON value each {@link APP_ERROR_FIELD_KINDS} kind carries. */
+interface AppErrorFieldValueByKind {
+  integer: number;
+  string: string;
+  timestamp_or_null: string | null;
+  boolean: boolean;
+}
+
+/** The extra error-body fields set with {@link AppError.withFields} — see {@link APP_ERROR_FIELD_KINDS}. */
+export type AppErrorFields = {
+  -readonly [Name in keyof typeof APP_ERROR_FIELD_KINDS]?: AppErrorFieldValueByKind[(typeof APP_ERROR_FIELD_KINDS)[Name]];
+};
 
 /**
  * Base class for every typed application error. Carries an HTTP status code,
@@ -74,8 +105,8 @@ export class AppError extends Error {
    */
   retryAfterSeconds?: number;
   /**
-   * Extra snake_case integers the error body carries as `error.<name>` (AT3) — only the names in
-   * {@link APP_ERROR_FIELD_NAMES}. Set via {@link AppError.withFields}; serialized on a 4xx only.
+   * Extra snake_case fields the error body carries as `error.<name>` (AT3, P269) — only the names
+   * and kinds in {@link APP_ERROR_FIELD_KINDS}. Set via {@link AppError.withFields}; serialized on a 4xx only.
    */
   fields?: AppErrorFields;
   /**
@@ -133,7 +164,7 @@ export class AppError extends Error {
   /**
    * Attaches extra body fields ({@link AppError.fields}) and returns `this` (fluent), e.g.
    * `throw new UnauthorizedError('errors:emailCodeWrong').withReason('code_wrong').withFields({ tries_left: 3 })`.
-   * Merges with fields set before; the names are limited to {@link APP_ERROR_FIELD_NAMES} by the type.
+   * Merges with fields set before; the names and value kinds are limited to {@link APP_ERROR_FIELD_KINDS} by the type.
    */
   withFields(fields: AppErrorFields): this {
     this.fields = { ...this.fields, ...fields };

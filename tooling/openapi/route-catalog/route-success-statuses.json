@@ -201,5 +201,9 @@
   "PATCH /api/v1/app/broadcasts/:broadcast_id": 200,
   "DELETE /api/v1/app/broadcasts/:broadcast_id": 204,
   "POST /api/v1/app/broadcasts/:broadcast_id/send": 200,
-  "POST /api/v1/app/broadcasts/:broadcast_id/cancel": 200
+  "POST /api/v1/app/broadcasts/:broadcast_id/cancel": 200,
+  "GET /api/v1/billing/entitlement-overrides": 200,
+  "POST /api/v1/billing/entitlement-overrides": 200,
+  "DELETE /api/v1/billing/entitlement-overrides/:entitlement_override_id": 204,
+  "GET /api/v1/billing/entitlements": 200
 }

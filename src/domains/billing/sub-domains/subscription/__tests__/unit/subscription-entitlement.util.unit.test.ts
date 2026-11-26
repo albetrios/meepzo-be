@@ -29,6 +29,7 @@ const FREE_PLAN: PlanAccessPlan = {
   price_monthly: '0.00',
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
+  included_seats: null,
 };
 const CREATOR_PLAN: PlanAccessPlan = {
   public_id: 'pln_creator',
@@ -37,6 +38,7 @@ const CREATOR_PLAN: PlanAccessPlan = {
   price_monthly: '29.00',
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
+  included_seats: null,
 };
 /** A switched-off old row: paid, but its features are Free's (P80). */
 const GROWTH_PLAN: PlanAccessPlan = {
@@ -46,6 +48,7 @@ const GROWTH_PLAN: PlanAccessPlan = {
   price_monthly: '30.00',
   price_yearly: '300.00',
   features: FREE_PLAN_FEATURES,
+  included_seats: null,
 };
 
 const ON_FREE = { plan: { publicId: 'pln_free', name: 'Free' }, features: FREE_PLAN_FEATURES };
@@ -65,6 +68,7 @@ function organizationSubject(
     organization: { type: options.type ?? 'TEAM' },
     subscription: options.subscription ?? null,
     freePlan: options.freePlan === undefined ? FREE_PLAN : options.freePlan,
+    overrides: [],
   };
 }
 
@@ -104,6 +108,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
     graceEndsAt: null,
     trialEndsAt,
     ...entitlement,
+    seatLimit: null,
+    overrides: [],
     isPlanChoiceRequired: false,
   });
 
@@ -166,6 +172,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         graceEndsAt: daysAfter(daysAgo(4), LAPSE_GRACE_DAYS),
         trialEndsAt: null,
         ...ON_CREATOR,
+        seatLimit: null,
+        overrides: [],
         isPlanChoiceRequired: false,
       });
     }
@@ -180,6 +188,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAfter(daysAgo(30), LAPSE_GRACE_DAYS),
       trialEndsAt: null,
       ...ON_FREE,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -198,6 +208,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAgo(1),
       trialEndsAt: null,
       ...ON_FREE,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -220,6 +232,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         plan: { publicId: 'pln_growth', name: 'Growth' },
         features: FREE_PLAN_FEATURES,
       }),
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: true,
     });
   });
@@ -248,6 +262,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });
@@ -270,6 +286,8 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      seatLimit: null,
+      overrides: [],
       isPlanChoiceRequired: false,
     });
   });

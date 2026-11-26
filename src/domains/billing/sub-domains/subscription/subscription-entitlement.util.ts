@@ -4,6 +4,7 @@ import { isPaidPlan } from '@/domains/billing/sub-domains/plan/plan.service.js';
 import { isPersonalOrganization } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { INACTIVE_SUBSCRIPTION_STATUSES } from './subscription.repository.js';
 import { ACTIVE_PLAN_ACCESS, PLAN_ACCESS_STATE } from './subscription.constants.js';
+import { applyEntitlementOverrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 import type { PlanAccess, PlanAccessPlan, PlanAccessSubject } from './subscription.types.js';
 
 /**
@@ -79,10 +80,16 @@ export function requiresFreeSeatCeiling({
   );
 }
 
-function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' | 'features'> {
+function planEntitlement(
+  plan: PlanAccessPlan | null,
+): Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'> {
   return plan
-    ? { plan: { publicId: plan.public_id, name: plan.name }, features: plan.features }
-    : { plan: null, features: null };
+    ? {
+        plan: { publicId: plan.public_id, name: plan.name },
+        features: plan.features,
+        seatLimit: plan.included_seats,
+      }
+    : { plan: null, features: null, seatLimit: null };
 }
 
 /**
@@ -101,6 +108,9 @@ function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' |
  *   plan row carries Free's features itself (P80), so it needs no case here — only
  *   `isPlanChoiceRequired` names it (BL24: a live row on a switched-off plan). A missing plan row
  *   reads as Free.
+ * - **Overrides (P270):** the organization's overrides in force at `now` are laid over the decided
+ *   plan's features (`applyEntitlementOverrides`) — whichever plan applies, Free included; they
+ *   never change `state` or its dates. `overrides` lists them.
  * - **`isReadOnlyEnforced` false** (`LAPSED_PLAN_READ_ONLY_ENABLED` off): the state is always `active`
  *   with no grace date; the plan and features are decided as above.
  * - **Failure modes:** none — pure. `plan` and `features` are `null` only when the catalog has no
@@ -111,8 +121,16 @@ export function resolvePlanAccess(options: {
   now: Date;
   isReadOnlyEnforced: boolean;
 }): PlanAccess {
+  const entitlement = resolvePlanEntitlement(options);
+  const { features, active } = applyEntitlementOverrides({
+    features: entitlement.features,
+    overrides: options.subject?.overrides ?? [],
+    now: options.now,
+  });
   return {
-    ...resolvePlanEntitlement(options),
+    ...entitlement,
+    features,
+    overrides: active,
     isPlanChoiceRequired: isPlanChoiceRequired(options.subject),
   };
 }
@@ -138,16 +156,16 @@ function resolvePlanEntitlement({
   subject: PlanAccessSubject | null;
   now: Date;
   isReadOnlyEnforced: boolean;
-}): Omit<PlanAccess, 'isPlanChoiceRequired'> {
+}): Omit<PlanAccess, 'isPlanChoiceRequired' | 'overrides'> {
   if (!subject) return ACTIVE_PLAN_ACCESS;
   const onFree = planEntitlement(subject.freePlan);
   const active = ({
     entitlement,
     trialEndsAt = null,
   }: {
-    entitlement: Pick<PlanAccess, 'plan' | 'features'>;
+    entitlement: Pick<PlanAccess, 'plan' | 'features' | 'seatLimit'>;
     trialEndsAt?: Date | null;
-  }): Omit<PlanAccess, 'isPlanChoiceRequired'> => ({
+  }): Omit<PlanAccess, 'isPlanChoiceRequired' | 'overrides'> => ({
     state: PLAN_ACCESS_STATE.ACTIVE,
     graceEndsAt: null,
     trialEndsAt,
@@ -161,7 +179,7 @@ function resolvePlanEntitlement({
   if (!(subscriptionPlan && isPaidPlan({ plan: subscriptionPlan })))
     return active({ entitlement: onFree });
   const onPlan = planEntitlement(subscriptionPlan);
-  const ended = (graceEndsAt: Date): Omit<PlanAccess, 'isPlanChoiceRequired'> =>
+  const ended = (graceEndsAt: Date): Omit<PlanAccess, 'isPlanChoiceRequired' | 'overrides'> =>
     isReadOnlyEnforced
       ? { state: PLAN_ACCESS_STATE.READ_ONLY, graceEndsAt, trialEndsAt: null, ...onFree }
       : active({ entitlement: onFree });

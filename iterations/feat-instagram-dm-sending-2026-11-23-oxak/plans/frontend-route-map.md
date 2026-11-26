@@ -97,13 +97,21 @@ The Viewer reads (`organization:read`, `channel-account:read`, `instagram-accoun
   `403 plan_lacks_feature` (was `plan_feature_required`; offer the upgrade), `409 permission_not_granted` (reconnect
   to grant it — #40), `422 channel_lacks_feature`, `422 feature_not_offered` (Meta has not opened it yet — hide or
   grey it). Go live lists the same reasons as `errors[]` items instead (1.5).
+- **Entitlements in one read** (`GET /billing/entitlements`, `subscription:read`, team and personal — [P271](decisions.md)):
+  `state`, `plan`, `features` (with the organization's overrides laid over them), `limits.direct_messages`
+  (`used`, `limit`, `resets_on`), `limits.channel_accounts` (`used`, `limit`), `limits.seats` (`used`, `limit` — `null`
+  unlimited), `trial_ends_at`, `grace_ends_at`, `is_plan_choice_required`, `overrides` (`key`, `expires_at`). Use it
+  for the billing page and the meters; `plan_access` on the context stays for gating.
+- **Per-organization overrides** ([P270](decisions.md)): a platform admin may give one organization a feature or a
+  higher limit (`/billing/entitlement-overrides`, platform admin only — not a customer screen). Nothing to do on the
+  customer side: they arrive inside `features` everywhere.
 
 ### 1.5 Errors
 
 | What | Rule |
 | --- | --- |
 | `errors[].reason` | A `400` on content and **`409 automation_not_ready`** (go live, #32) carry `errors[]` items `{ field, reason, message }`: `field` is the step path (`steps.hello.versions.0.buttons`, `trigger_type`, `features.email_ask`), `reason` one of `missing`, `count`, `text_invalid`, `next_button_missing`, `account_not_connected`, `month_limit_reached`, `catch_all_taken`, `starter_questions_over_limit`, `ref_code_taken`, `file_not_usable` or the four feature-check reasons. Show each beside its step. `422 broadcast_incomplete` (#75) works the same way |
-| Extra fields | Some 4xx answers carry `tries_left` (a wrong email or 2FA code) and `retry_after_seconds` (with `Retry-After`: resend too soon, day limit, 2FA lock, confirm link too soon) next to `reason` |
+| Extra fields | Some 4xx answers carry `tries_left` (a wrong email or 2FA code) and `retry_after_seconds` (with `Retry-After`: resend too soon, day limit, 2FA lock, confirm link too soon) next to `reason`. Plan refusals ([P269](decisions.md)): `plan_lacks_feature` carries `feature` (the plan key) and `upgrade_required: true`; `plan_account_limit` and `seat_limit_reached` carry `limit`, `used`, `upgrade_required`; `organization_read_only` carries `grace_ends_at` and `upgrade_required` — open the plan chooser on `upgrade_required`, never parse `detail` |
 | Reconnect | `404 instagram_reconnect_required` on the pickers (#13–#15, #41): the account or its connection is broken — show the reconnect card (#40) |
 | Renamed | `instagram_feature_not_offered` → `feature_not_offered`; `plan_feature_required` → `plan_lacks_feature`; the launch's Instagram Login reasons (`instagram_code_invalid`, `instagram_account_not_professional`, `instagram_scopes_missing`, `organization_already_has_instagram_account`) are gone |
 | Warnings | Go live may answer `200` with `meta.warnings` (worth knowing, not blocking) |
@@ -467,7 +475,7 @@ launch's unchanged routes, and the four disabled password routes of 1.7).
 
 <!-- GENERATED:START -->
 
-203 routes, from `docs/routes.txt`.
+207 routes, from `docs/routes.txt`.
 Paths drop `/api/v1`; the health and operations routes in the last module sit outside it.
 **Gate**: a permission code, `signed in`, `public`, `platform admin` or a token. **Idem** `req`:
 `X-Idempotency-Key` required. **Team** `team`: team organizations only (`422` on a personal one).
@@ -481,7 +489,7 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 | [Organization and team](#organization-and-team) | 44 |
 | [Files](#files) | 4 |
 | [Notifications and webhooks](#notifications-and-webhooks) | 14 |
-| [Subscription billing (the platform)](#subscription-billing-the-platform) | 15 |
+| [Subscription billing (the platform)](#subscription-billing-the-platform) | 19 |
 | [Platform administration and operations](#platform-administration-and-operations) | 14 |
 
 ### App (the product)
@@ -687,6 +695,10 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 
 | Method | Path | Gate | Idem | Team | # | What it does |
 | --- | --- | --- | --- | --- | --- | --- |
+| GET | `/billing/entitlement-overrides` | platform admin |  |  |  | List an organization entitlement overrides (admin) |
+| POST | `/billing/entitlement-overrides` | platform admin |  |  |  | Set an organization entitlement override (admin) |
+| DELETE | `/billing/entitlement-overrides/:entitlement_override_id` | platform admin |  |  |  | Remove an organization entitlement override (admin) |
+| GET | `/billing/entitlements` | `subscription:read` |  |  |  | Get the organization entitlements |
 | GET | `/billing/invoices` | `subscription:read` |  |  |  | List billing invoices |
 | GET | `/billing/payment-methods` | `subscription:read` |  |  | 8.104 | List payment methods |
 | DELETE | `/billing/payment-methods/:payment_method_id` | `subscription:manage` |  | team | 8.105 | Remove payment method |

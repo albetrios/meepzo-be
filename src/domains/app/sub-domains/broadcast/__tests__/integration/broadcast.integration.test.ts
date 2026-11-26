@@ -723,6 +723,7 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       for (const refused of [await create(), await send(draft.id)]) {
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');
+        expect(errorOf(refused)).toMatchObject({ feature: 'broadcasts', upgrade_required: true });
       }
       const list = await injectAuthenticated(app, {
         url: `${BROADCASTS_PATH}?channel_account_id=${account.public_id}`,
@@ -757,6 +758,8 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       const refused = await send(draft.id);
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');
+      expect(errorOf(refused)).toMatchObject({ upgrade_required: true });
+      expect(typeof (errorOf(refused) as { grace_ends_at?: unknown }).grace_ends_at).toBe('string');
     });
   });
 

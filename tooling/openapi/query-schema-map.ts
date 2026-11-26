@@ -28,6 +28,7 @@ import { listBroadcastsQueryDto } from '@/domains/app/sub-domains/broadcast/broa
 import { listSegmentsQueryDto } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.dto.js';
 import { OauthCallbackQueryDto, OauthStartQueryDto } from '@/domains/auth/auth.dto.js';
 import { listInvoicesQueryDto } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
+import { listEntitlementOverridesQueryDto } from '@/domains/billing/sub-domains/entitlement/entitlement.dto.js';
 import { listNotificationsQueryDto } from '@/domains/notify/sub-domains/notification/notification.dto.js';
 import { listWebhooksQueryDto } from '@/domains/notify/sub-domains/webhook/webhook.dto.js';
 import {
@@ -49,6 +50,7 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/audit/logs': ListAuditLogsQueryDto,
   'GET /api/v1/users': ListUsersDto,
   'GET /api/v1/billing/invoices': listInvoicesQueryDto,
+  'GET /api/v1/billing/entitlement-overrides': listEntitlementOverridesQueryDto,
   'GET /api/v1/users/me/organizations': listOrganizationChooserQueryDto,
   'GET /api/v1/users/me/membership-invitations': listMyMembershipInvitationsQueryDto,
   'GET /api/v1/tenancy/organization/audit-logs': ListAuditLogsQueryDto,

@@ -133,7 +133,9 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
           channelAccountId: automation.channel_account_id,
           feature: 'past_comments',
         });
-        if (!check.isAllowed) throw channelFeatureRefusalError(check.reason);
+        if (!check.isAllowed) {
+          throw channelFeatureRefusalError({ reason: check.reason, feature: 'past_comments' });
+        }
         if (automation.status !== 'live') {
           throw new ConflictError('errors:automationNotLive').withReason('automation_not_live');
         }

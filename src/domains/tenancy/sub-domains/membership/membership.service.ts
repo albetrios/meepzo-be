@@ -604,7 +604,9 @@ export class MembershipService {
       throw new ConflictError('errors:seatLimitReached', {
         used: seatsUsed,
         limit: seatCeiling,
-      }).withReason('seat_limit_reached');
+      })
+        .withReason('seat_limit_reached')
+        .withFields({ limit: seatCeiling, used: seatsUsed, upgrade_required: true });
     }
   }
 

@@ -477,6 +477,26 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
       expect(paused.statusCode).toBe(200);
       expect((await remove(live.public_id)).statusCode).toBe(204);
     });
+
+    it('checks the plan before the permission on go-live (change-plan-gates R2, P4)', async () => {
+      const draft = await create({
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+      });
+      const draftId = dataOf<{ id: string }>(draft).id;
+
+      // Writable: a viewer is refused by the permission.
+      const writable = await goLive(draftId, team.viewerToken);
+      expect(writable.statusCode).toBe(403);
+      expect(errorOf(writable).reason).not.toBe('organization_read_only');
+
+      await endPaidPlanWithoutPaying(team.organization.id);
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
+
+      // Read-only: the plan answers first, before the permission.
+      const readOnly = await goLive(draftId, team.viewerToken);
+      expect(readOnly.statusCode).toBe(403);
+      expect(errorOf(readOnly).reason).toBe('organization_read_only');
+    });
   });
 
   describe('route 30 — save content (AU12, AC-6.6)', () => {

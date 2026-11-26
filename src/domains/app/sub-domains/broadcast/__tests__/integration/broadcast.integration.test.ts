@@ -761,6 +761,44 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       expect(errorOf(refused)).toMatchObject({ upgrade_required: true });
       expect(typeof (errorOf(refused) as { grace_ends_at?: unknown }).grace_ends_at).toBe('string');
     });
+
+    it('checks the plan first, then the permission, then the idempotency key (change-plan-gates R2, P4)', async () => {
+      await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const draft = await createCompleteDraft();
+      const sendPath = broadcastPath(draft.id, 'send');
+
+      // Writable: the permission is checked before the key, so a viewer without a key gets the
+      // permission 403, not the 422 for a missing key.
+      const viewerWithoutKey = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        token: team.viewerToken,
+        idempotencyKey: null,
+      });
+      expect(viewerWithoutKey.statusCode).toBe(403);
+      expect(errorOf(viewerWithoutKey).reason).not.toBe('organization_read_only');
+
+      await operatorQuery`DELETE FROM billing.subscriptions WHERE organization_id = ${team.organization.id}`;
+      await endPaidPlanWithoutPaying(team.organization.id);
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
+
+      // Read-only: the plan is checked before the permission …
+      const viewer = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        token: team.viewerToken,
+      });
+      expect(viewer.statusCode).toBe(403);
+      expect(errorOf(viewer).reason).toBe('organization_read_only');
+      // … and before the key: no key still answers the plan's 403, not the 422.
+      const ownerWithoutKey = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        idempotencyKey: null,
+      });
+      expect(ownerWithoutKey.statusCode).toBe(403);
+      expect(errorOf(ownerWithoutKey).reason).toBe('organization_read_only');
+    });
   });
 
   it('is team-only: a personal organization reads 404 team_organization_required and writes 422', async () => {

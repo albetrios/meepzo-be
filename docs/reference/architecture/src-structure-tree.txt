@@ -1091,7 +1091,6 @@ src/
     │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-plan-guard.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-refusal.util.unit.test.ts
-    │   │   │   │   │   ├── entitlement-registry.util.unit.test.ts
     │   │   │   │   │   ├── entitlement-snapshot.util.unit.test.ts
     │   │   │   │   │   ├── entitlement.constants.unit.test.ts
     │   │   │   │   │   ├── entitlement.controller.unit.test.ts
@@ -1102,7 +1101,6 @@ src/
     │   │   │   ├── entitlement-override.util.ts
     │   │   │   ├── entitlement-plan-guard.util.ts
     │   │   │   ├── entitlement-refusal.util.ts
-    │   │   │   ├── entitlement-registry.util.ts
     │   │   │   ├── entitlement-snapshot.util.ts
     │   │   │   ├── entitlement.constants.ts
     │   │   │   ├── entitlement.controller.ts
@@ -1120,6 +1118,7 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── plan-catalog-migration.unit.test.ts
     │   │   │   │   │   ├── plan-features.unit.test.ts
+    │   │   │   │   │   ├── plan-features.util.unit.test.ts
     │   │   │   │   │   ├── plan-routes-rate-limit.policy.unit.test.ts
     │   │   │   │   │   ├── plan.controller.unit.test.ts
     │   │   │   │   │   ├── plan.repository.db.unit.test.ts
@@ -1131,6 +1130,7 @@ src/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── plan.reference.seed.ts
     │   │   │   ├── plan-catalog-memo.ts
+    │   │   │   ├── plan-features.util.ts
     │   │   │   ├── plan.constants.ts
     │   │   │   ├── plan.controller.ts
     │   │   │   ├── plan.dto.ts

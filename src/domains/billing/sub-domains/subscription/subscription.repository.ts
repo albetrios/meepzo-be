@@ -16,7 +16,7 @@ import { capListWithWarning } from '@/shared/utils/infrastructure/list-cap.util.
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/entitlement/entitlement-registry.util.js';
+import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/plan/plan-features.util.js';
 import type {
   PlanAccessPlan,
   PlanAccessSubject,
@@ -30,7 +30,7 @@ import { parseEntitlementOverrides } from '@/domains/billing/sub-domains/entitle
 
 /**
  * A joined plan's columns as one {@link PlanAccessPlan}, its features parsed (a switch the row lacks
- * reads its registry default and is named in `defaulted_keys`, change-plan-gates P19); `null` when
+ * reads the plan's switch default and is named in `defaulted_keys`, change-plan-gates P19); `null` when
  * no row joined.
  */
 function toPlanAccessPlan(columns: {
@@ -294,7 +294,7 @@ export class SubscriptionRepository {
    *   active plan priced zero on both cycles, lowest id — a scalar subquery over the small catalog),
    *   ordered live-first then newest, `LIMIT 1`. An organization has one live row at most
    *   (`idx_subscriptions_org`) and a short history. Both plans' features are parsed with
-   *   `planFeaturesSchema` (BL12) — a malformed row throws — after the registry default fills a
+   *   `planFeaturesSchema` (BL12) — a malformed row throws — after the plan's switch default fills a
    *   switch the row lacks (`parsePlanFeaturesWithDefaults`, change-plan-gates P19).
    * - **Failure modes:** returns `null` when the organization is not visible in the current context
    *   (RLS) or does not exist; `subscription` is `null` when it never had one; `freePlan` is `null`

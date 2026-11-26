@@ -2,7 +2,7 @@ import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
-import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/entitlement/entitlement-registry.util.js';
+import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/plan/plan-features.util.js';
 
 /**
  * Parses a plan row's `features` with `planFeaturesSchema` (routes-final BL12, P83): a row with an
@@ -11,7 +11,7 @@ import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/ent
  * @remarks
  * Every `billing.plans` read in the repository passes through it, so no caller ever meets an untyped
  * feature map. The database's `chk_plans_features` refuses a bad row first; this is the read half.
- * A feature switch the row lacks reads its entitlement registry default, off
+ * A feature switch the row lacks reads the plan's switch default, off
  * (`parsePlanFeaturesWithDefaults`, change-plan-gates P19) — the one default; nothing else is filled.
  */
 export function parsePlanRow<Row extends { features: unknown }>(

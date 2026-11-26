@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
-import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/entitlement/entitlement-registry.util.js';
+import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/plan/plan-features.util.js';
 import { parsePlanRow } from '@/domains/billing/sub-domains/plan/plan.repository.js';
 import {
   CREATOR_PLAN_FEATURES,
   FREE_PLAN_FEATURES,
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 
-/** The registry default on a plan row's read (change-plan-gates EN2, P19, P36). */
+/** The plan's switch default on a plan row's read (change-plan-gates EN2, P19, P36). */
 describe('parsePlanFeaturesWithDefaults (P19)', () => {
   it('parses a row that carries every switch exactly as before, nothing defaulted', () => {
     expect(parsePlanFeaturesWithDefaults(CREATOR_PLAN_FEATURES)).toEqual({
@@ -16,7 +16,7 @@ describe('parsePlanFeaturesWithDefaults (P19)', () => {
     });
   });
 
-  it('fills each switch the row lacks with its registry default, off, and names it', () => {
+  it('fills each switch the row lacks with the switch default, off, and names it', () => {
     const {
       mark_seen: _markSeen,
       broadcasts: _broadcasts,
@@ -29,7 +29,7 @@ describe('parsePlanFeaturesWithDefaults (P19)', () => {
     expect(parsed.features.feature_switches.mark_seen).toBe(false);
     expect(parsed.features.feature_switches.broadcasts).toBe(false);
     expect(parsed.features.feature_switches.segments).toBe(true);
-    // In registry order.
+    // In PLAN_FEATURE_KEYS order (the registry's switch order).
     expect(parsed.defaultedKeys).toEqual(['broadcasts', 'mark_seen']);
   });
 

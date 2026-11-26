@@ -92,7 +92,12 @@ export function declaresReadOnlyPlanGate(planGate: PlanGateDeclaration | undefin
  * - **Algorithm:** reads the route's declaration ({@link declaresReadOnlyPlanGate}); on a match,
  *   prepends the guard to the route's existing `preHandler` hooks. Prepending keeps the order
  *   authenticate (`onRequest`) → plan guard → the route's own permission check → the idempotency
- *   claim, whatever order the `onRoute` hooks run in (the idempotency plugin appends its claim).
+ *   claim → the per-route rate limiter, whatever order the `onRoute` hooks run in. The two after
+ *   the permission check are appended by their own `onRoute` hooks, in middleware registration
+ *   order (`src/shared/middlewares/index.ts`): the idempotency plugin appends its claim, then
+ *   `@fastify/rate-limit` (registered later) appends a `preHandler` preset's limiter to the end of
+ *   the list. A preset on the default `onRequest` hook runs after authenticate instead, and the
+ *   global per-IP limit is an app-level `onRequest` hook ahead of both.
  * - **Failure modes:** none — a route without the declaration is left as it is.
  * - **Side effects:** rewrites the matching route's `preHandler` option before Fastify builds it.
  * - **Notes:** registered once, in `src/routes.ts`, after the domain containers and before the

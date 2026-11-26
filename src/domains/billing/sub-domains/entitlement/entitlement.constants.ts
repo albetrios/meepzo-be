@@ -1,5 +1,6 @@
 import {
   PLAN_FEATURE_KEYS,
+  PLAN_FEATURE_SWITCH_DEFAULT,
   type PlanFeatureKey,
 } from '@/domains/billing/sub-domains/plan/plan.constants.js';
 
@@ -33,14 +34,15 @@ export interface EntitlementRegistryEntry<Key extends string = string> {
 
 /**
  * The plan feature switches as registry entries (EN1, P21) — built from the plan's own
- * `PLAN_FEATURE_KEYS`, never a copy of the list: each is off by default and overridable.
+ * `PLAN_FEATURE_KEYS`, never a copy of the list: each is overridable and defaults to the plan's own
+ * `PLAN_FEATURE_SWITCH_DEFAULT` (off), the value the plan read fills.
  */
 const ENTITLEMENT_SWITCH_ENTRIES: ReadonlyArray<EntitlementRegistryEntry<PlanFeatureKey>> =
   PLAN_FEATURE_KEYS.map((key) => ({
     key,
     kind: 'switch',
     product: 'instagram',
-    default: false,
+    default: PLAN_FEATURE_SWITCH_DEFAULT,
     overridable: true,
   }));
 
@@ -97,8 +99,9 @@ export type EntitlementKey = EntitlementSwitchKey | EntitlementLimitKey;
  *
  * @remarks
  * The one list the module answers plan questions from: `resolve` names a source per key from it,
- * the registry default fills a switch a plan row lacks (`parsePlanFeaturesWithDefaults`), and the
- * override key lists below are derived from its `overridable` entries.
+ * the plan's switch default fills a switch a plan row lacks (`parsePlanFeaturesWithDefaults` in
+ * `plan/plan-features.util.ts`), and the override key lists below are derived from its
+ * `overridable` entries.
  */
 export const ENTITLEMENT_REGISTRY: ReadonlyArray<EntitlementRegistryEntry<EntitlementKey>> = [
   ...ENTITLEMENT_SWITCH_ENTRIES,

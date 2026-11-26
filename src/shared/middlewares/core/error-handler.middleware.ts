@@ -116,6 +116,16 @@ function isPlanRoomField(value: unknown): boolean {
   );
 }
 
+/** The three keys of a plan room checked by {@link isPlanRoomField}, nothing else. */
+function copyPlanRoom(value: unknown): Record<string, unknown> {
+  const room = value as Record<string, unknown>;
+  return {
+    accounts_max: room.accounts_max,
+    accounts_used: room.accounts_used,
+    accounts_free: room.accounts_free,
+  };
+}
+
 /** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_KINDS}) whose value is of their kind. */
 function pickAppErrorFields(fields: AppErrorFields | undefined): AppErrorFields {
   const picked: Record<string, unknown> = {};
@@ -123,7 +133,9 @@ function pickAppErrorFields(fields: AppErrorFields | undefined): AppErrorFields 
   for (const name of APP_ERROR_FIELD_NAMES) {
     if (!Object.hasOwn(fields, name)) continue;
     const value = fields[name];
-    if (isAppErrorFieldKind({ kind: APP_ERROR_FIELD_KINDS[name], value })) picked[name] = value;
+    if (!isAppErrorFieldKind({ kind: APP_ERROR_FIELD_KINDS[name], value })) continue;
+    // A plan room is rebuilt from its three checked keys, so no other key ever reaches a client.
+    picked[name] = APP_ERROR_FIELD_KINDS[name] === 'plan_room' ? copyPlanRoom(value) : value;
   }
   return picked as AppErrorFields;
 }

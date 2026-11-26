@@ -209,9 +209,13 @@ async function readTarget({
         Date.now() - CHANNEL_CONNECTION_UNPICKED_KEEP_DAYS * MILLISECONDS_PER_DAY,
       );
       if (connection.connected_at < unpickedBefore) {
-        const isRevoked = await createWorkerChannelConnectionRepository(
-          databaseHandle,
-        ).revokeUnpicked({ ...key, connectedBefore: unpickedBefore });
+        const connectionRepository = createWorkerChannelConnectionRepository(databaseHandle);
+        // The pick's organization lock first, so a pick in flight commits before the guarded revoke.
+        await connectionRepository.lockOrganizationForAccountLimit(connection.organization_id);
+        const isRevoked = await connectionRepository.revokeUnpicked({
+          ...key,
+          connectedBefore: unpickedBefore,
+        });
         if (isRevoked) {
           await tokenRepository.deleteByConnection(key);
           return { outcome: 'revoked_unpicked' as const };

@@ -671,6 +671,25 @@ describe('Channel connection routes', () => {
       nock.cleanAll();
     });
 
+    it('replays a repeated cancel under its key, and refuses a cancel without a key (CN1, idempotency)', async () => {
+      const state = await start();
+      const first = await cancel(state);
+      const again = await cancel(state);
+      expect(again.statusCode, again.body).toBe(200);
+      expect(dataOf<{ outcome: string }>(again)).toEqual({ outcome: 'cancelled' });
+      expect(again.headers['x-idempotency-replay']).toBeDefined();
+      expect(dataOf(again)).toEqual(dataOf(first));
+
+      const otherState = await start();
+      const keyless = await injectAuthenticated(app, {
+        method: 'POST',
+        url: channelConnectCallbackPath(),
+        token: team.ownerToken,
+        payload: { state: otherState, error: 'access_denied' },
+      });
+      expect(keyless.statusCode).toBe(422);
+    });
+
     it('refuses a body with both a code and a cancel (CN1)', async () => {
       const state = await start();
       const response = await injectAuthenticated(app, {
@@ -788,6 +807,39 @@ describe('Channel connection routes', () => {
       expect(connection?.status).toBe('error');
       const again = await sharedAssets(channelConnectionPublicId);
       expect(reasonOf(again)).toBe('channel_connection_not_connected');
+    });
+
+    it('refuses a pick whose connection the unpicked clean-up revoked while it read Meta (CN9 race)', async () => {
+      const account = nextAccount();
+      const state = await start();
+      mockMetaLogin({ clientBusinessId: nextClientBusinessId(), assignedAccounts: [account] });
+      const connected = await callback({ state });
+      expect(connected.statusCode, connected.body).toBe(200);
+      const channelConnectionPublicId = dataOf<{ channel_connection: { id: string } }>(connected)
+        .channel_connection.id;
+      // The pick's Meta re-read: meanwhile the token check revokes the unpicked connection.
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(async () => {
+          await operatorQuery`
+            UPDATE app.channel_connections
+            SET status = 'revoked', status_changed_at = now(), disconnected_at = now()
+            WHERE public_id = ${channelConnectionPublicId}`;
+          return [200, { data: [account] }];
+        });
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/${account.id}`)
+        .query(true)
+        .reply(200, { id: account.id, username: account.username });
+
+      const refused = await pick({ channelConnectionPublicId, providerAccountIds: [account.id] });
+
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(reasonOf(refused)).toBe('channel_connection_not_connected');
+      const accounts = await operatorQuery<Array<{ id: string }>>`
+        SELECT id::text FROM app.channel_accounts WHERE organization_id = ${team.organization.id}`;
+      expect(accounts).toHaveLength(0);
     });
 
     it('answers the connect options for an owner, a viewer and an unconfigured Meta (CN8, AC-1.8)', async () => {

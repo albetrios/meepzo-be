@@ -1239,6 +1239,15 @@ export class ChannelConnectionService {
       scope,
       callback: async () => {
         await this.connectionRepository.lockOrganizationForAccountLimit(organizationId);
+        // Under the lock the token check's unpicked clean-up (feat-meta-connect-flow CN9) takes too:
+        // a connection it revoked meanwhile is refused here, never given an account.
+        const [current] = await this.connectionRepository.findByIds({
+          organizationId,
+          channelConnectionIds: [connection.id],
+        });
+        if (current?.status !== CHANNEL_CONNECTION_STATUS.CONNECTED) {
+          throw channelConnectionNotConnectedError();
+        }
         const existing = await this.accountPort.findAccountsByProviderIds({
           scope,
           organizationId,

@@ -186,6 +186,24 @@ describe('Instagram message-access check (route 154)', () => {
     expect(nock.isDone()).toBe(true);
   });
 
+  it('serves a burst of checks with one Meta call and one stop (one check per account at a time)', async () => {
+    const account = await connectOne();
+    probe(account.instagramUserId).delay(200).reply(403, graphError(200));
+
+    const answers = await Promise.all([check(account.id), check(account.id), check(account.id)]);
+
+    for (const answer of answers) {
+      expect(answer.statusCode, answer.body).toBe(200);
+      expect(dataOf(answer).status).toBe('off');
+    }
+    expect(answers.filter((answer) => dataOf(answer).is_from_meta)).toHaveLength(1);
+    expect(nock.isDone()).toBe(true);
+    const stops = await operatorQuery<Array<{ id: string }>>`
+      SELECT id::text FROM app.instagram_send_stops
+      WHERE channel_account_id = ${account.internalId} AND reason = 'access_off'`;
+    expect(stops).toHaveLength(1);
+  });
+
   it('stores unknown and leaves the lanes as they are', async () => {
     const account = await connectOne();
     probe(account.instagramUserId).reply(400, graphError(100));

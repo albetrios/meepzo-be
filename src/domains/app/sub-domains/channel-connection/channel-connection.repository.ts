@@ -242,9 +242,10 @@ export class ChannelConnectionRepository {
   /**
    * The token check's clean-up (feat-meta-connect-flow CN9): `revoked` like {@link revoke}, only
    * while the connection is `connected`, its last login is older than `connectedBefore` and it has
-   * no account that is not revoked — checked in the same statement, so a pick racing the clean-up
-   * either lands first (nothing revoked) or finds the connection revoked. Returns whether it was
-   * revoked.
+   * no account that is not revoked. The caller holds {@link lockOrganizationForAccountLimit} first —
+   * the lock every pick commits under — so this statement's snapshot sees any pick that committed,
+   * and a pick waiting on the lock re-reads the connection and finds it revoked. Returns whether it
+   * was revoked.
    */
   async revokeUnpicked({
     organizationId,

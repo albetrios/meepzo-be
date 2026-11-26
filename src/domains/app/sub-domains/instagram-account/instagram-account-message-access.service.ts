@@ -6,6 +6,10 @@ import type { OrganizationService } from '@/domains/tenancy/sub-domains/organiza
 import { assertTeamOrganization } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
+  RedisLockUnavailableError,
+  withRedisLock,
+} from '@/infrastructure/cache/redis-lock.util.js';
+import {
   assertInstagramConfigured,
   probeInstagramMessageAccess,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
@@ -42,6 +46,28 @@ export function messageAccessOffStopUntil(now: Date = new Date(Date.now())): Dat
   const durationMilliseconds =
     stopDurationOf({ reason: 'access_off', stopCount: 0, lane: 'slow' }) ?? 0;
   return new Date(now.getTime() + durationMilliseconds);
+}
+
+/** How long one account's check may hold its lock — past the probe's Meta timeout. */
+const MESSAGE_ACCESS_CHECK_LOCK_TTL_SECONDS = 30;
+
+/** How long a second check of the same account waits for the first one's answer. */
+const MESSAGE_ACCESS_CHECK_LOCK_WAIT_MS = 15_000;
+
+/** The stored answer, without calling Meta (`is_from_meta: false`). */
+function storedAnswer({
+  channelAccountPublicId,
+  access,
+}: {
+  channelAccountPublicId: string;
+  access: InstagramAccountReadAccess;
+}): InstagramMessageAccessCheckOutput {
+  return {
+    channel_account_id: channelAccountPublicId,
+    status: access.account.message_access as InstagramMessageAccessState,
+    checked_at: access.account.message_access_checked_at?.toISOString() ?? null,
+    is_from_meta: false,
+  };
 }
 
 /**
@@ -99,7 +125,9 @@ export class InstagramAccountMessageAccessService {
    * Checks "Allow access to messages" now and stores the answer (route 154).
    *
    * @remarks
-   * Algorithm: (1) the team check (a personal organization → `422`, as every write); the account
+   * Algorithm: one check per account at a time (a Redis lock; a second check waits up to 15 s, then
+   * answers the stored result), so a burst spends one Meta call and starts the stop once.
+   * (1) the team check (a personal organization → `422`, as every write); the account
    * (`404 channel_account_not_found`: not this organization's, revoked
    * or not Instagram) — `connected` with a `connected` connection and a token, else
    * `409 instagram_not_connected`; (2) a check within {@link MESSAGE_ACCESS_RECHECK_MIN_SECONDS} of
@@ -129,6 +157,31 @@ export class InstagramAccountMessageAccessService {
         assertTeamOrganization({ organization, capability: 'INSTAGRAM' });
       },
     });
+    try {
+      // One check per account at a time: a second one waits, then reads the first one's answer.
+      return await withRedisLock({
+        options: {
+          key: `app:instagram:message-access-check:${channelAccountPublicId}`,
+          ttlSeconds: MESSAGE_ACCESS_CHECK_LOCK_TTL_SECONDS,
+          waitTimeoutMs: MESSAGE_ACCESS_CHECK_LOCK_WAIT_MS,
+        },
+        fn: () => this.checkUnderLock({ scope, channelAccountPublicId, requestId }),
+      });
+    } catch (error) {
+      if (!(error instanceof RedisLockUnavailableError)) throw error;
+      const access = await this.readConnectedAccess({ scope, channelAccountPublicId });
+      return storedAnswer({ channelAccountPublicId, access });
+    }
+  }
+
+  /** The account, `connected` with a token, else `409 instagram_not_connected`. */
+  private async readConnectedAccess({
+    scope,
+    channelAccountPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+  }): Promise<InstagramAccountReadAccess> {
     const access = await this.accountService.findAccountReadAccess({
       scope,
       channelAccountPublicId,
@@ -140,17 +193,26 @@ export class InstagramAccountMessageAccessService {
     ) {
       throw instagramNotConnectedConflictError();
     }
+    return access;
+  }
+
+  /** Route 154's read, the 60-second rule, the probe, the write and the stop — under the lock. */
+  private async checkUnderLock({
+    scope,
+    channelAccountPublicId,
+    requestId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    requestId: string;
+  }): Promise<InstagramMessageAccessCheckOutput> {
+    const access = await this.readConnectedAccess({ scope, channelAccountPublicId });
     const lastCheckedAt = access.account.message_access_checked_at;
     if (
       lastCheckedAt !== null &&
       Date.now() - lastCheckedAt.getTime() < MESSAGE_ACCESS_RECHECK_MIN_SECONDS * 1000
     ) {
-      return {
-        channel_account_id: channelAccountPublicId,
-        status: access.account.message_access as InstagramMessageAccessState,
-        checked_at: lastCheckedAt.toISOString(),
-        is_from_meta: false,
-      };
+      return storedAnswer({ channelAccountPublicId, access });
     }
     assertInstagramConfigured();
     const status = await this.probe({ scope, access, requestId });

@@ -82,6 +82,13 @@ async function createErrorHandlerApp() {
     } as unknown as NonNullable<AppError['fields']>;
     throw error;
   });
+  application.get('/plan-room-with-extra-key', async () => {
+    const error = new AppError('CONFLICT', 409, 'errors:planAccountLimit', undefined, 'Limit');
+    error.fields = {
+      plan_room: { accounts_max: 3, accounts_used: 3, accounts_free: 0, internal_id: 42 },
+    } as unknown as NonNullable<AppError['fields']>;
+    throw error;
+  });
   application.get('/server-error-with-fields', async () => {
     throw new AppError('INTERNAL_ERROR', 500, 'errors:internal', undefined, 'Internal').withFields({
       tries_left: 2,
@@ -221,6 +228,16 @@ describe('error-handler.middleware', () => {
       expect(error[name]).toBeUndefined();
     }
     expect(error.unknown_field).toBeUndefined();
+  });
+
+  it('sends a plan room with its three keys only (feat-meta-connect-flow CN6)', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({ method: 'GET', url: '/plan-room-with-extra-key' });
+    expect(response.json().error.plan_room).toEqual({
+      accounts_max: 3,
+      accounts_used: 3,
+      accounts_free: 0,
+    });
   });
 
   it('AT3: never serializes the extra fields on a masked 5xx', async () => {

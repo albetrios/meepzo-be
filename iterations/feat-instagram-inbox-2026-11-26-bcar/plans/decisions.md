@@ -20,6 +20,7 @@ Add-only. Kind: `RED` (answered by the user), `AMBER` (safe default, still open)
 | I-D14 | Who sent a conversation message, and what it is | `sender_type` + `team_member` · `person` · `source` + `team`; a `kind` field or derived | **`sender_type`**: `contact` · `automation` · `broadcast` · `team_member` · `instagram_app` (direction follows: `contact` is in, the rest out), with its link — the contact, the automation + run + ledger row, the broadcast + ledger row, the member; **`kind`**: `text` · `image` · `video` · `audio` · `file` · `story_reply` · `story_mention` · `shared_post` · `button_tap` · `reaction` · `referral` | 2026-11-26 | user | RED |
 | I-D15 | Step 5 — route review sub-domain 1, the automation message rename (AM1–AM4) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
 | I-D16 | Step 5 — route review sub-domain 2, Instagram conversation (CV1–CV11, 2.A–2.C) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
+| I-D17 | Step 5 — route review sub-domain 3, Saved reply (SR1–SR6) | confirm · change | **confirmed as drafted** (rev 1); the route review is final | 2026-11-26 | user | RED |
 
 ## Owner items (need the Meta dev app)
 

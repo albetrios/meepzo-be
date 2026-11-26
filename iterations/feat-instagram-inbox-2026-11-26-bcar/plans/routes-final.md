@@ -1,5 +1,7 @@
 # Meepzo API — Instagram inbox, final routes, sub-domain by sub-domain
 
+**Route review final — 2026-11-26.** Every sub-domain is confirmed; the frontend may kick off on these routes.
+
 Started from branch `feat/instagram-automation` at `8f36d39`. Every decision reads **today → after** (`SD/` =
 `src/domains/app/sub-domains/`). Sources: [`coverage.md`](coverage.md), [`decisions.md`](decisions.md) (I-D1–I-D14),
 [`route-changes.md`](route-changes.md), [`db-changes.md`](db-changes.md), [`worker-changes.md`](worker-changes.md).
@@ -16,7 +18,7 @@ Paths are under `/api/v1/app`; `{x_id}` is a public id; **Gate** is the permissi
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Instagram automation message (rename) | `instagram-sending/instagram-message/` → `instagram-sending/instagram-automation-message/` | none | 0 | — | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Instagram conversation | `instagram-conversation/` (new) with nested `instagram-conversation-message/`, `instagram-conversation-note/` | `/social/instagram/conversations…` | 15 new (155–169), 2 changed (12, contact read) | 1, contacts, upload | **final (rev 1, confirmed 2026-11-26)** |
-| 3 | Saved reply | `saved-reply/` (new, shared across channels — [I-D2](decisions.md)) | `/saved-replies…` | 5 new (170–174) | — | **rev 1 — awaiting your OK** |
+| 3 | Saved reply | `saved-reply/` (new, shared across channels — [I-D2](decisions.md)) | `/saved-replies…` | 5 new (170–174) | — | **final (rev 1, confirmed 2026-11-26)** |
 
 ## File header — code layout and tables without routes
 
@@ -432,7 +434,7 @@ CVC1 (table), CVC9 (tests) for routes 167–169.
 
 ---
 
-## 3. Saved reply — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+## 3. Saved reply — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
 
 Code: `SD/saved-reply/` (new). The organization's reusable reply texts, shared across channels ([I-D2](decisions.md)):
 the reply box (route 165) inserts one. Route numbers 170–174.

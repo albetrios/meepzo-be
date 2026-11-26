@@ -45,3 +45,4 @@ finding ids R1–R19 are `coverage.md`'s.
 | P29 | Q-RG1 (route review §3): does the one route guard enforce more than `read_only`? | `read_only` only · also the unconditional switch gates | **`read_only` only.** `feature:` and `limit:` gates are declared and checked by the coverage test, but enforced where used (services' `can()` / `limit()`, counters' locks), so the error a caller sees doesn't change | 2026-11-26 | Nikunj Mavani | RED |
 | P30 | Route review §3, route declarations and the one guard: RG1–RG7, RGC1–RGC7 | confirm · change | **Confirmed: §3 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |
 | P31 | Route review §4, app gate users: AP1–AP6, APC1–APC5 | confirm · change | **Confirmed: §4 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |
+| P32 | Route review §5, seats: SE1–SE3, SEC1–SEC4 | confirm · change | **Confirmed: §5 final (rev 1)** | 2026-11-26 | Nikunj Mavani | RED |

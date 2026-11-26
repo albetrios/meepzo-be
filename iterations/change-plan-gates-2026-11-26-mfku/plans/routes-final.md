@@ -23,8 +23,8 @@ Each part builds on the ones above it.
 | 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **final (rev 1, confirmed 2026-11-26)** |
 | 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **final (rev 1, confirmed 2026-11-26)** |
 | 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | **final (rev 1, confirmed 2026-11-26)** |
-| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | **rev 1 — awaiting your OK** |
-| 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | draft |
+| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | **final (rev 1, confirmed 2026-11-26)** |
+| 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | **rev 1 — awaiting your OK** |
 
 Total: **0 routes added or removed.** 1 route changes its output (the entitlements read gains a source per
 value); 16 plan-gated writes answer one refusal shape; all 128 writes declare a plan gate.
@@ -461,7 +461,7 @@ None added.
 
 ---
 
-## 5. Seats — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+## 5. Seats — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
 
 Code: `tenancy/sub-domains/membership/` (the add-member seat check) and the late-wired seat port it calls,
 satisfied today by billing's subscription service.
@@ -535,4 +535,76 @@ None.
 
 ---
 
-## 6. Paid-job declarations — draft
+## 6. Paid-job declarations — rev 1 (2026-11-26) — cross-cutting; awaiting your OK
+
+Code: the worker registry (`src/infrastructure/queue/worker-runtime/worker-registration.registry.ts`), the
+queue and job-schema files that name each job, and the coverage test.
+
+6.1 Decisions · 6.2 Open questions · 6.3 Tables and relations · 6.4 Permissions · 6.5 Common to every route ·
+6.6 Objects returned · 6.7 Routes · 6.8 Request details · 6.9 Errors · 6.10 Rules worth knowing ·
+6.11 Code changes · 6.12 Nested sub-domains.
+
+The job half of the hand-kept model moves into the code, so a new paid job can't merge without saying which
+plan gate it meets. Behaviour doesn't change (P12).
+
+### 6.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| JG1 | **Where a job declares** *(pending your answer, 6.2 Q-JG1)*. Today 12 paid jobs are listed in the test helper (`JOB_PLAN_GATE_MODEL`), and a job that isn't paid isn't listed, so a forgotten paid job passes. After: **every job a registered queue runs** declares a plan gate, the same shape as routes (`{ gates }` or `{ open: '<one line>' }`), in its queue's entry in the worker registry; the coverage test walks the registry and fails on a job with no declaration. Other option: only the paid jobs declare, beside their job-name constant; a forgotten paid job still passes. |
+| JG2 | **Gates keep today's mechanism** (P12). The 10 jobs that meet the send claim declare `limit:message_month_limit` and `limit:channel_accounts_max` (met at the claim, through the account's stored plan stop); `automation-backfill-read` declares `feature:past_comments`; `segment-count` declares `feature:segments`. Only those last two read a switch live, through `can()` (part 4). No send gains a plan read. |
+| JG3 | **Jobs that only enforce a plan, or do no paid work, declare `open`** with a reason: the plan-change follow-up, the month wake-up, repairing plan stops, the plan-state check ("enforces a plan, does no paid work"), clean-ups, reads and notices. |
+| JG4 | **The hand-kept model is deleted.** With part 3's route half gone, `src/tests/helpers/route-plan-gate-model.ts` has no users left. |
+
+### 6.2 Open questions
+
+| # | Question | Recommendation | Other option |
+| --- | --- | --- | --- |
+| Q-JG1 | Does every job declare, or only the paid ones? (JG1) | **Every job**, in its queue's registry entry (`gates` or `open`), so a forgotten paid job fails the test, the same as routes | only paid jobs declare, beside their job-name constant; fewer lines, but a forgotten paid job passes |
+
+### 6.3 Tables and relations
+
+None.
+
+### 6.4 Permissions
+
+None.
+
+### 6.5 Common to every route
+
+n/a: no route.
+
+### 6.6 Objects returned
+
+None.
+
+### 6.7 Routes
+
+None.
+
+### 6.8 Request details
+
+n/a.
+
+### 6.9 Errors
+
+None change. A job refused by its switch is skipped or flagged as today (`plan_feature_off` for past comments).
+
+### 6.10 Rules worth knowing
+
+- A paid job meets its plan where the paid work happens: the send claim, or its switch at start.
+- `open` on a job is a decision with a reason, like on a route.
+
+### 6.11 Code changes
+
+| # | Change |
+| --- | --- |
+| JGC1 | JG1: a `planGate` per job in each queue's worker-registry entry (typed like routes, part 3 RG1) |
+| JGC2 | JG2, JG3: declarations for every job: the 12 paid jobs carried over from the model; the rest `open` with a reason |
+| JGC3 | JG1: the coverage test walks the worker registry and fails on an undeclared job or a key not in the registry |
+| JGC4 | JG4: `src/tests/helpers/route-plan-gate-model.ts` deleted |
+| JGC5 | Tests: the worker database tests for the send claim, past comments and segment count pass unchanged |
+
+### 6.12 Nested sub-domains
+
+None.

@@ -1817,7 +1817,8 @@ export class ChannelAccountService
     const isInError =
       account.connection_status === CHANNEL_ACCOUNT_STATUS.ERROR ||
       connection?.status === CHANNEL_ACCOUNT_STATUS.ERROR;
-    const found: { blocker: ChannelAccountBlocker | string; since: Date | null }[] = [
+    // A stored value (a lane stop's reason, the plan stop) is checked against the blocker list.
+    const found: { blocker: string; since: Date | null }[] = [
       ...(isInError
         ? [{ blocker: 'connection_error', since: connection?.status_changed_at ?? null }]
         : []),

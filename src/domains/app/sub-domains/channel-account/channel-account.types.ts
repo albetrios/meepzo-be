@@ -1,6 +1,9 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
-import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import type {
+  InstagramAccountExtensionOutput,
+  InstagramMessageAccessOutput,
+} from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type {
   ChannelAccountChannel,
   ChannelAccountPlanStopReason,
@@ -12,7 +15,6 @@ import type {
   ChannelFeature,
   ChannelFeatureRefusalReason,
 } from './channel-account-capabilities.constants.js';
-import type { InstagramMessageAccessOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 
 /** The Channel account summary of route 6 (routes-final § 1B.6). */
 export interface ChannelAccountSummaryOutput {

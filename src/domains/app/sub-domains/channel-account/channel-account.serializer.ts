@@ -1,4 +1,7 @@
-import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import type {
+  InstagramAccountExtensionOutput,
+  InstagramMessageAccessOutput,
+} from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { ChannelAccountRow } from './channel-account.repository.js';
 import {
@@ -13,7 +16,6 @@ import type {
   ChannelAccountOutput,
   ChannelAccountSummaryOutput,
 } from './channel-account.types.js';
-import type { InstagramMessageAccessOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 
 /** A timestamp as ISO 8601, `null` kept. */
 function toIsoOrNull(value: Date | null): string | null {

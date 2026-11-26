@@ -6,6 +6,7 @@ import {
   INACTIVE_SUBSCRIPTION_STATUSES,
 } from '@/domains/billing/sub-domains/subscription/subscription.repository.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import type { EntitlementService } from '@/domains/billing/sub-domains/entitlement/entitlement.service.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { captureMessage } from '@/infrastructure/observability/sentry/sentry.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
@@ -123,6 +124,16 @@ function resolveStripeSubscriptionPeriod(subscription: Stripe.Subscription): {
 }
 
 /**
+ * The entitlement read the Stripe webhook uses (change-plan-gates EN7, K3): one `resolve` per
+ * plan-state case, inside the event's organization unit.
+ *
+ * @remarks
+ * Notes: structural, so a test can stub it; billing's `EntitlementService` satisfies it. The webhook
+ * passes its worker-scoped repository as `repositoryOverride`, so the read joins its transaction.
+ */
+export type StripeWebhookEntitlementService = Pick<EntitlementService, 'resolve'>;
+
+/**
  * Processes Stripe webhook events and syncs subscription state.
  * Plans are managed offline via admin panel — subscription lifecycle events only.
  *
@@ -164,6 +175,11 @@ export class StripeWebhookService {
      * — most visible after a customer-service-initiated downgrade.
      */
     private readonly planRepository: PlanRepository,
+    /**
+     * The entitlement module (change-plan-gates EN7, K3): the plan-state cases' "before" read, in the
+     * event's organization unit through `repositoryOverride`.
+     */
+    private readonly entitlementService: StripeWebhookEntitlementService,
   ) {}
 
   /**
@@ -966,7 +982,8 @@ export class StripeWebhookService {
     if (!(previous && isLiveSubscriptionStatus(previous.status))) return null;
     const organization = await subscriptionRepository.findOrganizationFromCurrentContext();
     if (!organization) return null;
-    const access = await this.subscriptionService.getPlanAccess({
+    // The entitlement module's one read (K3), inside this event's organization unit (EN7).
+    const { planAccess: access } = await this.entitlementService.resolve({
       organizationPublicId: organization.public_id,
       repositoryOverride: subscriptionRepository,
     });

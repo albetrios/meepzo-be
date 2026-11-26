@@ -11,6 +11,7 @@ import type {
   MembershipSeatUsagePort,
   SubscriptionService,
 } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import type { SubscriptionRepository } from '@/domains/billing/sub-domains/subscription/subscription.repository.js';
 import type { EntitlementOverrideRepository } from './entitlement-override.repository.js';
 import type { OrganizationEntitlementOverrideRow } from './entitlement-override.schema.js';
 import { entitlementOverridePlanChange } from './entitlement-override.util.js';
@@ -170,14 +171,23 @@ export class EntitlementService {
    * - **Side effects:** none — read-only, no cache and no memo (BL2): a caller with several gates
    *   resolves once and passes the snapshot on (K2).
    * - **Notes:** `organizationPublicId` is one the caller has already proved (the signed `org` claim,
-   *   or a verified target), as for `getPlanAccess`.
+   *   or a verified target), as for `getPlanAccess`. `repositoryOverride` is passed straight to that
+   *   one read: a caller already inside its own organization unit (the Stripe webhook's
+   *   worker-scoped transaction) reads there, with no second read and no context of its own
+   *   (change-plan-gates EN7).
    */
   async resolve({
     organizationPublicId,
+    repositoryOverride,
   }: {
     organizationPublicId: string;
+    /** The caller's worker-scoped subscription repository: read inside its unit, not a new one. */
+    repositoryOverride?: SubscriptionRepository;
   }): Promise<EntitlementSnapshot> {
-    const planAccess = await this.planAccessService.getPlanAccess({ organizationPublicId });
+    const planAccess = await this.planAccessService.getPlanAccess({
+      organizationPublicId,
+      ...(repositoryOverride === undefined ? {} : { repositoryOverride }),
+    });
     return buildEntitlementSnapshot({ planAccess });
   }
 

@@ -90,6 +90,8 @@ describe('stripe-webhook.processor race', () => {
       // sec-B7: race test asserts only the at-least-once idempotency contract;
       // plan-id resolution is irrelevant. Stub for type safety only.
       { findByStripePriceId: vi.fn() } as never,
+      // The plan-state cases' entitlement read (EN7) — not reached here. Stub for type safety only.
+      { resolve: vi.fn() } as never,
     );
   });
 

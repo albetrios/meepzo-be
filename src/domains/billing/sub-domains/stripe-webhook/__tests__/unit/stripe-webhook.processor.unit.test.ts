@@ -107,6 +107,8 @@ describe('stripe-webhook.processor duplicate job delivery', () => {
     // sec-B7: processor test exercises retry / DLQ paths, never reaches
     // plan-id resolution. Stub for type safety only.
     { findByStripePriceId: vi.fn() } as never,
+    // The plan-state cases' entitlement read (EN7) — not reached here. Stub for type safety only.
+    { resolve: vi.fn() } as never,
   );
 
   beforeEach(() => {

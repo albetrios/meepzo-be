@@ -68,19 +68,20 @@ export function createBillingContainer({
     membershipSeatUsage,
     subscriptionTrialService,
   );
-  const stripeWebhookEventRepository = new StripeWebhookEventRepository();
-  const stripeWebhookService = new StripeWebhookService(
-    subscriptionService,
-    stripeWebhookEventRepository,
-    planRepository,
-  );
-
   const entitlementService = new EntitlementService({
     organizationService,
     overrideRepository: new EntitlementOverrideRepository(),
     planAccessService: subscriptionService,
     membershipSeatUsage,
   });
+
+  const stripeWebhookEventRepository = new StripeWebhookEventRepository();
+  const stripeWebhookService = new StripeWebhookService(
+    subscriptionService,
+    stripeWebhookEventRepository,
+    planRepository,
+    entitlementService,
+  );
 
   return {
     planService,

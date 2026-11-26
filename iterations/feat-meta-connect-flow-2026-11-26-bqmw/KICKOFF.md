@@ -47,7 +47,7 @@ and the contract is shaped so a Facebook Page is an addition, not a rewrite. The
 
 | # | Work item | Kind | Depends on | Skill/driver | Acceptance | Assignee | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | `app.instagram_accounts` + `message_access`, `message_access_checked_at` — db-changes DB-1, routes-final § 3.3 | table | — | `/be-schema-complete` (CHANGE table) | AC-4.1 (column) | — | open |
+| R1 | `app.instagram_accounts` + `message_access`, `message_access_checked_at` — db-changes DB-1, routes-final § 3.3 | table | — | `/be-schema-complete` (CHANGE table) | AC-4.1 (column) | — | done |
 | R2 | `app.channel_accounts` + `scopes`, `scopes_read_at` — db-changes DB-3, routes-final § 2.3 | table | — | `/be-schema-complete` (CHANGE table) | AC-3.4 (column) | — | open |
 | R3 | 1 Channel connection — routes-final § 1 (CN1–CN8; code changes CNC1–CNC6, CNC8): callback outcomes, routes 151, 152, plan room | sub-domain | — | `/be-build-requirement` | AC-1.1–AC-1.8, AC-2.1–AC-2.3 | — | open |
 | R4 | 2 Channel account — routes-final § 2 (AC1–AC5; ACC1–ACC4): route 153, the named permission, per-account scopes in the check | sub-domain | R2 | `/be-build-requirement` | AC-3.1–AC-3.5 | — | open |

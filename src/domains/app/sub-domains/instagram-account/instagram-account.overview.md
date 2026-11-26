@@ -179,7 +179,7 @@ the sending gate first:
 
 - **Set-up** (`instagram-account-setup`, WC-30) — after a pick's or a reconnect's commit, and when the
   subscription check finds a field off: the six webhook fields → `webhook_subscribed_at`; the live
-  starter questions → `starter_questions_set_at`; one read-only message-access probe (`off` logged).
+  starter questions → `starter_questions_set_at`; one read-only message-access probe (`off` logged; its answer is stored in `message_access` + `message_access_checked_at` from connect-flow R5 — the columns land in R1).
   A failed try books the next after 1, 5, 15, 60 minutes, then hourly; after the 60-minute try the
   `instagram-account:manage` holders get one notification and email (type
   `instagram.reconnect_required`, its own text). Meta refusing the token breaks the account.

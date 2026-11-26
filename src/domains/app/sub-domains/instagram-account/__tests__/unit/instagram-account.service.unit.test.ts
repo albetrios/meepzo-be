@@ -122,6 +122,8 @@ function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAcco
     webhook_subscribed_at: null,
     messages_webhook_seen_at: null,
     messages_webhook_missing_at: null,
+    message_access: 'unknown',
+    message_access_checked_at: null,
     starter_questions_set_at: null,
     connected_at: NOW,
     is_automation_enabled: true,

@@ -206,6 +206,20 @@ describe('InstagramAccountRepository (database)', () => {
     );
   });
 
+  it('starts every account at message access unknown, never checked, and refuses a value outside the three (R1, IG1)', async () => {
+    const { key } = await pickAccount();
+    const [row] = await operatorQuery<Array<{ message_access: string; checked_at: Date | null }>>`
+      SELECT message_access, message_access_checked_at AS checked_at FROM app.instagram_accounts
+      WHERE id = ${key.instagramAccountId}`;
+    expect(row).toEqual({ message_access: 'unknown', checked_at: null });
+    const accessError = await captureError(
+      () =>
+        operatorQuery`UPDATE app.instagram_accounts SET message_access = 'maybe'
+        WHERE id = ${key.instagramAccountId}`,
+    );
+    expect(getPostgresConstraintName(accessError)).toBe('chk_instagram_accounts_message_access');
+  });
+
   it("reads the organization's live accounts, oldest connected first; a revoked one is not live", async () => {
     const first = await pickAccount();
     const second = await pickAccount({ instagramUserId: OTHER_INSTAGRAM_USER_ID });

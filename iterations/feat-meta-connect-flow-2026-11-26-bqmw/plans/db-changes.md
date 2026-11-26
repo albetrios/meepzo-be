@@ -29,7 +29,7 @@ erDiagram
 
 | # | Table | Before | After | Brief |
 | --- | --- | --- | --- | --- |
-| DB-1 | `app.instagram_accounts` | the "Allow access to messages" probe result is logged only | `message_access` (`on` · `off` · `unknown`, default `unknown`) and `message_access_checked_at` (nullable), written by the set-up probe and by an on-demand re-check | brief:L85 |
+| DB-1 | `app.instagram_accounts` (**built R1**: `message_access`, `message_access_checked_at`) | the "Allow access to messages" probe result is logged only | `message_access` (`on` · `off` · `unknown`, default `unknown`) and `message_access_checked_at` (nullable), written by the set-up probe and by an on-demand re-check | brief:L85 |
 | DB-2 | `app.instagram_accounts` | linked Page not read | **deferred** — `linked_page_id` is added by a later fix once owner test O6 names its source (routes-final IG3: no dead column) | brief:L87 |
 | DB-3 | `app.channel_accounts` | permissions only on the connection (`scopes`) | `scopes` (list of permission names, nullable — `null` means the connection's scopes stand) and `scopes_read_at`; filled from `/debug_token` `granular_scopes` once owner test O1 passes; at most 20 names, like the connection's (routes-final AC5) | brief:L89 |
 

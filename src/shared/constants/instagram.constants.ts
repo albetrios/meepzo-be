@@ -202,3 +202,13 @@ export const INSTAGRAM_ID_PATTERN = `^[0-9]{1,${INSTAGRAM_ID_MAX_LENGTH}}$`;
 
 /** {@link INSTAGRAM_ID_PATTERN} compiled, for the readers and request validators. */
 export const INSTAGRAM_ID_REGEX = new RegExp(INSTAGRAM_ID_PATTERN);
+
+/**
+ * What the "Allow access to messages" probe found for an account (feat-meta-connect-flow IG1):
+ * `on`, `off`, or `unknown` when Meta's answer did not say. The one list the probe's type, the
+ * `app.instagram_accounts.message_access` column and its CHECK read.
+ */
+export const INSTAGRAM_MESSAGE_ACCESS_STATES = ['on', 'off', 'unknown'] as const;
+
+/** One value of {@link INSTAGRAM_MESSAGE_ACCESS_STATES}. */
+export type InstagramMessageAccessState = (typeof INSTAGRAM_MESSAGE_ACCESS_STATES)[number];

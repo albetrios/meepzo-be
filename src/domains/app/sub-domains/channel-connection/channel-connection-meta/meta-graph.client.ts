@@ -19,6 +19,7 @@ import { getEnv } from '@/shared/config/env.config.js';
 import {
   INSTAGRAM_ID_REGEX,
   INSTAGRAM_OPAQUE_ID_MAX_LENGTH,
+  type InstagramMessageAccessState,
 } from '@/shared/constants/instagram.constants.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -915,7 +916,7 @@ const INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_CODE = 10;
 const INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_SUBCODE = 2534077;
 
 /** What the read-only message-access probe found (plan §25.14). */
-export type InstagramMessageAccess = 'on' | 'off' | 'unknown';
+export type InstagramMessageAccess = InstagramMessageAccessState;
 
 /**
  * Probes once, read-only, whether "Allow access to messages" is on for the account

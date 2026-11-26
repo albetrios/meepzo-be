@@ -611,6 +611,8 @@ Table app.instagram_accounts {
   instagram_user_id varchar(64) [not null]
   is_private boolean [not null]
   media_count int [not null]
+  message_access varchar(10) [not null]
+  message_access_checked_at timestamptz
   messages_webhook_missing_at timestamptz
   messages_webhook_seen_at timestamptz
   organization_id bigint [not null]

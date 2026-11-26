@@ -12,13 +12,14 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
-import { sqlLiteral } from '@/infrastructure/database/utils/sql-literal.util.js';
+import { sqlLiteral, sqlLiteralList } from '@/infrastructure/database/utils/sql-literal.util.js';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import {
   INSTAGRAM_ID_MAX_LENGTH,
   INSTAGRAM_ID_PATTERN,
+  INSTAGRAM_MESSAGE_ACCESS_STATES,
 } from '@/shared/constants/instagram.constants.js';
 
 /**
@@ -77,6 +78,13 @@ export const instagram_accounts = appSchema
        * Facebook Page (P358); emptied by the next messaging item and with the webhook stamp.
        */
       messages_webhook_missing_at: timestamp('messages_webhook_missing_at', { withTimezone: true }),
+      /**
+       * The last "Allow access to messages" probe's answer (feat-meta-connect-flow IG1): `on` ·
+       * `off` · `unknown` (the default, until the account set-up probe or route 154 runs).
+       */
+      message_access: varchar('message_access', { length: 10 }).notNull().default('unknown'),
+      /** When {@link message_access} was last read from Meta; empty until the first probe. */
+      message_access_checked_at: timestamp('message_access_checked_at', { withTimezone: true }),
       /** The last send of its starter questions to Meta (D42); emptied when they change. */
       starter_questions_set_at: timestamp('starter_questions_set_at', { withTimezone: true }),
       profile_synced_at: timestamp('profile_synced_at', { withTimezone: true }),
@@ -117,6 +125,10 @@ export const instagram_accounts = appSchema
       check(
         'chk_instagram_accounts_username_unless_erased',
         sql`${table.username} IS NOT NULL OR ${table.profile_erased_at} IS NOT NULL`,
+      ),
+      check(
+        'chk_instagram_accounts_message_access',
+        sql`${table.message_access} IN (${sqlLiteralList(INSTAGRAM_MESSAGE_ACCESS_STATES)})`,
       ),
       check('chk_instagram_accounts_updated', sql`${table.updated_at} >= ${table.created_at}`),
       pgPolicy('instagram_accounts_tenant_isolation', {

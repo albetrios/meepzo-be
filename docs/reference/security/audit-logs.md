@@ -93,6 +93,9 @@ through a resolver that sees deleted organizations.
 | `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the plan now; `is_scheduled` — a move down waiting for the period end; `scheduled_change_at`; `kept_channel_account_count`) |
 | `billing.subscription.cancel` | `subscription` | Cancellation requested |
 | `billing.subscription.resume` | `subscription` | Cancellation withdrawn |
+| `billing.plan_state.changed` | `subscription` | A plan-state change no user made — Stripe's webhook or the plan-state check (grace end, trial end, a scheduled move); no actor (`metadata.source` `stripe` with `stripe_event_id`, or `system` with `change_key`; `change`, `previous` / `current` `{state, plan_public_id}`) — one row per change (P366, P367) |
+| `billing.entitlement_override.set` | `entitlement_override` | A super admin set an organization's entitlement override (WARNING, in the target organization's log; `metadata.key`, `value`, `previous_value` — `null` for a new key, `expires_at`, `reason`) (P270) |
+| `billing.entitlement_override.remove` | `entitlement_override` | A super admin removed an organization's entitlement override (WARNING; `metadata.key`, `value` `null`, `previous_value`) (P270) |
 | `billing.payment_method.delete` | `payment_method` | A card removed from the organization's Stripe customer (WARNING; `metadata.card_brand`, `card_last_digits` — never more of the card) |
 | `billing.payment_method.set_default` | `payment_method` | A card made the default for the customer and the live subscription (WARNING; `metadata.card_brand`, `card_last_digits`) |
 

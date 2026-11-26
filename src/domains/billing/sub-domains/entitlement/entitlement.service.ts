@@ -36,14 +36,15 @@ export type EntitlementOrganizationService = Pick<
 >;
 
 /**
- * The billing reads and the plan-change event the entitlement service reuses (BL2, BL8).
+ * The billing reads and the plan-change event the entitlement service reuses (BL2, BL8, SE1).
  *
  * @remarks
- * Satisfied by `SubscriptionService` — the one plan read and its after-commit event.
+ * Satisfied by `SubscriptionService` — the one plan read, its after-commit event and the locked
+ * seat-ceiling read.
  */
 export type EntitlementPlanAccessService = Pick<
   SubscriptionService,
-  'getPlanAccess' | 'emitPlanStateChanged'
+  'getPlanAccess' | 'emitPlanStateChanged' | 'reserveSeatCeilingForMemberAdd'
 >;
 
 /**
@@ -131,6 +132,26 @@ export class EntitlementService {
   /** Wires the app's usage port (built after billing, so late — no container cycle, 8.10). */
   wirePlanUsage(port: EntitlementPlanUsagePort): void {
     this.planUsage = port;
+  }
+
+  /**
+   * Reads an organization's seat ceiling under the subscription row lock for a member add
+   * (change-plan-gates SE1) — the ceiling method of tenancy's seat port.
+   *
+   * @remarks
+   * - **Algorithm:** delegates, unchanged, to {@link SubscriptionService.reserveSeatCeilingForMemberAdd}
+   *   (the subscription row `FOR UPDATE`, then the plan's included seats, else Free's). A snapshot
+   *   read would sit outside that lock, so a plan change could slip between the read and the insert;
+   *   the delegation keeps the same lock, the same transaction and the same result.
+   * - **Failure modes:** the subscription read's failures propagate; the caller MUST already hold an
+   *   organization database context and transaction (membership's add, after its `MEMBERSHIP_SEAT`
+   *   advisory lock).
+   * - **Side effects:** the subscription row lock, released at the caller's COMMIT.
+   * - **Notes:** `null` means no ceiling (every plan today, P26). Tenancy reaches billing's seat
+   *   ceiling only through this module (K3); the port's Stripe seat sync stays with subscription.
+   */
+  async reserveSeatCeilingForMemberAdd(organizationId: number): Promise<number | null> {
+    return this.planAccessService.reserveSeatCeilingForMemberAdd(organizationId);
   }
 
   /**

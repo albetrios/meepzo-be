@@ -654,8 +654,9 @@ export class SubscriptionService {
    *   ({@link MembershipService} add-member) takes a per-organization advisory lock up front so the
    *   count+insert is serialized on the free path too (audit-#M1) — the seat cap no longer depends
    *   on the free ceiling happening to be 1. See `docs/reference/architecture/production-audit-decisions.md`.
-   * - **Notes:** this is the cross-domain entry point tenancy's `MembershipService` calls to
-   *   enforce the seat limit on add-member; it returns only the numeric ceiling, never the row.
+   * - **Notes:** tenancy's `MembershipService` reaches it only through the entitlement module's
+   *   `EntitlementService.reserveSeatCeilingForMemberAdd`, which delegates here unchanged
+   *   (change-plan-gates SE1); it returns only the numeric ceiling, never the row.
    */
   async reserveSeatCeilingForMemberAdd(organization_id: number): Promise<number | null> {
     const seatState =

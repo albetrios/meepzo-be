@@ -138,9 +138,16 @@ export function createDomainContainers(
     instagramErasureService: appDomain.instagramAccountErasureService,
   });
 
-  // REQ-4: late-wire billing's subscription service into the membership service so seat enforcement
-  // + Stripe seat reconciliation work in the worker process too (membership↔subscription cycle).
-  tenancyDomain.membershipService.wireSeatEnforcement(billingDomain.subscriptionService);
+  // REQ-4: late-wire billing into the membership service so seat enforcement + Stripe seat
+  // reconciliation work in the worker process too (membership↔subscription cycle). The locked seat
+  // ceiling comes through the entitlement module (change-plan-gates SE1, K3); the Stripe seat sync
+  // stays with subscription.
+  tenancyDomain.membershipService.wireSeatEnforcement({
+    reserveSeatCeilingForMemberAdd: (organizationId) =>
+      billingDomain.entitlementService.reserveSeatCeilingForMemberAdd(organizationId),
+    enqueueSeatQuantitySync: (options) =>
+      billingDomain.subscriptionService.enqueueSeatQuantitySync(options),
+  });
 
   userDomain.userDataExportService.wireCrossDomainServices({
     authSessionService: authDomain.authSessionService,

@@ -539,6 +539,29 @@ describe('Membership Sub-Domain — Integration', () => {
       expect(body.error.reason).toBe('seat_limit_reached');
       // The plan refusal contract (P269): the one seat, held by the owner.
       expect(body.error).toMatchObject({ limit: 1, used: 1, upgrade_required: true });
+      // change-plan-gates SE2: the body the entitlement module's refusal builder answers is the one
+      // membership built itself before — every field, its value and its order.
+      expect(body.error).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'seat_limit_reached',
+        detail:
+          "Your plan's seat limit (1) has been reached. Upgrade your plan or remove a member before adding another.",
+        limit: 1,
+        used: 1,
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(Object.keys(body.error)).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'upgrade_required',
+        'documentation_url',
+      ]);
     });
 
     it('allows the add when the plan still has free seats', async () => {

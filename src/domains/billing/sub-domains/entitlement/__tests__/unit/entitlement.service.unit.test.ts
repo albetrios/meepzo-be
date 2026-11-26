@@ -93,6 +93,7 @@ function setup() {
   const planAccessService = {
     getPlanAccess: vi.fn().mockResolvedValue(planAccess()),
     emitPlanStateChanged: vi.fn().mockResolvedValue(undefined),
+    reserveSeatCeilingForMemberAdd: vi.fn().mockResolvedValue(null),
   };
   const membershipSeatUsage = { countActiveMembers: vi.fn().mockResolvedValue(4) };
   const service = new EntitlementService({
@@ -157,6 +158,27 @@ describe('EntitlementService', () => {
       expect(snapshot.values.broadcasts).toEqual({ value: true, source: 'plan' });
       expect(snapshot.values.seats).toEqual({ value: 5, source: 'plan' });
     });
+  });
+
+  describe('reserveSeatCeilingForMemberAdd — the seat port ceiling (change-plan-gates SE1)', () => {
+    it.each([
+      [3, 3],
+      [null, null],
+    ])(
+      'delegates to the subscription locked read once, unchanged (%s)',
+      async (ceiling, expected) => {
+        const { service, planAccessService } = setup();
+        planAccessService.reserveSeatCeilingForMemberAdd.mockResolvedValue(ceiling);
+
+        await expect(service.reserveSeatCeilingForMemberAdd(ORGANIZATION_ID)).resolves.toBe(
+          expected,
+        );
+        expect(planAccessService.reserveSeatCeilingForMemberAdd).toHaveBeenCalledExactlyOnceWith(
+          ORGANIZATION_ID,
+        );
+        expect(planAccessService.getPlanAccess).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('getEntitlements — the plan read, the usage port and the seats (P271)', () => {

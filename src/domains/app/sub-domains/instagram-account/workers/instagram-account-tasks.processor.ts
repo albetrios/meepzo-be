@@ -18,6 +18,7 @@ import {
   type InstagramMessageAccess,
   deleteInstagramIceBreakers,
   probeInstagramMessageAccess,
+  readInstagramLatestConversationTime,
   readInstagramWebhookSubscribedFields,
   readMetaAppSettings,
   setInstagramIceBreakers,
@@ -53,6 +54,11 @@ import {
   instagramWebhookSubscriptionCheckInputSchema,
   startInstagramAccountChainBestEffort,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
+import {
+  type InstagramMessagesWebhookCheckStep,
+  decideInstagramMessagesWebhookCheckStep,
+  isInstagramMessagesWebhookMissing,
+} from '@/domains/app/sub-domains/instagram-account/instagram-messages-webhook-watch.util.js';
 import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-notice.processor.js';
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
 import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
@@ -60,8 +66,11 @@ import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-ac
 import { stopDurationOf } from '@/domains/app/sub-domains/instagram-sending/instagram-send-error.util.js';
 import type { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 
-/** The notification type of the set-up failure email (the `automation_problem` kind, UN8). */
-const INSTAGRAM_ACCOUNT_SETUP_FAILED_NOTIFICATION_TYPE = 'instagram.reconnect_required';
+/**
+ * The notification type of the account jobs' owner notices — the set-up failure and the missing
+ * messaging webhooks (the `automation_problem` kind, UN8; both ask for a reconnect).
+ */
+const INSTAGRAM_ACCOUNT_NOTICE_NOTIFICATION_TYPE = 'instagram.reconnect_required';
 
 /** The payload prefix of a starter-question tap — the webhook's classifier reads it (WH8). */
 const STARTER_QUESTION_PAYLOAD_PREFIX = 'starter:';
@@ -112,7 +121,10 @@ export interface InstagramAccountTaskServices {
   channelAccountService: Pick<ChannelAccountService, 'markAccountBroken'>;
   extensionService: Pick<
     InstagramAccountExtensionService,
-    'recordWebhookSubscribed' | 'recordWebhookSubscriptionLost' | 'recordStarterQuestionsSet'
+    | 'recordWebhookSubscribed'
+    | 'recordWebhookSubscriptionLost'
+    | 'recordStarterQuestionsSet'
+    | 'recordMessagesWebhookMissing'
   >;
   starterQuestionSource: InstagramStarterQuestionSource;
   /**
@@ -172,10 +184,26 @@ export type InstagramStarterQuestionSyncResult =
   | { outcome: 'synced'; questionCount: number };
 
 /**
+ * What the subscription check found about the account's messaging webhooks (P358).
+ *
+ * @remarks
+ * Algorithm: a step that needed no Meta call (`decideInstagramMessagesWebhookCheckStep`), `quiet`
+ * (no conversation activity since the subscription), `flagged` (the flag is set — the owners told
+ * once, when it was newly set), `unavailable` (Meta's conversations read failed — the next hour
+ * tries again). Failure modes: none — a value. Side effects: none.
+ */
+export type InstagramMessagesWebhookCheckOutcome =
+  | Exclude<InstagramMessagesWebhookCheckStep, 'read_conversations'>
+  | 'quiet'
+  | 'flagged'
+  | 'unavailable';
+
+/**
  * What one subscription check did (WC-25).
  *
  * @remarks
- * Algorithm: `subscribed` — every field on (a not-stamped account is stamped: `recovered`);
+ * Algorithm: `subscribed` — every field on (a not-stamped account is stamped: `recovered`), with
+ * what the messaging-webhook watch found (`messagesWebhook`, P358);
  * `resubscribing` — a field was off on a stamped account: stamp emptied, set-up started, team told,
  * missed comments looked for; `setup_pending` — fields off on an account its set-up's tries still own;
  * `unavailable` — Meta did not answer (safe to skip, the next window checks again); `broken`.
@@ -185,7 +213,11 @@ export type InstagramWebhookSubscriptionCheckResult =
   | AccountTaskSkip
   | { outcome: 'broken' }
   | { outcome: 'unavailable' }
-  | { outcome: 'subscribed'; recovered: boolean }
+  | {
+      outcome: 'subscribed';
+      recovered: boolean;
+      messagesWebhook: InstagramMessagesWebhookCheckOutcome;
+    }
   | { outcome: 'setup_pending'; missingFields: string[] }
   | { outcome: 'resubscribing'; missingFields: string[] };
 
@@ -347,24 +379,35 @@ export function buildInstagramIceBreakers(
     .slice(0, INSTAGRAM_STARTER_QUESTIONS_PER_ACCOUNT_MAX);
 }
 
+/** One owner notice of an account job: its copy keys and its once key. */
+interface AccountNotice {
+  /** `common:notifications.<…>Title`. */
+  titleKey: string;
+  /** `common:notifications.<…>Message`, filled with the account's `username`. */
+  messageKey: string;
+  /** The notification's once key — the same key never sends twice. */
+  dedupeKey: string;
+}
+
 /**
- * Tells the account's owners and admins once that its set-up failed every quick try (WC-30): one
- * in-app notification and one email, keyed by the chain so it is never sent twice.
+ * Tells the account's owners and admins once (in-app and email), keyed by `notice.dedupeKey` —
+ * the set-up failure (WC-30) and the missing messaging webhooks (P358) share it. Returns whether a
+ * notification was created now (`false` for a repeat, no recipient or unwired services).
  */
-async function notifySetupFailed({
+async function notifyAccountManagers({
   target,
-  chainKey,
+  notice,
   services,
 }: {
   target: AccountTaskTarget;
-  chainKey: string;
+  notice: AccountNotice;
   services: InstagramAccountTaskServices;
 }): Promise<boolean> {
   const noticeServices = services.readNoticeServices();
   if (noticeServices === null) {
     logger.error(
-      { organizationPublicId: target.organizationPublicId, chainKey },
-      'app.instagram_account.setup.notice_unwired',
+      { organizationPublicId: target.organizationPublicId, dedupeKey: notice.dedupeKey },
+      'app.instagram_account.task.notice_unwired',
     );
     return false;
   }
@@ -386,9 +429,9 @@ async function notifySetupFailed({
         scope: target.scope,
         recipientUserIds,
         notification: {
-          type: INSTAGRAM_ACCOUNT_SETUP_FAILED_NOTIFICATION_TYPE,
-          title: i18next.t('common:notifications.instagramAccountSetupFailedTitle', plainText),
-          message: i18next.t('common:notifications.instagramAccountSetupFailedMessage', {
+          type: INSTAGRAM_ACCOUNT_NOTICE_NOTIFICATION_TYPE,
+          title: i18next.t(notice.titleKey, plainText),
+          message: i18next.t(notice.messageKey, {
             ...plainText,
             username: target.account.username ?? '',
           }),
@@ -398,11 +441,131 @@ async function notifySetupFailed({
           channels: ['in_app', 'email'],
           locale,
         },
-        dedupeKey: `${chainKey}-failed`,
+        dedupeKey: notice.dedupeKey,
       });
       return !notified.deduplicated;
     },
   });
+}
+
+/**
+ * Tells the account's owners and admins once that its set-up failed every quick try (WC-30): one
+ * in-app notification and one email, keyed by the chain so it is never sent twice.
+ */
+async function notifySetupFailed({
+  target,
+  chainKey,
+  services,
+}: {
+  target: AccountTaskTarget;
+  chainKey: string;
+  services: InstagramAccountTaskServices;
+}): Promise<boolean> {
+  return notifyAccountManagers({
+    target,
+    services,
+    notice: {
+      titleKey: 'common:notifications.instagramAccountSetupFailedTitle',
+      messageKey: 'common:notifications.instagramAccountSetupFailedMessage',
+      dedupeKey: `${chainKey}-failed`,
+    },
+  });
+}
+
+/**
+ * The messaging-webhook watch of a subscribed account (P358): Meta's Unified Login may send no
+ * `messages` webhooks for an account shared without its linked Facebook Page, although
+ * `subscribed_apps` succeeded. Flags the account and tells the owners once to reconnect sharing
+ * the Page.
+ *
+ * @remarks
+ * - **Algorithm:** {@link decideInstagramMessagesWebhookCheckStep} on the account's marks (no Meta
+ *   call unless subscribed over 24 hours, no messaging item since and the hour's first window);
+ *   then Meta's latest conversation time; activity after the subscription → the flag
+ *   (`messages_webhook_missing_at`, guarded: set once) and, when newly set, one notice and email
+ *   (once key: the account and its subscription time — a new subscription may tell again).
+ * - **Failure modes:** a refused token → the caller's guarded break (`broken`); any other Meta
+ *   failure → `unavailable`, logged; database errors propagate.
+ * - **Side effects:** at most one Meta read, one row written and one notice.
+ */
+async function watchMessagesWebhook({
+  target,
+  services,
+  context,
+  now,
+}: {
+  target: AccountTaskTarget;
+  services: InstagramAccountTaskServices;
+  context: InstagramSendTicketContext;
+  now: Date;
+}): Promise<InstagramMessagesWebhookCheckOutcome | { outcome: 'broken' }> {
+  const { account } = target;
+  const step = decideInstagramMessagesWebhookCheckStep({
+    webhookSubscribedAt: account.webhook_subscribed_at,
+    messagesWebhookSeenAt: account.messages_webhook_seen_at,
+    messagesWebhookMissingAt: account.messages_webhook_missing_at,
+    now,
+    windowMinutes: INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_MINUTES,
+  });
+  if (step !== 'read_conversations' || account.webhook_subscribed_at === null) {
+    return step === 'read_conversations' ? 'not_subscribed' : step;
+  }
+  let latestConversationAt: Date | null;
+  try {
+    latestConversationAt = await readInstagramLatestConversationTime({
+      encryptedAccessToken: target.encryptedAccessToken,
+      instagramUserId: account.instagram_user_id,
+      requestId: target.requestId,
+    });
+  } catch (error) {
+    const breakReason = readAccountBreakReason(error);
+    if (breakReason !== null) {
+      return breakAccount({ target, error, services, context, stopReason: breakReason });
+    }
+    logger.warn(
+      {
+        organizationPublicId: target.organizationPublicId,
+        channelAccountPublicId: account.public_id,
+        failure: describeMetaGraphError(error),
+      },
+      'app.instagram_account.messages_webhook_check.unavailable',
+    );
+    return 'unavailable';
+  }
+  if (
+    !isInstagramMessagesWebhookMissing({
+      webhookSubscribedAt: account.webhook_subscribed_at,
+      latestConversationAt,
+    })
+  ) {
+    return 'quiet';
+  }
+  const isNewlyFlagged = await context.runInDatabaseSlot(() =>
+    services.extensionService.recordMessagesWebhookMissing({
+      scope: target.scope,
+      instagramAccount: target.key,
+    }),
+  );
+  logger.warn(
+    {
+      organizationPublicId: target.organizationPublicId,
+      channelAccountPublicId: account.public_id,
+      isNewlyFlagged,
+    },
+    'app.instagram_account.messages_webhook_missing',
+  );
+  if (isNewlyFlagged) {
+    await notifyAccountManagers({
+      target,
+      services,
+      notice: {
+        titleKey: 'common:notifications.instagramMessagesWebhookMissingTitle',
+        messageKey: 'common:notifications.instagramMessagesWebhookMissingMessage',
+        dedupeKey: `messages-webhook-missing-${account.public_id}-${account.webhook_subscribed_at.getTime()}`,
+      },
+    });
+  }
+  return 'flagged';
 }
 
 /**
@@ -679,21 +842,29 @@ export async function processInstagramStarterQuestionSyncTask({
  *   on a **stamped** account → the stamp emptied (shown not subscribed), the team told (the
  *   error-level log line `app.instagram_account.webhook_subscription_lost` is the alert), a new set-up
  *   chain started and the missed-comment look asked for (WC-26, R39). A field off on a not-stamped
- *   account → nothing: its set-up's tries own it.
+ *   account → nothing: its set-up's tries own it. All on for a stamped account → the
+ *   messaging-webhook watch (P358, `watchMessagesWebhook`): subscribed over 24 hours, no messaging
+ *   item since, and Meta's conversations changed after the subscription → the account is flagged
+ *   (`is_messages_webhook_missing`) and the owners told once to reconnect sharing the linked
+ *   Facebook Page (route 40 with `with_page: true`).
  * - **Failure modes:** a refused token → the guarded break; any other Meta failure → `unavailable`,
  *   logged (safe to skip — the next window checks again).
- * - **Side effects:** one Meta read; at most the stamp, a set-up job and the missed-comment look.
+ * - **Side effects:** one Meta read (two in the watch's hourly window); at most the stamp, a set-up
+ *   job, the missed-comment look, the flag and its one notice.
  */
 export async function processInstagramWebhookSubscriptionCheckTask({
   organizationPublicId,
   channelAccountPublicId,
   context,
   services,
+  now,
 }: {
   organizationPublicId: string;
   channelAccountPublicId: string;
   context: InstagramSendTicketContext;
   services: InstagramAccountTaskServices;
+  /** The check's clock (the messaging-webhook watch's hour and grace, P358); injectable in tests. */
+  now?: Date | undefined;
 }): Promise<InstagramWebhookSubscriptionCheckResult> {
   const target = await readAccountTaskTarget({
     organizationPublicId,
@@ -744,8 +915,16 @@ export async function processInstagramWebhookSubscriptionCheckTask({
           instagramAccount: target.key,
         }),
       );
+      return { outcome: 'subscribed', recovered: true, messagesWebhook: 'not_subscribed' };
     }
-    return { outcome: 'subscribed', recovered: !isStamped };
+    const messagesWebhook = await watchMessagesWebhook({
+      target,
+      services,
+      context,
+      now: now ?? new Date(),
+    });
+    if (typeof messagesWebhook !== 'string') return messagesWebhook;
+    return { outcome: 'subscribed', recovered: false, messagesWebhook };
   }
   if (!isStamped) return { outcome: 'setup_pending', missingFields };
 

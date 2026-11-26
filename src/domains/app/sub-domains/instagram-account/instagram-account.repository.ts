@@ -256,12 +256,17 @@ export class InstagramAccountRepository {
 
   /**
    * The extension's side of a revoke (CA8, IA14): the webhook stamp emptied — a new pick subscribes
-   * again. Profile kept. Returns whether a stamp was cleared.
+   * again — and with it the missing-messages flag (P358: a new subscription is watched afresh).
+   * Profile kept. Returns whether a stamp was cleared.
    */
   async clearWebhookSubscription(key: InstagramAccountKey): Promise<boolean> {
     const rows = await this.db()
       .update(instagram_accounts)
-      .set({ webhook_subscribed_at: null, updated_at: accountUpdatedAtTimestamp })
+      .set({
+        webhook_subscribed_at: null,
+        messages_webhook_missing_at: null,
+        updated_at: accountUpdatedAtTimestamp,
+      })
       .where(
         and(
           eq(instagram_accounts.organization_id, key.organizationId),
@@ -456,6 +461,65 @@ export class InstagramAccountRepository {
           channelAccountJoin,
           eq(instagram_accounts.organization_id, organizationId),
           eq(instagram_accounts.id, instagramAccountId),
+          isChannelAccountLive,
+        ),
+      )
+      .returning({ id: instagram_accounts.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * A messaging webhook item arrived for the account (P358): `messages_webhook_seen_at` now and the
+   * missing-messages flag emptied — only while the channel account is not revoked. Returns whether
+   * a row was written. The caller decides when to write (at most hourly, or to clear the flag).
+   */
+  async recordMessagesWebhookSeen({
+    organizationId,
+    instagramAccountId,
+  }: InstagramAccountKey): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_accounts)
+      .set({
+        messages_webhook_seen_at: databaseNowTimestamp,
+        messages_webhook_missing_at: null,
+        updated_at: accountUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          channelAccountJoin,
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(instagram_accounts.id, instagramAccountId),
+          isChannelAccountLive,
+        ),
+      )
+      .returning({ id: instagram_accounts.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * The subscription check found messages at Meta but no messaging webhook since the subscription
+   * (P358): `messages_webhook_missing_at` now — only when not set yet, the account still subscribed
+   * and its channel account not revoked. Returns whether the flag was newly set (the one notice).
+   */
+  async recordMessagesWebhookMissing({
+    organizationId,
+    instagramAccountId,
+  }: InstagramAccountKey): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_accounts)
+      .set({
+        messages_webhook_missing_at: databaseNowTimestamp,
+        updated_at: accountUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          channelAccountJoin,
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(instagram_accounts.id, instagramAccountId),
+          isNull(instagram_accounts.messages_webhook_missing_at),
+          isNotNull(instagram_accounts.webhook_subscribed_at),
           isChannelAccountLive,
         ),
       )

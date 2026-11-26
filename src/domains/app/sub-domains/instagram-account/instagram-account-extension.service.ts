@@ -29,6 +29,8 @@ import type {
  *   extension's table.
  *
  * Notes:
+ * - The webhook store records messaging items and the subscription check flags missing ones
+ *   through {@link recordMessagesWebhookSeen} / {@link recordMessagesWebhookMissing} (P358).
  * - The connection's token check refreshes the profile through {@link recordProfileRefresh} (P17,
  *   ROUTE row R51). The account jobs (set-up, subscription check, starter-question sync, ROUTE row
  *   R40) write the webhook stamp and the starter-question stamp through this service in their job
@@ -192,6 +194,49 @@ export class InstagramAccountExtensionService {
     instagramAccount: InstagramAccountKey;
   }): Promise<boolean> {
     return this.clearOnRevoke(input);
+  }
+
+  /**
+   * A messaging webhook item arrived (P358): `messages_webhook_seen_at` now and the
+   * missing-messages flag emptied. Returns whether a row was written.
+   *
+   * @remarks
+   * Algorithm: one guarded update in the caller's unit (the webhook store's). Failure modes: none.
+   * Side effects: at most one row written. Notes: the caller writes at most hourly
+   * (`shouldRecordInstagramMessagesWebhookSeen`), or at once to clear the flag.
+   */
+  async recordMessagesWebhookSeen({
+    scope,
+    instagramAccount,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.accountRepository.recordMessagesWebhookSeen(instagramAccount),
+    });
+  }
+
+  /**
+   * The subscription check's flag (P358): messages happen at Meta but none reaches the webhook.
+   * Returns whether the flag was newly set — the caller then tells the owners once.
+   *
+   * @remarks
+   * Algorithm: one guarded update (not set yet, still subscribed, not revoked). Failure modes: none.
+   * Side effects: at most one row written.
+   */
+  async recordMessagesWebhookMissing({
+    scope,
+    instagramAccount,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.accountRepository.recordMessagesWebhookMissing(instagramAccount),
+    });
   }
 
   /**

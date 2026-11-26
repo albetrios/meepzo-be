@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**25 / 261** variables migrated to an explicit `{ allowed, description }` entry.
+**26 / 262** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -122,6 +122,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `META_APP_ID` | non-empty string (the app ID from the Meta App Dashboard) | — *(optional)* | ✓ | The Meta app id: the client_id of the Unified Login address and its code exchange (public — the login address carries it). Unset, the Instagram routes answer 503 instagram_not_configured. |
 | `META_APP_SECRET` | string of at least 32 characters (the Meta app secret; a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta app's one secret: the client_secret of the code exchange, the key of every call's appsecret_proof, and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
 | `META_CONFIG_ID` | non-empty string (the Facebook Login for Business configuration ID), or unset | — *(optional)* | ✓ | The Unified Login configuration id (config_id of the login address): which permissions and assets the login asks for. Not secret. Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `META_PAGE_CONFIG_ID` | non-empty string (a second Facebook Login for Business configuration ID — the one that also requests the linked Facebook Page and pages_show_list), or unset | — *(optional)* | ✓ | The second Unified Login configuration id, for an Instagram account shared without its linked Facebook Page (Meta's temporary limit: such an account may receive no messages webhooks). It asks for the Page and pages_show_list, so the login goes through Facebook. Not secret. Routes 1 and 40 use it only when their body says with_page: true; unset, that answers 400 instagram_page_login_not_configured and the default login (META_CONFIG_ID) is unaffected. |
 | `META_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's return page of the Meta login. It must equal one of the Meta app's valid OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
 | `META_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/channel-connections/meta/webhooks/instagram). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
 | `METRICS_AUTH_REQUIRED` | — | `true` |  | — |

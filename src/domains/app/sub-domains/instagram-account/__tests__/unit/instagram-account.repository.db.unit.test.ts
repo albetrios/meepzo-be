@@ -248,6 +248,54 @@ describe('InstagramAccountRepository (database)', () => {
     ).resolves.toBe(false);
   });
 
+  it('flags missing messaging webhooks once, only while subscribed and live, and clears the flag with a messaging item or the stamp (P358)', async () => {
+    const { channelAccount, key } = await pickAccount();
+    const readMarks = () => inOrganization(organization, () => repository.findById(key));
+
+    // Not subscribed yet: nothing to flag.
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookMissing(key)),
+    ).resolves.toBe(false);
+
+    await inOrganization(organization, () => repository.recordWebhookSubscribed(key));
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookMissing(key)),
+    ).resolves.toBe(true);
+    // Once: a second check in between does not flag again (the one notice).
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookMissing(key)),
+    ).resolves.toBe(false);
+    expect((await readMarks())?.messages_webhook_missing_at).toBeInstanceOf(Date);
+
+    // A messaging item: seen now, flag emptied.
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookSeen(key)),
+    ).resolves.toBe(true);
+    const seen = await readMarks();
+    expect(seen?.messages_webhook_missing_at).toBeNull();
+    expect(seen?.messages_webhook_seen_at).toBeInstanceOf(Date);
+
+    // The stamp cleared (a lost field, a revoke) empties a new flag too.
+    await inOrganization(organization, () => repository.recordMessagesWebhookMissing(key));
+    await inOrganization(organization, () => repository.clearWebhookSubscription(key));
+    expect((await readMarks())?.messages_webhook_missing_at).toBeNull();
+
+    // A revoked account is never flagged nor marked.
+    await inOrganization(organization, () => repository.recordWebhookSubscribed(key));
+    await inOrganization(organization, () =>
+      channelAccountRepository.revoke({
+        organizationId: organization.id,
+        channelAccountId: channelAccount.id,
+      }),
+    );
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookMissing(key)),
+    ).resolves.toBe(false);
+    await expect(
+      inOrganization(organization, () => repository.recordMessagesWebhookSeen(key)),
+    ).resolves.toBe(false);
+  });
+
   it('erases the profile of a revoked account only, once (IA20, D54)', async () => {
     const { channelAccount, key } = await pickAccount();
     await expect(

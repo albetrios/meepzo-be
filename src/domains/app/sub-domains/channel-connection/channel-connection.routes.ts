@@ -10,6 +10,7 @@ import {
   channelConnectCallbackDto,
   channelConnectionIdParamsDto,
   channelConnectionProviderParamsDto,
+  channelConnectStartBodyDto,
   listChannelConnectionAdAccountsQueryDto,
   listChannelConnectionAdsQueryDto,
   listChannelConnectionsQueryDto,
@@ -23,6 +24,7 @@ import {
  *
  * @remarks
  * Gates (P59): `channel-account:manage` on 1, 2, 3, 5, 40; `channel-account:read` on 4, 15, 41, 42.
+ * Routes 1 and 40 take an optional `{ with_page }` body (the Page login configuration, P358).
  * Routes 2
  * and 3 require `X-Idempotency-Key` — merged into their `config`, never a top-level preset spread,
  * which would drop the flag; 1 and 40 take none (a repeat mints another harmless state, MC4). The
@@ -45,9 +47,10 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
         schema: {
           summary: 'Start a channel connection',
           description:
-            "Starts the provider's login — for meta, Meta's Unified Login for one business portfolio (Instagram now; Facebook Pages and ads later). Mints a one-use state for this person and organization, kept for 10 minutes, and answers the login address (which always asks to log in again) and when the state ends. No body and no X-Idempotency-Key: a repeat mints another state. 400 provider for any provider but meta; 503 instagram_not_configured when a META_* setting is unset. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+            "Starts the provider's login — for meta, Meta's Unified Login for one business portfolio (Instagram now; Facebook Pages and ads later). Mints a one-use state for this person and organization, kept for 10 minutes, and answers the login address (which always asks to log in again) and when the state ends. Optional body { with_page: true } uses the second login configuration (META_PAGE_CONFIG_ID), which also asks for the account's linked Facebook Page and pages_show_list — for an account whose messages webhooks do not arrive because it was shared without its Page; otherwise the default configuration. No X-Idempotency-Key: a repeat mints another state. 400 provider for any provider but meta; 400 instagram_page_login_not_configured when with_page is true and META_PAGE_CONFIG_ID is unset; 503 instagram_not_configured when a META_* setting is unset. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
           tags: ['Channel connection'],
           params: channelConnectionProviderParamsDto,
+          body: channelConnectStartBodyDto,
         },
       },
       controller.startChannelConnection,
@@ -78,9 +81,10 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
         schema: {
           summary: 'Start a reconnect of a channel connection',
           description:
-            "Starts a login bound to this connection — the connections screen's Reconnect: the same one-use state and login address as start; the callback then refuses a login into another business. Allowed on a connected connection (to grant more permissions, e.g. ads_read) or one in error. No body and no X-Idempotency-Key. 404 channel_connection_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+            "Starts a login bound to this connection — the connections screen's Reconnect: the same one-use state and login address as start; the callback then refuses a login into another business. Allowed on a connected connection (to grant more permissions, e.g. ads_read, or to share the linked Facebook Page) or one in error. Optional body { with_page: true } uses the second login configuration (META_PAGE_CONFIG_ID), which also asks for the linked Facebook Page and pages_show_list — the reconnect an account flagged is_messages_webhook_missing needs. No X-Idempotency-Key. 400 instagram_page_login_not_configured when with_page is true and META_PAGE_CONFIG_ID is unset; 404 channel_connection_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
           tags: ['Channel connection'],
           params: channelConnectionIdParamsDto,
+          body: channelConnectStartBodyDto,
         },
       },
       controller.startChannelReconnect,

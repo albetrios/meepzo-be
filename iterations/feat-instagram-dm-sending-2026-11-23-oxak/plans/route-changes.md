@@ -503,3 +503,9 @@ password routes are **disabled, not removed** — restored with their code and r
     must follow this contract (backend only now, [P30](decisions.md)).
 15. **Webhook-events list horizon** — with 8 days and bodies cleared (D15), RC-19 is a much shorter
     debugging view than the launch's (risk, plan D15).
+
+**Built after Close — the Page-less fix (2026-11-26, [AS-BUILT](../AS-BUILT.md), [P358](decisions.md), [P362](decisions.md)):**
+routes 1 (`POST /app/social/channel-connections/{provider}/start`) and 40 (`POST …/{channel_connection_id}/reconnect`)
+take an optional body `{ "with_page": boolean }` — `true` uses `META_PAGE_CONFIG_ID`, unset →
+`400 instagram_page_login_not_configured`; the channel account's `instagram` object (routes 6–11) gains
+`is_messages_webhook_missing`. No route added or removed.

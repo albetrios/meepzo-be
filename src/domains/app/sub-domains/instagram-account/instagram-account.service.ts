@@ -266,9 +266,26 @@ export class InstagramAccountService {
           instagramUserId: account.instagram_user_id,
           connectionStatus: account.connection_status as InstagramAccountVisibleConnectionStatus,
           isAutomationEnabled: account.is_automation_enabled,
+          messagesWebhookSeenAt: account.messages_webhook_seen_at,
+          isMessagesWebhookMissing: account.messages_webhook_missing_at !== null,
         };
       },
     });
+  }
+
+  /**
+   * The webhook store saw a messaging item for the account (P358): its seen mark moves and a
+   * missing-messages flag is emptied — through the extension's one writer.
+   *
+   * @remarks
+   * Algorithm: one guarded update in the caller's unit (the store's). Failure modes: none of its
+   * own. Side effects: at most one row written; returns whether it was.
+   */
+  async recordMessagesWebhookSeen(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+  }): Promise<boolean> {
+    return this.extensionService.recordMessagesWebhookSeen(input);
   }
 
   /**

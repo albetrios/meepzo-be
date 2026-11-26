@@ -124,6 +124,7 @@ import {
 import {
   channelAccountPickDto,
   channelConnectCallbackDto,
+  channelConnectStartBodyDto,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 // ─── App: Instagram account ────────────────────────────────────────────
 import { UpdateInstagramAccountSettingsDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.dto.js';
@@ -228,7 +229,10 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/users/me/data-export': exportUserDataBodyDto,
 
   // ── App: channel connection ──
+  'POST /api/v1/app/social/channel-connections/{provider}/start': channelConnectStartBodyDto,
   'POST /api/v1/app/social/channel-connections/{provider}/callback': channelConnectCallbackDto,
+  'POST /api/v1/app/social/channel-connections/{channel_connection_id}/reconnect':
+    channelConnectStartBodyDto,
   'POST /api/v1/app/social/channel-connections/{channel_connection_id}/accounts':
     channelAccountPickDto,
   // ── App: channel account ──

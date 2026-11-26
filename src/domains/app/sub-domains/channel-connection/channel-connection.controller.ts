@@ -18,7 +18,7 @@ import {
   validateChannelConnectCallback,
   validateChannelConnectionIdParam,
   validateChannelConnectionProvider,
-  validateEmptyChannelConnectionBody,
+  validateChannelConnectStartBody,
   validateListChannelConnectionAdAccountsQuery,
   validateListChannelConnectionAdsQuery,
   validateListChannelConnectionsQuery,
@@ -116,6 +116,38 @@ function createAdPickerHandlers(service: ChannelConnectionService) {
 }
 
 /**
+ * The login starts (routes 1 and 40, MC4, MC17): the optional `{ with_page }` body picks the Page
+ * login configuration (P358); no audit entry — nothing is saved but a one-use state.
+ */
+function createLoginStartHandlers(service: ChannelConnectionService) {
+  return {
+    startChannelConnection: async (request: ProviderRequest, _reply: FastifyReply) => {
+      const provider = validateChannelConnectionProvider(request.params.provider);
+      const { withPage } = validateChannelConnectStartBody(request.body);
+      const data = await service.startLogin({
+        scope: requireOrganizationScope(request),
+        userPublicId: getActingUserPublicId(requirePrincipal(request)) ?? '',
+        provider,
+        withPage,
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    startChannelReconnect: async (request: ConnectionRequest, _reply: FastifyReply) => {
+      const { withPage } = validateChannelConnectStartBody(request.body);
+      const data = await service.startReconnect({
+        scope: requireOrganizationScope(request),
+        userPublicId: getActingUserPublicId(requirePrincipal(request)) ?? '',
+        channelConnectionPublicId: validateChannelConnectionIdParam(
+          request.params.channel_connection_id,
+        ),
+        withPage,
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+  };
+}
+
+/**
  * Builds the handler map for the channel connection routes (routes-final § 1 — routes 1–5, 15,
  * 40–42):
  * reads the organization scope and the actor, validates the path, query and body, calls
@@ -130,16 +162,7 @@ function createAdPickerHandlers(service: ChannelConnectionService) {
 export function createChannelConnectionController(service: ChannelConnectionService) {
   return {
     ...createAdPickerHandlers(service),
-    startChannelConnection: async (request: ProviderRequest, _reply: FastifyReply) => {
-      const provider = validateChannelConnectionProvider(request.params.provider);
-      validateEmptyChannelConnectionBody(request.body);
-      const data = await service.startLogin({
-        scope: requireOrganizationScope(request),
-        userPublicId: getActingUserPublicId(requirePrincipal(request)) ?? '',
-        provider,
-      });
-      return successResponse({ data, request_id: getRequestIdentifier(request) });
-    },
+    ...createLoginStartHandlers(service),
     finishChannelConnection: async (request: ProviderRequest, _reply: FastifyReply) => {
       const auth = requirePrincipal(request);
       const scope = requireOrganizationScope(request);
@@ -168,17 +191,6 @@ export function createChannelConnectionController(service: ChannelConnectionServ
             reconnected_account_count: data.reconnected_account_ids.length,
           },
         },
-      });
-      return successResponse({ data, request_id: getRequestIdentifier(request) });
-    },
-    startChannelReconnect: async (request: ConnectionRequest, _reply: FastifyReply) => {
-      validateEmptyChannelConnectionBody(request.body);
-      const data = await service.startReconnect({
-        scope: requireOrganizationScope(request),
-        userPublicId: getActingUserPublicId(requirePrincipal(request)) ?? '',
-        channelConnectionPublicId: validateChannelConnectionIdParam(
-          request.params.channel_connection_id,
-        ),
       });
       return successResponse({ data, request_id: getRequestIdentifier(request) });
     },

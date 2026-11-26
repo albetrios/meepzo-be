@@ -19,7 +19,9 @@ afterEach(() => {
 describe('buildMetaLoginUrl (MC4)', () => {
   it('answers the Unified Login address with the state, never the secret', () => {
     const environment = getEnv();
-    const url = new URL(buildMetaLoginUrl({ state: 'state-one' }));
+    const url = new URL(
+      buildMetaLoginUrl({ state: 'state-one', configId: environment.META_CONFIG_ID ?? '' }),
+    );
     expect(`${url.origin}${url.pathname}`).toBe('https://www.facebook.com/dialog/oauth');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: environment.META_APP_ID,
@@ -37,13 +39,20 @@ describe('buildMetaLoginUrl (MC4)', () => {
     delete process.env.META_CONFIG_ID;
     resetEnvCacheForTests();
     try {
-      expect(() => buildMetaLoginUrl({ state: 's' })).toThrow(
+      expect(() => buildMetaLoginUrl({ state: 's', configId: 'any' })).toThrow(
         expect.objectContaining({ statusCode: 503, reason: 'instagram_not_configured' }),
       );
     } finally {
       process.env.META_CONFIG_ID = saved;
       resetEnvCacheForTests();
     }
+  });
+});
+
+describe('buildMetaLoginUrl with the Page configuration (P358)', () => {
+  it("carries the configuration it is given — the state's, not META_CONFIG_ID", () => {
+    const url = new URL(buildMetaLoginUrl({ state: 'state-two', configId: 'page-config-id' }));
+    expect(url.searchParams.get('config_id')).toBe('page-config-id');
   });
 });
 

@@ -47,6 +47,7 @@
     "invalidToken": "Invalid or expired token",
     "invalidAuthMethodId": "Invalid authentication method id",
     "invalidInput": "Invalid input",
+    "instagramPageLoginNotConfigured": "Connecting with the linked Facebook Page is not available yet",
     "invitationRevoked": "Invitation revoked",
     "invitationAlreadyAccepted": "Invitation already accepted",
     "invitationExpired": "Invitation expired",

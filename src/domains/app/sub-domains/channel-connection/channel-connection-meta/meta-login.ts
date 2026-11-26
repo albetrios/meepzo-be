@@ -19,11 +19,18 @@ export const META_LOGIN_DIALOG_URL = 'https://www.facebook.com/dialog/oauth';
  *   &response_type=code&state&prompt=login` — `prompt=login` always asks her to log in again.
  * - **Failure modes:** any of the four Meta settings unset → 503 `instagram_not_configured`.
  * - **Side effects:** none.
- * - **Notes:** `state` is the one-use value `channel-connection-state.ts` minted; the app secret is
- *   never in the address.
+ * - **Notes:** `state` is the one-use value `channel-connection-state.ts` minted, and `configId`
+ *   the configuration it carries (P356, P358); the app secret is never in the address.
  */
-export function buildMetaLoginUrl({ state }: { state: string }): string {
-  const { appId, configId, redirectUri } = readMetaAppSettings();
+export function buildMetaLoginUrl({
+  state,
+  configId,
+}: {
+  state: string;
+  /** The login configuration the state carries — `META_CONFIG_ID`, or `META_PAGE_CONFIG_ID` (P358). */
+  configId: string;
+}): string {
+  const { appId, redirectUri } = readMetaAppSettings();
   const url = new URL(META_LOGIN_DIALOG_URL);
   url.searchParams.set('client_id', appId);
   url.searchParams.set('config_id', configId);

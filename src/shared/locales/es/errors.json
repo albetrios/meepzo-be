@@ -47,6 +47,7 @@
     "invalidToken": "Token no válido o caducado",
     "invalidAuthMethodId": "ID de método de autenticación no válido",
     "invalidInput": "Entrada no válida",
+    "instagramPageLoginNotConfigured": "La conexión con la página de Facebook vinculada aún no está disponible",
     "invitationRevoked": "Invitación revocada",
     "invitationAlreadyAccepted": "Invitación ya aceptada",
     "invitationExpired": "Invitación caducada",

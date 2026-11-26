@@ -794,6 +794,44 @@ describe('Instagram webhook — routes 16–17', () => {
       ]);
     });
 
+    it('a direct message clears the missing-messages flag and marks the account seen; a comment alone does not (P358)', async () => {
+      await operatorQuery`
+        UPDATE app.instagram_accounts
+        SET webhook_subscribed_at = now() - interval '2 days',
+            messages_webhook_missing_at = now() - interval '1 hour'
+        WHERE id = ${account.id}`;
+      const readMarks = async () => {
+        const [row] = await operatorQuery<
+          Array<{ messages_webhook_seen_at: Date | null; messages_webhook_missing_at: Date | null }>
+        >`
+          SELECT messages_webhook_seen_at, messages_webhook_missing_at
+          FROM app.instagram_accounts WHERE id = ${account.id}`;
+        return row;
+      };
+
+      expect((await deliver({ rawBody: deliveryBody() })).statusCode).toBe(200);
+      expect(await readMarks()).toMatchObject({ messages_webhook_seen_at: null });
+      expect((await readMarks())?.messages_webhook_missing_at).toBeInstanceOf(Date);
+
+      const response = await deliver({
+        rawBody: deliveryBody({
+          changes: [],
+          messaging: [
+            {
+              sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
+              recipient: { id: account.instagramUserId },
+              timestamp: ITEM_TIME_MILLISECONDS,
+              message: { mid: 'm_page_less_fixed', text: 'hello again' },
+            },
+          ],
+        }),
+      });
+      expect(response.statusCode).toBe(200);
+      const marks = await readMarks();
+      expect(marks?.messages_webhook_missing_at).toBeNull();
+      expect(marks?.messages_webhook_seen_at).toBeInstanceOf(Date);
+    });
+
     it('an error account’s comment is saved received — it waits in its stopped lanes (WH3)', async () => {
       await setConnectionStatus('error');
 

@@ -5,7 +5,7 @@ import {
   validateChannelConnectCallback,
   validateChannelConnectionIdParam,
   validateChannelConnectionProvider,
-  validateEmptyChannelConnectionBody,
+  validateChannelConnectStartBody,
   validateListChannelConnectionAdAccountsQuery,
   validateListChannelConnectionAdsQuery,
   validateListChannelConnectionsQuery,
@@ -34,10 +34,15 @@ describe('channel connection validators', () => {
     expect(() => validateChannelConnectionIdParam('not-an-id')).toThrow(ValidationError);
   });
 
-  it('takes no body on start and reconnect: none or an empty object', () => {
-    expect(() => validateEmptyChannelConnectionBody(undefined)).not.toThrow();
-    expect(() => validateEmptyChannelConnectionBody({})).not.toThrow();
-    expect(() => validateEmptyChannelConnectionBody({ extra: 1 })).toThrow(ValidationError);
+  it('takes none, an empty object or with_page on start and reconnect (P358)', () => {
+    expect(validateChannelConnectStartBody(undefined)).toEqual({ withPage: false });
+    expect(validateChannelConnectStartBody(null)).toEqual({ withPage: false });
+    expect(validateChannelConnectStartBody({})).toEqual({ withPage: false });
+    expect(validateChannelConnectStartBody({ with_page: false })).toEqual({ withPage: false });
+    expect(validateChannelConnectStartBody({ with_page: true })).toEqual({ withPage: true });
+    expect(() => validateChannelConnectStartBody({ extra: 1 })).toThrow(ValidationError);
+    expect(() => validateChannelConnectStartBody({ with_page: 'yes' })).toThrow(ValidationError);
+    expect(() => validateChannelConnectStartBody({ withPage: true })).toThrow(ValidationError);
   });
 
   it('strips a trailing #_ from the callback code and checks the state', () => {

@@ -93,8 +93,23 @@ export const listChannelConnectionAdsQueryDto = z
 /** The parsed query of {@link listChannelConnectionAdsQueryDto}. */
 export type ListChannelConnectionAdsQueryInput = z.infer<typeof listChannelConnectionAdsQueryDto>;
 
-/** An empty body (routes 1 and 40 take none): absent, `null` or `{}`; any field is a `400`. */
-export const emptyChannelConnectionBodyDto = z.object({}).strict().nullish();
+/**
+ * Body of routes 1 and 40 (start and reconnect): absent, `null`, `{}` or `{ with_page }` — any other
+ * field is a `400`.
+ *
+ * @remarks
+ * `with_page: true` asks for the second login configuration (`META_PAGE_CONFIG_ID`, P358), which
+ * also requests the account's linked Facebook Page and `pages_show_list` — for an account shared
+ * without its Page, whose `messages` webhooks Meta may not send. Absent or `false`: the default
+ * configuration (`META_CONFIG_ID`). Strict.
+ */
+export const channelConnectStartBodyDto = z
+  .object({ with_page: z.boolean().optional() })
+  .strict()
+  .nullish();
+
+/** The parsed body of {@link channelConnectStartBodyDto}. */
+export type ChannelConnectStartBodyInput = z.infer<typeof channelConnectStartBodyDto>;
 
 /** The parsed body of {@link channelConnectCallbackDto}. */
 export type ChannelConnectCallbackInput = z.infer<typeof channelConnectCallbackDto>;

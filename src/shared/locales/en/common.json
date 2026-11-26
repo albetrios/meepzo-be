@@ -8,6 +8,8 @@
     "instagramReconnectRequiredMessage": "Instagram stopped accepting the connection to @{{username}}. Connect the account again so your automations keep running.",
     "instagramAccountSetupFailedTitle": "Finish setting up Instagram",
     "instagramAccountSetupFailedMessage": "Instagram did not accept the set-up of @{{username}}, so its messages and comments may not reach your automations. Open the account and connect it again if this keeps happening.",
+    "instagramMessagesWebhookMissingTitle": "Reconnect Instagram with its Facebook Page",
+    "instagramMessagesWebhookMissingMessage": "Direct messages to @{{username}} are not reaching your automations. Instagram sends them only when the account is shared together with its linked Facebook Page: reconnect, choose the account and its Facebook Page, and allow the permission.",
     "automationStoppedTitle": "Automation stopped",
     "automationStoppedMessage": "{{automationName}} on @{{username}} stopped after repeated errors. Open it to see what happened and turn it back on.",
     "contactDetailsLeftTitle": "New contact details",

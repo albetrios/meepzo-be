@@ -45,7 +45,10 @@ stays here (`InstagramAccountErasureService`).
   (its delete), the subscription sweep's page and the profile refresh, the webhook's SECURITY DEFINER
   resolver; worker and retention factories
 - `instagram-account-extension.service.ts` — the extension's one writer (2.A.10): create at the pick,
-  the webhook stamp, the revoke's stamp clear, the profile erase
+  the webhook stamp, the revoke's stamp clear, the profile erase, the messaging-webhook marks (P358)
+- `instagram-messages-webhook-watch.util.ts` — the messaging-webhook watch's pure rules (P358): when the
+  subscription check reads Meta's conversations (subscribed over 24 hours, no messaging item since, the hour's
+  first window), when it flags, when the webhook store writes the seen mark (at most hourly)
 - `instagram-account.serializer.ts` — the `instagram` object of the channel account (2.A.6)
 - `instagram-account.constants.ts` — the status type (the channel account's) and the broken statuses a
   Meta error classifies, the audit resource type (shared with route 3), the frontend's Instagram page
@@ -183,7 +186,14 @@ the sending gate first:
 - **Webhook subscription check** (`instagram-webhook-subscription-check`, WC-25) — the 10-minute sweep
   adds one per connected account, spread by account id. A field off on a stamped account: the stamp
   emptied, a new set-up, the team alert (`app.instagram_account.webhook_subscription_lost`) and the
-  missed-comment look (WC-26, a port ROUTE row R39 fills).
+  missed-comment look (WC-26, a port ROUTE row R39 fills). All six on for a stamped account: the
+  **messaging-webhook watch** (P358, Meta's Unified Login limit for an account shared without its linked
+  Facebook Page) — subscribed over 24 hours, no messaging item since (`messages_webhook_seen_at`, written by
+  the webhook store) and Meta's conversations (`GET /{id}/conversations?fields=updated_time`, once an hour)
+  changed after the subscription → `messages_webhook_missing_at` set (once) and one notification and email
+  to the `instagram-account:manage` holders ("Reconnect Instagram with its Facebook Page", once key = the
+  account and its subscription time); the channel account shows `is_messages_webhook_missing`. The next
+  messaging item clears it; so does the stamp's clearing.
 - **Starter-question sync** (`instagram-starter-question-sync`, WC-31) — after a go-live, pause, delete
   or question change of a starter-question automation (the automation service's port): the account's
   whole ice-breaker list (oldest automation first, at most four, payload `starter:<aut_…>`), or its

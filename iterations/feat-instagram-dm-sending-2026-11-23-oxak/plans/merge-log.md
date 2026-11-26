@@ -197,3 +197,14 @@ erase tests' `eraseContactRow` mints `PRINCIPAL_SCOPE.JOB`). No conflicts.
 | Read-only reviews (RLS, production hardening) of `2c1a20f..HEAD` | a3ea97b | RLS: no findings beyond one nit (accepted, P262 c); hardening: the per-delivery cap (fixed, P262) and two minor limits (accepted, P262 a, b) |
 
 The pre-push hook runs the full unit suite and `sonar:scan` once more at the push.
+
+## Main ← lane B 1b912d8..ad72aa6 (fast-forward) and lane C db8fcee (owner round 2, 2026-11-26)
+
+Owner answers (2026-11-26): token — never-expiring login configuration (P359); Page-less DMs — detect and
+guide now (P358, P360–P363); build the early hello tap, the `plan_downgrade` expiry reason and the broadcast
+role-change test (P263–P268).
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/decisions.md` (tail) | ours P263–P268 (lane B); theirs P358–P363 (lane C) | both, ours first | none: no duplicate numbers |
+| `migrations/` | lane B `20261126100000_…plan_downgrade_reason.sql`; lane C `20261126024021_…messages_webhook_watch.sql` | both kept; independent (different tables/constraints), so the timestamp order does not matter | none |

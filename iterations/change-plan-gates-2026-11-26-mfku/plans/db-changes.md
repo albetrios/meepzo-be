@@ -1,18 +1,18 @@
 # DB changes — change-plan-gates-2026-11-26-mfku
 
-Mode **initial** (Baseline `none`, Intake mode `brief`) · Intake hash `26273bac1cb0` · updated 2026-11-26 (Steps 1–3).
+Mode **initial** (Baseline `none`, Intake mode `brief`) · Intake hash `26273bac1cb0` · updated 2026-11-26 (Steps 1–3; the owner's answers, [decisions.md](decisions.md) P1–P15).
 
-**No new table.** The iteration changes how plan gates are read and enforced, not what is stored. The one
-table that may change is the per-organization override table: its allowed key list (and, depending on
-Q4 and Q5, the key spelling and a seat key). Everything else below is context, so the gate reads can be
-traced.
+**No new table.** The iteration changes how plan gates are read and enforced. Two stored things change, each in
+a new billing migration (`docs/reference/data/migrations.md`): the per-organization override table's key
+spelling (P2 — namespaced; no seat key, P11), and the Free plan's catalog values (P13 — segments and broadcasts
+on). Everything else below is context, so the gate reads can be traced.
 
 | Change | Count | Tables |
 | --- | --- | --- |
 | NEW | 0 | — |
-| CHANGED | 1 (pending Q4/Q5) | `billing.organization_entitlement_overrides` |
+| CHANGED | 2 | `billing.organization_entitlement_overrides` (key spelling, P2) · `billing.plans` (the Free plan's feature values — data, P13) |
 | REMOVED | 0 | — |
-| EXISTING (context) | 4 | organization, plan, subscription, message month count |
+| EXISTING (context) | 3 | organization, subscription, message month count |
 
 ## Overview
 
@@ -20,7 +20,7 @@ traced.
 erDiagram
   organization["organization · EXISTING · tenancy.organizations"]
   subscription["subscription · EXISTING · billing.subscriptions"]
-  plan["plan · EXISTING · billing.plans"]
+  plan["plan · CHANGED (data) · billing.plans"]
   organization_entitlement_override["organization_entitlement_override · CHANGED · billing.organization_entitlement_overrides"]
   message_month_count["message_month_count · EXISTING · app.message_month_counts"]
   organization ||--o| subscription : "pays through"
@@ -40,18 +40,22 @@ erDiagram
 - **Sources:** BRIEF:L19-L27, BRIEF:L89, BRIEF:L109, BRIEF:L120; code: the allowed key list holds 13 bare keys
   (11 switches + `message_month_limit`, `channel_accounts_max`).
 - **Added / Replaced:**
-  - *pending Q4:* key spelling becomes namespaced (`instagram.email_ask`, …): the allowed list
-    changes, and stored rows are rewritten to the new spelling in the same step.
-  - *pending Q5:* a seat key (the seat ceiling) becomes allowed, so a seat limit can be one override row (BRIEF:L120).
+  - **P2 — the key spelling becomes namespaced** (`instagram.email_ask`, `instagram.message_month_limit`, …;
+    the final names come from the key registry at Step 6). One new billing migration widens
+    `chk_organization_entitlement_overrides_key` to the namespaced list, rewrites the stored rows to the new
+    spelling, then narrows the CHECK to the namespaced list only. The override routes and
+    `GET /billing/entitlements` return and accept the namespaced keys (route-changes; a contract change for
+    meepzo-fe).
+  - **P11 — no seat key**: seats stay outside the overrides (unlimited, D55); AC-6 holds for the other limits.
   - The allowed list is read from the one key registry instead of two hand lists.
-- **Open:** Q4 (namespacing and migration), Q5 (seat key).
+- **Open:** none (P2, P11).
 
 ```mermaid
 erDiagram
   organization_entitlement_override["organization_entitlement_override · CHANGED · billing.organization_entitlement_overrides"] {
     id id PK
     id organization_id FK
-    choice key "CHANGED: allowed list read from the key registry; spelling and a seat key pending Q4/Q5"
+    choice key "CHANGED: namespaced spelling (P2), allowed list from the key registry; no seat key (P11)"
     json value
     datetime expires_at
     text reason
@@ -71,15 +75,19 @@ erDiagram
   (`organization`).
 - **Table:** `billing.plans`, `billing.subscriptions`, `tenancy.organizations` (exist).
 - **Sources:** BRIEF:L21 (resolve wraps today's plan-access read, which joins these in one statement).
-- **Added / Replaced:** none.
-- **Open:** Q4 (whether the Free plan **is** the "global default" layer, or the registry carries a code
-  default per key).
+- **Added / Replaced:**
+  - **P13 — the Free plan turns `segments` and `broadcasts` on** (its `features.feature_switches`): a data change to
+    the Free plan row, in a new billing migration (or the plan seed, per the migrations rule) under the
+    namespaced keys of P2. Supersedes oxak P76 / BC3's Free values.
+  - **P15 (AMBER) — the Free plan is the "global default" layer**: a key no paid plan or override sets reads
+    the Free plan's value; the registry carries no code default per key.
+- **Open:** none (P13; P15 to confirm at the plan review).
 
 ```mermaid
 erDiagram
-  plan["plan · EXISTING · billing.plans"] {
+  plan["plan · CHANGED (data) · billing.plans"] {
     id id PK
-    json features
+    json features "CHANGED (data): the Free plan's segments and broadcasts on (P13)"
     number included_seats
   }
   subscription["subscription · EXISTING · billing.subscriptions"] {

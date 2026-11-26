@@ -7,7 +7,7 @@
 | Intake mode | brief — from scratch |
 | Intake hash | `f1ff32a8eb81` |
 | Date | 2026-11-26 |
-| Stage | Step 5 — sub-domain 1 drafted in `routes-final.md` (rev 1); route numbers added |
+| Stage | Step 5 — sub-domain 1 final (C-D11); sub-domain 2 drafted (rev 1) |
 
 Every route is a **proposal** — what must be true; the built truth is `docs/routes.txt`. Paths are under
 `/api/v1/app/social/`. Permission codes keep today's split: `channel-account:manage` writes, `channel-account:read` reads.

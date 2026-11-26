@@ -32,7 +32,7 @@ erDiagram
 | --- | --- | --- | --- | --- |
 | DB-1 | `app.instagram_accounts` | the "Allow access to messages" probe result is logged only | `message_access` (`on` · `off` · `unknown`, default `unknown`) and `message_access_checked_at` (nullable), written by the set-up probe and by an on-demand re-check | brief:L85 |
 | DB-2 | `app.instagram_accounts` | linked Page not read | `linked_page_id` (digits, nullable), written once owner test O6 shows its source; `null` until then ([C-D6](decisions.md)) | brief:L87 |
-| DB-3 | `app.channel_accounts` | permissions only on the connection (`scopes`) | `scopes` (list of permission names, nullable — `null` means the connection's scopes stand) and `scopes_read_at`; filled from `/debug_token` `granular_scopes` once owner test O1 passes | brief:L89 |
+| DB-3 | `app.channel_accounts` | permissions only on the connection (`scopes`) | `scopes` (list of permission names, nullable — `null` means the connection's scopes stand) and `scopes_read_at`; filled from `/debug_token` `granular_scopes` once owner test O1 passes; at most 20 names, like the connection's (routes-final AC5) | brief:L89 |
 
 No change: `app.channel_connections` — a connection left with no account is found by its accounts (none not-revoked) and
 its `connected_at`; no new column — the clean-up's 7 days ([C-D3](decisions.md)) count from `connected_at`.

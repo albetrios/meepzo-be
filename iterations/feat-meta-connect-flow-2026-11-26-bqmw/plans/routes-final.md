@@ -16,9 +16,9 @@ start at **151**.
 
 | # | Sub-domain | Folder (`src/domains/app/sub-domains/…`) | Paths (`/social/…`) | Routes touched | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Channel connection | `channel-connection/` | `channel-connections` (+ `connect-options`, `shared-assets`) | 2 changed (2, 3), 2 new (151, 152) | team, billing plan access | **rev 1 — awaiting your OK** |
-| 2 | Channel account | `channel-account/` | `channel-accounts` (+ `capabilities`) | 2 changed (6, 7), 1 new (153), 1 error change (every `409 permission_not_granted`) | 1 | draft |
-| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks` | 1 new (154) | 2 | draft |
+| 1 | Channel connection | `channel-connection/` | `channel-connections` (+ `connect-options`, `shared-assets`) | 2 changed (2, 3), 2 new (151, 152) | team, billing plan access | **final (rev 1, confirmed 2026-11-26)** |
+| 2 | Channel account | `channel-account/` | `channel-accounts` (+ `capabilities`) | 1 new (153), 1 error change (every `409 permission_not_granted`) | 1 | **rev 1 — awaiting your OK** |
+| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks`; the `instagram` block of routes 6, 7 | 2 changed (6, 7), 1 new (154) | 2 | draft |
 
 Total: **4 new routes, 4 changed** — no route removed. Every new path names the `channel` of what it answers, so a
 Facebook Page arrives as one more `channel` value (Pages sketch, sub-domain 2).
@@ -58,7 +58,7 @@ No new table. Three tables gain columns (DB-1–DB-3); each stays in its folder.
 
 ---
 
-## 1. Channel connection — rev 1 (2026-11-26) — no nested sub-domain changes; awaiting your OK
+## 1. Channel connection — final (rev 1, confirmed 2026-11-26) — no nested sub-domain changes
 
 Code: `channel-connection/` (the connection at the folder root; the adapter folder `channel-connection-meta/` has no
 routes). The provider login: start, callback, pick, reconnect, list, read, disconnect, ad picker, Meta's callbacks.
@@ -176,3 +176,104 @@ column and no new index — the token check already selects due connections by `
 ### 1.12 Nested sub-domains
 
 None changed — `channel-connection-meta/` (no routes) gains nothing in this sub-domain.
+
+---
+
+## 2. Channel account — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+
+Code: `channel-account/` (the common account row, the capability list `CHANNEL_CAPABILITIES`, the one feature check).
+This iteration lets the frontend read **what each account can do and why not** (brief outcomes 4, 15, 16, 17), gives the
+feature check per-account permissions (DB-3), names the Meta permission in its refusal, and writes the Pages sketch.
+
+### 2.1 Decisions (whole sub-domain)
+
+| # | Decision |
+| --- | --- |
+| AC1 | **Route 153 — `GET /channel-accounts/{channel_account_id}/capabilities`** (outcome 4, C-D7). Today the feature check runs only when a feature is used and refuses `409 permission_not_granted` / `plan_lacks_feature` (`channel-account.service.ts:159-185`); nothing lists the states. After: one read answering `features[]` — **every** feature of `CHANNEL_FEATURES` run through the **same** `checkFeature` (no second rule set), each `{ feature, is_allowed, reason, permission, plan_switch, fix }` — and `blockers[]`, the account-level states that stop sending whatever the feature (AC2). |
+| AC2 | **Blockers reuse what is already stored** — no new state: `connection_error` (the connection or account `error`, `last_check_error`), `account_not_shared` / `login_expired` / `access_off` / `plan_*` (the account's `active_stop.reason`, the lane service's answer route 7 already reads), `messages_webhook_missing` (`instagram.is_messages_webhook_missing`), `paused` (`paused_at`). Each with its `fix`: `reconnect` · `reconnect_with_page` · `turn_on_message_access` · `share_account_in_meta` · `upgrade` · `resume` · `none`. |
+| AC3 | **The fix of a feature refusal** is fixed per reason: `permission_not_granted` → `reconnect` (Meta's login asks for the missing permission again), `plan_lacks_feature` → `upgrade`, `feature_not_offered` → `none` (waits on Meta's review), `channel_lacks_feature` → `none`. |
+| AC4 | **The refusal names the permission** (RC-9). Today `409 permission_not_granted` carries `feature` = the plan key (`channel-account-error.util.ts:57,64`). After: it also carries `permission` (`CHANNEL_FEATURES[feature].permission`), so the frontend asks for exactly that one. |
+| AC5 | **Per-account permissions** (DB-3, outcome 4, brief:L89). Today `checkFeature` reads `connectionScopes` (the connection's `scopes`). After: `app.channel_accounts.scopes` (nullable list) and `scopes_read_at`; the check reads `account.scopes ?? connection.scopes`. The daily token check fills it from `/debug_token` `granular_scopes`: a permission whose `target_ids` include the account's `provider_account_id` — or that lists no `target_ids` (app-wide) — is the account's. Until owner test O1 shows `granular_scopes` for this token type, the column stays `null` and nothing changes. |
+| AC6 | **Pages sketch** (brief:L78, L110) — written below (2.10) and checked against every route: a Facebook Page is one more `channel` value; **no route of this iteration changes**. |
+
+### 2.2 Open questions
+
+None. AC5 is gated on owner test O1 (behaviour unchanged until then).
+
+### 2.3 Tables and relations
+
+| Table | Change |
+| --- | --- |
+| `app.channel_accounts` | **+ `scopes`** — list of Meta permission names, nullable (`null` = the connection's stand), at most 20 (as the connection's); **+ `scopes_read_at`** — timestamp, nullable. Written only by the token check through the channel-account service. RLS unchanged (row-level, FORCE). |
+
+**PostgreSQL design**: `scopes text[] NULL` with `CHECK (scopes IS NULL OR cardinality(scopes) <= 20)` added `NOT
+VALID` then validated (every row `NULL`); `scopes_read_at timestamptz NULL`. No index — read with the row.
+
+### 2.4 Permissions
+
+| Code | Allows | Routes | Held by default |
+| --- | --- | --- | --- |
+| `channel-account:read` | list, read, **capabilities** | 6, 7, **153** | Owner, Admin, Editor, Viewer |
+| `channel-account:manage` | disconnect, pause, resume, activate | 8–11 | Owner, Admin |
+
+### 2.5 Common to every route
+
+As 1.5 (base `/api/v1/app/social`, team organizations only).
+
+### 2.6 Objects returned
+
+| Object | Shape |
+| --- | --- |
+| Capabilities (route 153) **new** | `{ channel_account_id, channel, scopes_source: "account" \| "connection", features: [{ feature, is_allowed, reason, permission, plan_switch, fix }], blockers: [{ blocker, since, fix }] }` — `reason`, `permission`, `plan_switch`, `fix` are `null` when allowed |
+| `409 permission_not_granted` | **+ `permission`** beside `feature` |
+| Channel account (routes 6, 7) | unchanged in this sub-domain (its `instagram` block changes in sub-domain 3) |
+
+### 2.7 Routes
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 153 | GET | `/channel-accounts/{channel_account_id}/capabilities` | What this account can do, and why not **(new)** | `channel-account:read` | |
+| 6–11 | | today's paths | unchanged | as today | as today |
+
+### 2.8 Request details
+
+Route 153: none.
+
+### 2.9 Errors
+
+| Route | Status · reason | When |
+| --- | --- | --- |
+| 153 | `404` · `channel_account_not_found` | not this organization's, or revoked |
+| every feature use | `409` · `permission_not_granted` **+ `permission`** | as today, now naming Meta's permission (AC4) |
+
+### 2.10 Rules worth knowing — and the Pages sketch
+
+- Route 153 and every feature use read the **same** `checkFeature` with the same inputs, so the screen and the
+  refusal never disagree. Route 153 calls no Meta.
+- `scopes_source` tells the frontend whether a per-account answer (AC5) or the connection's stands.
+
+**Pages sketch** (not built — the check that this iteration's contract needs no change):
+
+| Piece | A Facebook Page later | Changes a route of this iteration? |
+| --- | --- | --- |
+| Login | the same Unified Login configuration adds `pages_*` permissions; route 1, 2, 40 unchanged | no |
+| What the login shared (151) | lists Pages as `channel: "facebook_page"` assets beside Instagram ones (`/me/assigned_pages` or Meta's documented read — a Meta test then) | no — `channel` already in the shape |
+| Pick (3) | `provider_account_ids` with a `channel` per pick (today's body already carries `channel`) | no |
+| Account row | `app.channel_accounts.channel = 'facebook_page'` + a `facebook_pages` extension (like `instagram_accounts`), a Page token per account | no |
+| Capabilities (153) | a `CHANNEL_CAPABILITIES.facebook_page` entry; the same check | no |
+| Page-only routes | under `/social/facebook/pages/{channel_account_id}/…`, as Instagram-only ones are under `/social/instagram/accounts/…` | new routes, none changed |
+| Webhooks | Meta's `page` object at its own per-object path beside `…/meta/webhooks/instagram` | new routes, none changed |
+
+### 2.11 Code changes (whole sub-domain)
+
+| # | Change |
+| --- | --- |
+| ACC1 | AC1–AC3: route 153 (routes, controller, `ChannelAccountService.listCapabilities` over `checkFeature` and the stored states, serializer, schema doc, route catalog); the fix map as a constant beside `CHANNEL_FEATURE_REFUSAL_REASONS` |
+| ACC2 | AC4: `permission` via `withFields` on `permission_not_granted`; i18n detail |
+| ACC3 | AC5: columns + migration (expand only), Drizzle schema, the check's input `account.scopes ?? connection.scopes`; the token check's writer (sub-domain 1 worker, through this service) behind owner test O1 |
+| ACC4 | Tests: route 153 — allowed, each refusal reason with its permission / plan switch / fix, each blocker from a stored state, viewer can read, another organization's 404; the 409 names the permission; per-account scopes override the connection's and a `null` falls back |
+
+### 2.12 Nested sub-domains
+
+None.
+

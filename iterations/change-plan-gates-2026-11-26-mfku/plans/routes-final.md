@@ -1,5 +1,7 @@
 # meepzo API — plan gates, final design part by part
 
+**Route review final — 2026-11-26.** Every part is confirmed (P25, P28, P30, P31, P32, P34).
+
 Started from `feat/instagram-automation` at `165297b` (2026-11-26). The shape is
 [`routes-final-template.md`](../../../docs/design-workflow/process/routes-final-template.md). This iteration
 adds no route and no table, so most parts are about **who answers a plan question and where it's declared**.
@@ -21,10 +23,10 @@ Each part builds on the ones above it.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **final (rev 1, confirmed 2026-11-26)** |
-| 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **rev 1 — awaiting your OK** |
-| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | draft |
-| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | draft |
-| 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | draft |
+| 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **final (rev 1, confirmed 2026-11-26)** |
+| 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | **final (rev 1, confirmed 2026-11-26)** |
+| 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | **final (rev 1, confirmed 2026-11-26)** |
+| 6 | Paid-job declarations | queue worker registry + every job | none | 0 | 1, 4 | **final (rev 1, confirmed 2026-11-26)** |
 
 Total: **0 routes added or removed.** 1 route changes its output (the entitlements read gains a source per
 value); 16 plan-gated writes answer one refusal shape; all 128 writes declare a plan gate.
@@ -263,7 +265,7 @@ None.
 
 ---
 
-## 3. Route plan-gate declaration and the one guard — rev 1 (2026-11-26) — cross-cutting; awaiting your OK
+## 3. Route plan-gate declaration and the one guard — final (rev 1, confirmed 2026-11-26) — cross-cutting
 
 Code: no single folder. The declaration type sits beside the other route-config fields (`src/fastify.d.ts`),
 the guard is built by the entitlement module (part 1) and registered once in `src/routes.ts`, and each
@@ -283,16 +285,14 @@ reads the declarations, and the coverage test reads the live routes instead of t
 | RG1 | **The declaration is a typed field of the route config**, `planGate`, beside `idempotencyRequired`. Today the gates are written only in a test helper (`src/tests/helpers/route-plan-gate-model.ts`, 128 entries). After: `planGate` is either `{ gates: [...] }` or `{ open: '<one line>' }`, the shape the model already uses (reused). A gate is `read_only`, `feature:<switch key>` or `limit:<limit key>`, typed from the registry (part 1), so an unknown key fails to compile. The model's names map one to one: `read_only_guard` → `read_only`, `account_limit` → `limit:channel_accounts_max`, `seat_limit` → `limit:seats`, `month_limit` → `limit:message_month_limit`. |
 | RG2 | **Shared open reasons move with it.** The model's reason constants (identity, user, paying, team, removing, draft, Meta callback, contact, account) move into the entitlement module beside the registry, so a route file and the coverage test cite the same words. |
 | RG3 | **One guard, attached by one route hook.** Today `createAppPlanAccessPreHandler` (app) is built in `app.routes.ts` and hand-placed first on 2 routes. After: the entitlement module builds the guard, and `src/routes.ts` registers one route hook after the domain containers and before the domain route plugins. For every route declaring `read_only`, the hook puts the guard **first** in the route's pre-handlers, so the order stays authenticate → plan guard → role permission → idempotency claim (the idempotency plugin still appends its claim last) (P4). The app's hand-made guard and its wiring are removed. |
-| RG4 | **The guard enforces `read_only` only** *(pending your answer, 3.2 Q-RG1)*. `feature:` and `limit:` declarations are recorded and checked by the coverage test, but enforced where they're used: services call `can()` / `limit()` (parts 4, 5), and counters keep their locks (P23). Those checks need the request body (which PRO parts a save turns on) or a transaction, and moving them ahead of the permission check or validation would change which error a caller sees (K1). Other option: the guard also enforces the unconditional switch gates (create broadcast, the 3 segment writes, past comments) before the permission check. |
+| RG4 | **The guard enforces `read_only` only** (P29). `feature:` and `limit:` declarations are recorded and checked by the coverage test, but enforced where they're used: services call `can()` / `limit()` (parts 4, 5), and counters keep their locks (P23). Those checks need the request body (which PRO parts a save turns on) or a transaction, and moving them ahead of the permission check or validation would change which error a caller sees (K1). Other option: the guard also enforces the unconditional switch gates (create broadcast, the 3 segment writes, past comments) before the permission check. |
 | RG5 | **The guard hands its snapshot on** (P24). On a route the guard runs on, it resolves once and attaches the snapshot to the request; the controller passes it to the service, so go-live and broadcast send do one plan read (today the guard, the switch check and the month-limit read each read plan access). Routes without the guard resolve once in their service. |
 | RG6 | **The coverage test reads the live routes.** Today it parses `docs/routes.txt` against the hand-kept model, and only the read-only check registers real routes. After: it builds the app with the existing test app builder, collects every route's `planGate` through a route hook, and fails on a write with no declaration, an empty or multi-line open reason, or a gate key not in the registry; the `read_only` set equals the routes the guard attached to. The route half of the hand-kept model is deleted (its job half moves in part 6). |
 | RG7 | **The order test comes first** (R2, P4). Before anything moves, a test pins the pre-handler order on go-live and broadcast send: plan guard → role permission → idempotency claim. It passes on today's code and must still pass after RG3. |
 
 ### 3.2 Open questions
 
-| # | Question | Recommendation | Other option |
-| --- | --- | --- | --- |
-| Q-RG1 | Does the one guard enforce more than `read_only`? (RG4) | **`read_only` only**; feature and limit gates are declared, and enforced where used | the guard also enforces the unconditional switch gates before the permission check, which changes which 403 a caller without permission sees |
+None. Q-RG1 was answered by P29: the guard enforces `read_only` only.
 
 ### 3.3 Tables and relations
 
@@ -374,8 +374,237 @@ None.
 
 ---
 
-## 4. App gate users — draft
+## 4. App gate users — final (rev 1, confirmed 2026-11-26) — seven sub-domains, no new nested ones
 
-## 5. Seats — draft
+Code: the app sub-domains that read plan access today: `automation/` (with the run engine and past-comments
+read), `broadcast/` with `broadcast-segment/`, `channel-account/` (with its plan-stop service),
+`channel-connection/`, `instagram-account-settings/` and `instagram-sending/` (the month counter, the send gate
+and the usage meter).
 
-## 6. Paid-job declarations — draft
+4.1 Decisions · 4.2 Open questions · 4.3 Tables and relations · 4.4 Permissions · 4.5 Common to every route ·
+4.6 Objects returned · 4.7 Routes · 4.8 Request details · 4.9 Errors · 4.10 Rules worth knowing ·
+4.11 Code changes · 4.12 Nested sub-domains.
+
+Every app read of plan access moves to the entitlement module (K3). The checks stay where they are and do what
+they do today; only the question ("ask the module") and the refusal body ("one builder") change.
+
+### 4.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| AP1 | **Every app plan read goes through the module.** Today 8 app call sites read `getPlanAccess` directly: the automation's `readPlanSwitches` (save, read, the reply-like-person default), the run engine's switch read per event, the channel account's `applyOrganizationPlanStops`, weekly summary, `readFeatureInputs` and `readAccountsMax`, the connection's account pick and connect, the usage meter, the month count's `readMonthLimit`, the plan-stop service, and the reply lane's reply-like-person check in the app container. After: each resolves **once** per request or job (P24) and reads `can()` / `limit()` from the snapshot; the plan-change follow-up job reads through the module too. |
+| AP2 | **The channel feature check stays the composer** (P20). Its order (channel lacks it → Meta permission not granted → plan lacks it → not offered) and AC-2.8 are untouched; only its plan step becomes `can()`, and the plan refusal comes from `buildPlanRefusal`. The three channel reasons (`channel_lacks_feature` 422, `permission_not_granted` 409, `feature_not_offered` 422) are channel facts, not plan refusals, and stay in app. |
+| AP3 | **Automation save refuses through the builder.** Today a save that turns a PRO part on without the switch throws the automation's own `planLacksFeatureError`. After: the same `403 plan_lacks_feature` with `feature` and `upgrade_required`, from `buildPlanRefusal`. The run engine keeps **skipping** an off step silently (the downgrade rule) and asks `can()`. |
+| AP4 | **Counted limits keep their locks** (P8, P23). The send gate's month guard (advisory lock, lane locks, the counter's add inside the claim) is unchanged and reads its ceiling with `limit('message_month_limit')` before the claim, as today; its refusal `409 message_month_limit_reached` comes from the builder and gains `limit`, `used`, `resets_on` (P6). The account cap keeps its advisory lock and count, reads `limit('channel_accounts_max')`, and refuses `409 plan_account_limit` through the builder. |
+| AP5 | **Plan stops and the usage meter read the snapshot.** The plan-stop service maps `read_only` to `plan_ended` from the snapshot's state, as today; `GET /app/usage` serializes one snapshot (no output change). |
+| AP6 | **Free's new switches need no code** (part 2): segment and broadcast checks read the plan values. |
+
+### 4.2 Open questions
+
+None: every decision moves an existing check onto the module without changing what it answers.
+
+### 4.3 Tables and relations
+
+No change. Read for context: `app.message_month_counts` (the month counter, lane C) and the channel accounts (the account cap's count).
+
+### 4.4 Permissions
+
+None change.
+
+### 4.5 Common to every route
+
+As each sub-domain has it today; the plan gate declarations are part 3's.
+
+### 4.6 Objects returned
+
+| Object | Change |
+| --- | --- |
+| Plan refusal on the 13 gated app writes | one builder (part 1, EN5); the month refusal gains `limit`, `used`, `resets_on` (P6) |
+| Usage (`GET /app/usage`) | none |
+
+### 4.7 Routes
+
+The 13 gated app writes are part 3's routes 1–13 (their declarations are listed there); `GET /app/usage` is
+read-only and unchanged. No route is added, removed or moved.
+
+### 4.8 Request details
+
+None change.
+
+### 4.9 Errors
+
+| Reason | Status | Routes (part 3 numbering) | Change |
+| --- | --- | --- | --- |
+| `organization_read_only` | 403 | 4, 6 | built by the module |
+| `plan_lacks_feature` | 403 | 1, 2, 4, 5, 6, 7, 8, 9, 13 | built by the module; Free no longer gets it on 5–9 for `broadcasts` / `segments` (part 2) |
+| `message_month_limit_reached` | 409 | 3, 4, 6, 10 | built by the module; gains `limit`, `used`, `resets_on` (P6) |
+| `plan_account_limit` | 409 | 11, 12 | built by the module |
+| `channel_lacks_feature` 422 · `permission_not_granted` 409 · `feature_not_offered` 422 | — | 2, 4, 13 | unchanged; stay in app (AP2) |
+
+### 4.10 Rules worth knowing
+
+- A refusal that isn't about the plan (a channel fact, a Meta permission) never comes from the module.
+- A switch turned off stops new use; what already exists stays saved, and the run engine skips the step (downgrade rule).
+- Sends never gain a plan read: lane turns stay held by the account's stored plan stop (P12).
+
+### 4.11 Code changes
+
+| # | Change |
+| --- | --- |
+| APC1 | AP1: the 8 app call sites and the plan-change follow-up read through `resolve` / `can` / `limit`; the app container wiring takes the entitlement service instead of the subscription service's plan read |
+| APC2 | AP2: the channel feature check's plan step calls `can()`; the plan refusal from the builder |
+| APC3 | AP3: the automation's `planLacksFeatureError` removed; save refuses through the builder; the run engine asks `can()` |
+| APC4 | AP4: the send gate and the account cap read `limit()` and refuse through the builder; locks and counter untouched |
+| APC5 | Tests: the existing integration and unit tests pass unchanged, plus body-shape assertions on every refusal; the month-cap DB tests, AC-22.4 and the account-race tests unchanged (BRIEF:L123); AC-2.8 unchanged |
+
+### 4.12 Nested sub-domains
+
+None added.
+
+---
+
+## 5. Seats — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
+
+Code: `tenancy/sub-domains/membership/` (the add-member seat check) and the late-wired seat port it calls,
+satisfied today by billing's subscription service.
+
+5.1 Decisions · 5.2 Open questions · 5.3 Tables and relations · 5.4 Permissions · 5.5 Common to every route ·
+5.6 Objects returned · 5.7 Routes · 5.8 Request details · 5.9 Errors · 5.10 Rules worth knowing ·
+5.11 Code changes · 5.12 Nested sub-domains.
+
+Seats become a declared limit (P18) answered by the entitlement module, while the locked check that makes two
+concurrent adds safe stays exactly as it is. Every plan has unlimited seats today (P26), so nothing refuses
+until a plan sets a ceiling.
+
+### 5.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| SE1 | **The locked ceiling read stays; tenancy asks the module for it.** Today membership takes a per-organization advisory lock, then calls the seat port's `reserveSeatCeilingForMemberAdd`, which billing's subscription service answers by locking the subscription row (`FOR UPDATE`) and resolving the ceiling (plan included seats, else Free's), then counts and compares. A snapshot read would sit outside that lock, so a plan change could slip between the read and the insert. After: the entitlement module satisfies the seat port's ceiling method by **delegating** to subscription's locked read, unchanged; the port's Stripe seat-sync method stays with subscription. Tenancy no longer reaches billing's plan state except through the module (K3). |
+| SE2 | **The refusal comes from the builder.** Today membership builds its own `409 seat_limit_reached` with `limit`, `used`, `upgrade_required`. After: the same body from `buildPlanRefusal`. |
+| SE3 | **`seats` in the registry**: kind `cap`, product `core`, default unlimited, **not** overridable (P18). Its value in the snapshot is read-only information for the entitlements read (`limits.seats`, as today); enforcement is SE1's locked path, not the snapshot. |
+
+### 5.2 Open questions
+
+None.
+
+### 5.3 Tables and relations
+
+No change. Read under lock for context: `billing.subscriptions` (the row lock), `billing.plans` (included seats), `tenancy.memberships` (the count).
+
+### 5.4 Permissions
+
+None change.
+
+### 5.5 Common to every route
+
+As the membership routes have it today; the declarations are part 3's (`limit:seats`).
+
+### 5.6 Objects returned
+
+None change shape. The seat refusal body is the same, now from the builder.
+
+### 5.7 Routes
+
+Part 3's routes 14–16: add a member, change a membership, restore a membership. No route changes.
+
+### 5.8 Request details
+
+None change.
+
+### 5.9 Errors
+
+`409 seat_limit_reached` (`limit`, `used`, `upgrade_required`): unchanged, now from the builder. It can't occur
+today because no plan sets a ceiling (P26).
+
+### 5.10 Rules worth knowing
+
+- Two concurrent adds can't both pass the ceiling: the advisory lock and the subscription row lock stay (SE1).
+- A super-admin can't override seats (P18); a seat ceiling is plan data.
+
+### 5.11 Code changes
+
+| # | Change |
+| --- | --- |
+| SEC1 | SE1: the entitlement module satisfies the seat port's ceiling method by delegating to subscription's locked read; the composition root wires the port's ceiling to the module and its Stripe sync to subscription |
+| SEC2 | SE2: membership refuses through `buildPlanRefusal` |
+| SEC3 | SE3: `seats` in the registry (part 1, ENC1) |
+| SEC4 | Tests: the seat-race and per-organization row-cap tests (`src/tests/unit/per-organization-row-caps.unit.test.ts` pins the lock-then-ceiling order) pass unchanged; a body-shape assertion on the seat refusal |
+
+### 5.12 Nested sub-domains
+
+None.
+
+---
+
+## 6. Paid-job declarations — final (rev 1, confirmed 2026-11-26) — cross-cutting
+
+Code: the worker registry (`src/infrastructure/queue/worker-runtime/worker-registration.registry.ts`), the
+queue and job-schema files that name each job, and the coverage test.
+
+6.1 Decisions · 6.2 Open questions · 6.3 Tables and relations · 6.4 Permissions · 6.5 Common to every route ·
+6.6 Objects returned · 6.7 Routes · 6.8 Request details · 6.9 Errors · 6.10 Rules worth knowing ·
+6.11 Code changes · 6.12 Nested sub-domains.
+
+The job half of the hand-kept model moves into the code, so a new paid job can't merge without saying which
+plan gate it meets. Behaviour doesn't change (P12).
+
+### 6.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| JG1 | **Where a job declares** (P33). Today 12 paid jobs are listed in the test helper (`JOB_PLAN_GATE_MODEL`), and a job that isn't paid isn't listed, so a forgotten paid job passes. After: **every job a registered queue runs** declares a plan gate, the same shape as routes (`{ gates }` or `{ open: '<one line>' }`), in its queue's entry in the worker registry; the coverage test walks the registry and fails on a job with no declaration. Other option: only the paid jobs declare, beside their job-name constant; a forgotten paid job still passes. |
+| JG2 | **Gates keep today's mechanism** (P12). The 10 jobs that meet the send claim declare `limit:message_month_limit` and `limit:channel_accounts_max` (met at the claim, through the account's stored plan stop); `automation-backfill-read` declares `feature:past_comments`; `segment-count` declares `feature:segments`. Only those last two read a switch live, through `can()` (part 4). No send gains a plan read. |
+| JG3 | **Jobs that only enforce a plan, or do no paid work, declare `open`** with a reason: the plan-change follow-up, the month wake-up, repairing plan stops, the plan-state check ("enforces a plan, does no paid work"), clean-ups, reads and notices. |
+| JG4 | **The hand-kept model is deleted.** With part 3's route half gone, `src/tests/helpers/route-plan-gate-model.ts` has no users left. |
+
+### 6.2 Open questions
+
+None. Q-JG1 was answered by P33: every job declares.
+
+### 6.3 Tables and relations
+
+None.
+
+### 6.4 Permissions
+
+None.
+
+### 6.5 Common to every route
+
+n/a: no route.
+
+### 6.6 Objects returned
+
+None.
+
+### 6.7 Routes
+
+None.
+
+### 6.8 Request details
+
+n/a.
+
+### 6.9 Errors
+
+None change. A job refused by its switch is skipped or flagged as today (`plan_feature_off` for past comments).
+
+### 6.10 Rules worth knowing
+
+- A paid job meets its plan where the paid work happens: the send claim, or its switch at start.
+- `open` on a job is a decision with a reason, like on a route.
+
+### 6.11 Code changes
+
+| # | Change |
+| --- | --- |
+| JGC1 | JG1: a `planGate` per job in each queue's worker-registry entry (typed like routes, part 3 RG1) |
+| JGC2 | JG2, JG3: declarations for every job: the 12 paid jobs carried over from the model; the rest `open` with a reason |
+| JGC3 | JG1: the coverage test walks the worker registry and fails on an undeclared job or a key not in the registry |
+| JGC4 | JG4: `src/tests/helpers/route-plan-gate-model.ts` deleted |
+| JGC5 | Tests: the worker database tests for the send claim, past comments and segment count pass unchanged |
+
+### 6.12 Nested sub-domains
+
+None.

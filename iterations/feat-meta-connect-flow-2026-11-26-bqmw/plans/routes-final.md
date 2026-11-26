@@ -1,5 +1,7 @@
 # Meepzo API — Meta connect flow, final routes, sub-domain by sub-domain
 
+**Route review final — 2026-11-26.** Every sub-domain is confirmed; the frontend may kick off on these routes.
+
 Started from branch `feat/instagram-automation` at `cda7b73` (after the frozen `fix-meta-unified-login`). Every
 decision reads **today → after**; today is the code as built (`src/domains/app/sub-domains/…`, `file:line`).
 Sources: [`coverage.md`](coverage.md) (outcomes 1–19, `brief:L…`), [`decisions.md`](decisions.md) (C-D1–C-D8),
@@ -18,7 +20,7 @@ start at **151**.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Channel connection | `channel-connection/` | `channel-connections` (+ `connect-options`, `shared-assets`) | 2 changed (2, 3), 2 new (151, 152) | team, billing plan access | **final (rev 1, confirmed 2026-11-26)** |
 | 2 | Channel account | `channel-account/` | `channel-accounts` (+ `capabilities`) | 1 new (153), 1 error change (every `409 permission_not_granted`) | 1 | **final (rev 1, confirmed 2026-11-26)** |
-| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks`; the `instagram` block of routes 6, 7 | 2 changed (6, 7), 1 new (154) | 2 | **rev 1 — awaiting your OK** |
+| 3 | Instagram account | `instagram-account/` | `instagram/accounts/{channel_account_id}/message-access-checks`; the `instagram` block of routes 6, 7 | 2 changed (6, 7), 1 new (154) | 2 | **final (rev 1, confirmed 2026-11-26)** |
 
 Total: **4 new routes, 4 changed** — no route removed. Every new path names the `channel` of what it answers, so a
 Facebook Page arrives as one more `channel` value (Pages sketch, sub-domain 2).
@@ -279,7 +281,7 @@ None.
 
 ---
 
-## 3. Instagram account — rev 1 (2026-11-26) — nested sub-domains unchanged; awaiting your OK
+## 3. Instagram account — final (rev 1, confirmed 2026-11-26) — nested sub-domains unchanged
 
 Code: `instagram-account/` (the Instagram part of a channel account, 1:1; nested `instagram-account-settings/`,
 `instagram-media/` unchanged). This iteration **stores** the "Allow access to messages" result the set-up probe

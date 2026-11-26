@@ -18,6 +18,7 @@ Add-only: a changed mind is a new row. Kind: `RED` (answered by the user), `AMBE
 | C-D11 | Step 5 — route review sub-domain 1, Channel connection (CN1–CN10) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
 | C-D12 | Step 5 — route review sub-domain 2, Channel account (AC1–AC6, Pages sketch) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-26 | user | RED |
 | C-D13 | Step 5 — add `linked_page_id` now (always `null`) or when its source is known | now · later | **later** (routes-final IG3): a column no code can fill is dead schema; a fix adds it with its writer after O6 (supersedes C-D6's "stays null") | 2026-11-26 | Claude | AMBER |
+| C-D14 | Step 5 — route review sub-domain 3, Instagram account (IG1–IG5) | confirm · change | **confirmed as drafted** (rev 1); the route review is final | 2026-11-26 | user | RED |
 
 ## Owner items (need the Meta dev app — not code)
 

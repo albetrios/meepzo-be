@@ -8,6 +8,7 @@ import {
   getNotificationParamsDto,
   listNotificationsQueryDto,
 } from './notification.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Returns a Fastify plugin that registers the `/notifications` HTTP routes (list, unread count,
@@ -61,7 +62,10 @@ export function notificationRoutes(service: NotificationService): FastifyPluginA
       {
         // R4: user-scoped mutation — cap per user/IP so a compromised principal
         // cannot churn read-state/cache writes at the global default.
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Mark notification as read',
@@ -76,7 +80,10 @@ export function notificationRoutes(service: NotificationService): FastifyPluginA
       '/notifications/mark-all-read',
       {
         // R4: bulk user-scoped mutation — cap per user/IP.
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Mark all notifications as read',
@@ -91,7 +98,10 @@ export function notificationRoutes(service: NotificationService): FastifyPluginA
       '/notifications/:notification_id',
       {
         // R4: user-scoped destructive mutation — cap per user/IP.
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+        },
         onRequest: [app.authenticate],
         schema: {
           summary: 'Delete notification',

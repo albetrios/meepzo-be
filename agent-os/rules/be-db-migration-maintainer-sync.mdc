@@ -6,4 +6,4 @@ alwaysApply: false
 
 # Migration + schema sync
 
-Editing `migrations/*.sql` or a `*.schema.ts`? Run **[be-db-migration-maintainer](../skills/be-db-migration-maintainer/SKILL.md)** (and **[be-sql-design-guard](../skills/be-sql-design-guard/SKILL.md)** for schemas). Gate: `pnpm db:migrate:lint`. Applied migrations are immutable — add a new one. Full chain: `schema-change` in `agent-os/skills/chains.json`.
+Editing `migrations/*.sql` or a `*.schema.ts`? Run **[be-db-migration-maintainer](../skills/be-db-migration-maintainer/SKILL.md)** (and **[be-sql-design-guard](../skills/be-sql-design-guard/SKILL.md)** for schemas). Gate: `pnpm db:migrate:lint`. A migration merged to `main` is never edited — add a new one; an unmerged one may change in place with a recorded decision ([migrations.md › Since the first release](../../docs/reference/data/migrations.md#since-the-first-release)). Full chain: `schema-change` in `agent-os/skills/chains.json`.

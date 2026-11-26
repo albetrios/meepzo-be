@@ -30,9 +30,9 @@ function signedRequest(payload: unknown, secret = APP_SECRET): string {
 }
 
 /** A correctly signed request whose payload is `rawPayload` as is (not necessarily JSON). */
-function signedRawPayload(rawPayload: string): string {
+function signedRawPayload(rawPayload: string, secret = APP_SECRET): string {
   const encodedPayload = Buffer.from(rawPayload).toString('base64url');
-  const signature = createHmac('sha256', APP_SECRET).update(encodedPayload).digest('base64url');
+  const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
   return `${signature}.${encodedPayload}`;
 }
 

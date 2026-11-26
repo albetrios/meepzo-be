@@ -180,7 +180,7 @@ invite-accepted notification and the organization resource fan-out above.
      - switch on `job.name`
      - log structured metadata (job id, organization id, etc.)
      - be idempotent when possible
-   - **Database access in workers/processors** (never `getRequestDatabase()` or `database-context-runtime` imports):
+   - **Database access in workers/processors** (never `getRequestDatabase()`; importing DB-handle types or `setLocalDatabaseConfig` from `database-context-runtime` is allowed, as in `audit-outbox-drain.processor.ts`):
      - Type handles via `PostgresDatabaseHandle` / `WorkerDatabaseHandle` in `src/infrastructure/database/utils/database-handle.types.ts` and `src/infrastructure/queue/worker-runtime/worker-processor.util.ts`
      - **Runtime guard:** `src/worker.ts` sets `MEEPZO_BE_RUNTIME=worker`. Unpinned `getRequestDatabase()` throws `WorkerDatabaseContextError`. Context kind is tracked in `database-context-runtime.ts` (ALS).
      - Use `runOrganizationScopedWorkerJob`, `runGlobalRetentionWorkerJob`, or `runUserScopedWorkerJob` from `worker-processor.util.ts`, or `createTenantScopedBullMQWorker` for tenant-scoped queues, or call the context wrappers directly
@@ -281,5 +281,5 @@ The strict ratchet at pre-commit and CI ensures none of the four `MISSING_*` tok
 - Don't call integrations directly from services (emit events instead).
 - Don't push jobs from HTTP controllers; keep it in services/events so behavior stays consistent across entrypoints.
 - Don't place **processor** implementations in `src/infrastructure/queue/` — they belong in `src/domains/<domain>/<sub-domain>/workers/*`. Event-driven **queue + enqueue** helpers belong in `src/domains/<domain>/<sub-domain>/queues/*`. Exception: `scheduler.ts` registers repeatable **`upsertJobScheduler`** entries only (no processors).
-- Don't call `getRequestDatabase()` from workers, processors, or `batch-delete.util.ts` — the guard tests block `database-context-runtime` and global `database` pool imports there; use explicit handles from context wrappers and `createWorker*Repository` factories.
+- Don't call `getRequestDatabase()` from workers, processors, or `batch-delete.util.ts` — the guard tests block `getRequestDatabase` and the global `database` / `pool` imports there (DB-handle types and `setLocalDatabaseConfig` from `database-context-runtime` are allowed); use explicit handles from context wrappers and `createWorker*Repository` factories.
 - Don't register a worker outside the registry (`worker-registration.registry.ts`). Budget drift is the most common production-incident class this registry prevents.

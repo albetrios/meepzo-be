@@ -30,6 +30,7 @@ Map the requirement to exactly one entry chain from `chains.json` by its trigger
 | a new/changed table (schema, no new domain)        | **schema-change**     |
 | a new/changed API route (no new table)             | **route-change**      |
 | a new event / queue / worker                       | **worker-change**     |
+| a design iteration (`iterations/<iteration>/`)     | **iteration** — not this skill: `/be-iteration` walks be-iteration-planning → be-kickoff-iteration (`iterations/CLAUDE.md`) |
 
 A requirement that spans several (e.g. new domain **with** routes and a worker) runs the
 **new-domain** chain, which already composes the others' steps. Run `pnpm agent-os:plan-skills <changed-files>`
@@ -53,15 +54,15 @@ map `be-gate-failure-hint.mjs` uses). Practical checkpoints by chain:
 | schema-change  | `pnpm db:migrate:lint` · (RLS review) · `pnpm validate:domain:strict`                                    |
 | worker-change  | `pnpm test:unit` for the worker · `pnpm tsdoc:check`                                                     |
 | new-domain     | all of the above, per the composed steps                                                                |
-| **every step** | `pnpm validate` (lint + format + typecheck) and, for agent-os edits, `pnpm agent-os:check`               |
+| **every step** | `pnpm validate` (lint + format + typecheck + markdown lint — the cadence in `be-agent-behavior.mdc`) and, for agent-os edits, `pnpm agent-os:check` |
 
 If a gate is **red**, this is a **checkpoint**: fix within the owning skill, re-run the gate,
 and only then continue. Never run a later step over a red gate.
 
 ## 4. Finish with the review pipeline
 
-When the chain's steps are green, run the **be-pre-merge-review** pipeline from `pipelines.json`
-(be-sql-design-reviewer → be-production-hardening-reviewer → verifier) and address blocking findings —
+When the chain's steps are green, run the **be-pre-merge-review** pipeline (`pipelines.json`, by name —
+its reviewers and order live there) and address blocking findings —
 each reviewer hands its finding to the procedural skill that fixes it (`pipelines.json` `handoff`).
 Then the change is done per **be-change-completeness-guard** (own tests, cross-cutting suites, docs,
 rules, and skills all moved with it).

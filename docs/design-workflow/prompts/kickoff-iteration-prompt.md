@@ -37,13 +37,15 @@ What happens:
    moves to `Status: implementing`.
 1. **Each ROUTE row** — built through its driver (a NEW table through the
    [staged-build prompt](../../getting-started/staged-build-prompt.md), everything else through
-   `/be-build-requirement`), verified, recorded in `AS-BUILT.md`, its impact on upcoming rows
+   `/be-build-requirement` from the approved row), verified, recorded in `AS-BUILT.md`, its impact on upcoming rows
    checked — a scope change stops and asks — then a stop for your review.
-2. **Close** — the repository's gates, `/be-pre-merge-review` as a review only, every row `done` or
+2. **Close** — the Close gates, `/be-pre-merge-review` (a critical or major finding is fixed or
+   accepted by you), every row `done` or
    `deferred` with your OK, `plans/acceptance.md` filled, the `AS-BUILT.md` summary, then
    `Status: done`.
 
-No success is reported while any row is open, and the agent never pushes, opens a PR or merges.
+No success is reported while any row is open, and the agent never pushes, opens a PR or merges
+unless you ask — then it pushes last, once, after the full gates.
 
 ## Related
 

@@ -11,7 +11,7 @@ Turn one large change into a few **reviewer-friendly** PRs.
 ## Hard rules
 
 - Do **not** create branches, commit, push, or open PRs until the user approves the split plan.
-- Never discard work. No destructive git (`reset --hard`, `clean -fdx`, force-push) without explicit approval.
+- Never discard work. No destructive git (`reset --hard`, `clean -fdx`) without explicit approval; a rewritten branch goes up only with `git push --force-with-lease`, and only with the user's explicit OK (`be-ai-guardrails.mdc`).
 - Save a recoverable snapshot before moving work (especially from dirty `main`).
 - Stage only named files or hunks — no `git add .` / `git add -A`.
 

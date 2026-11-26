@@ -67,7 +67,7 @@ Use `<type>/<short-description>` prefixes:
 - `fix/` — bug fixes
 - `chore/` / `docs/` / `ci/` / `refactor/` / `test/` / `perf/` — maintenance
 
-`main` is the only long-lived branch; `claude/*` is reserved for Claude Code web sessions (platform-assigned — see [trunk-based-workflow.md](docs/process/trunk-based-workflow.md)). The naming policy is enforced by `.husky/pre-push` (bypass once with `SKIP_BRANCH_CHECK=1 git push`).
+`main` is the only long-lived branch; `claude/*` is reserved for Claude Code web sessions (platform-assigned — see [trunk-based-workflow.md](docs/process/trunk-based-workflow.md)). The naming policy is enforced by `.husky/pre-push`; a branch that fails it is renamed (`git branch -m <type>/<short-description>`) — the only bypass is the release-tag hotfix in [hotfix-release.md](docs/deployment/runbooks/hotfix-release.md).
 
 ## Commits and releases
 

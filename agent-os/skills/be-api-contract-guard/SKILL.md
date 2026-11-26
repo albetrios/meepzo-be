@@ -40,7 +40,7 @@ indexNote: route params / public-ids / method→status policy / header matrix �
 | --- | ---- | --------- | ------ |
 | 200 | 200  | 200       | 204    |
 
-Exceptions (protocol-owned, stay 200): `POST /billing/webhook`, `POST /api/v1/mcp`.
+Protocol-owned routes that keep the uniform 200: `POST /billing/webhook`, `POST /api/v1/mcp`. The one status exception is the Apple form callback, `POST /auth/oauth/apple/callback` → **303** — the single entry of `METHOD_STATUS_POLICY_EXCEPTIONS`.
 The policy is enforced centrally in `method-status-policy.middleware.ts`; declared statuses live in `tooling/openapi/route-catalog/route-success-statuses.json` and are runtime-verified by `pnpm validate:route-success-coverage` (drift fails CI).
 
 ## Error status — when to set which (full guide: docs/reference/api/response-codes.md)

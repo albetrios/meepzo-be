@@ -1,6 +1,6 @@
 ---
 name: be-code-smells-and-best-practices
-description: When adding or modifying code in src/, fix Biome lint issues in touched files. Full validate runs on pre-commit and CI — do not duplicate. Uses be-lint-warnings-handler for warning details.
+description: When adding or modifying code in src/, fix Biome lint issues in touched files. When to run the full gates is the cadence in be-agent-behavior (validate per chain step or row, never per edit). Uses be-lint-warnings-handler for warning details.
 indexNote: fix Biome issues in touched src/ files while implementing
 ---
 
@@ -8,7 +8,7 @@ indexNote: fix Biome issues in touched src/ files while implementing
 
 ## Purpose
 
-Single owner for **code quality** under `src/`. Fix issues in files you change. Pre-commit and CI enforce full-repo lint, format, and types — do not run `pnpm lint` + `pnpm typecheck` on every small edit unless the hook failed or you are closing a large task.
+Single owner for **code quality** under `src/`. Fix issues in files you change. When to run `pnpm validate` (once per chain step or iteration row, lint + typecheck before claiming done, never per edit) is the gate cadence in `agent-os/rules/be-agent-behavior.mdc`; pre-commit and CI are the backstop.
 
 ## Rule
 
@@ -17,9 +17,8 @@ Single owner for **code quality** under `src/`. Fix issues in files you change. 
 ## Checklist
 
 1. **Fix Biome lint issues** in touched files (errors always; warnings per guidance below and in `agent-os/skills/be-lint-warnings-handler/SKILL.md`).
-2. **Full-repo checks** — only when:
-   - Pre-commit or CI failed → use **be-before-commit-guard**
-   - Large PR-sized change before handoff → `pnpm validate`
+2. **Full-repo checks** — at the gate cadence in `agent-os/rules/be-agent-behavior.mdc`; when
+   pre-commit or CI failed → use **be-before-commit-guard**.
 3. **Do not ask the user** how to fix warnings — apply guidance and move on.
 
 ## Code smells and fixes

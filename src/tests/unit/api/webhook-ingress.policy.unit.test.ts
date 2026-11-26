@@ -61,9 +61,11 @@ describe('Webhook ingress policy', () => {
     expect(source).toContain(receiver.plugin);
     // Patterns tolerate Biome line-wrapping of `.post(` arguments.
     const ingressIndex = source.search(
+      // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp — test helper: built from the literal RECEIVERS table above, never from input
       new RegExp(`await\\s+${receiver.plugin}\\s*\\(\\s*${receiver.pluginTarget}`),
     );
     const postIndex = source.search(
+      // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp — test helper: built from the literal RECEIVERS table above, never from input
       new RegExp(`zodApplication\\.post\\(\\s*['"]${escapeRegExp(receiver.deliveryPath)}['"]`),
     );
 

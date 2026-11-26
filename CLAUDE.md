@@ -125,7 +125,7 @@ All AI agents (Claude Code, Cursor, Codex) share the **Headroom MCP** server (pa
 
 ## Keeping Docs and Skills in Sync
 
-When **code or architecture changes**, consult **`.cursor/skills/be-skill-index/SKILL.md` first** — it maps what changed to which skill(s) to run (no duplicate invocations).
+When **code or architecture changes**, consult **`agent-os/skills/be-skill-index/SKILL.md` first** — it maps what changed to which skill(s) to run (no duplicate invocations).
 
 **Definition-of-done (every change):** a code change is finished only when its **own tests, cross-cutting test suites, docs, rules, and skills** have all moved with it — see **be-change-completeness-guard** (always-applied rule: `agent-os/rules/be-change-completeness.mdc`). When a single fact (a count, a route set, a constant, an env key, a header) lives in more than one place, grep the literal across `src/`, `docs/`, and `agent-os/` so no mirror is left stale.
 
@@ -133,7 +133,7 @@ When **code or architecture changes**, consult **`.cursor/skills/be-skill-index/
 
 **Human docs** (when layout changes): `CLAUDE.md`, `README.md`, `.cursor/rules/`, skills — via **be-structure-maintainer**. Hand-written `docs/**/*.md` — via **be-docs-maintainer**.
 
-All skills live under `.cursor/skills/`; the file → skill map is `agent-os/docs/skill-triggers.md`, generated from `agent-os/skills/chains.json` and each skill's `trigger` frontmatter (`pnpm agent-os:generate`).
+All skills live under `agent-os/skills/` (`.cursor/skills` and `.claude/skills` link to it); the file → skill map is `agent-os/docs/skill-triggers.md`, generated from `agent-os/skills/chains.json` and each skill's `trigger` frontmatter (`pnpm agent-os:generate`).
 
 ### In-source documentation system
 
@@ -165,7 +165,7 @@ See [docs/reference/architecture/documentation-system.md](docs/reference/archite
   - **Sub-domain e2e** (when split from monolith): `sub-domains/<parent>/<child>/__tests__/<child>.test.ts` (e.g. organization-api-key)
   - **Event handlers / emit**: `sub-domains/<resource>/__tests__/unit/events/` (register leaf handlers only in tests; never `events/__tests__/`)
 - **Commands**: `pnpm test:unit` (unit + `__tests__/unit/events/`), `pnpm test:e2e` (excludes `__tests__/unit/`), `pnpm test` (all)
-- **Detail**: `.cursor/skills/be-test-generator/SKILL.md`, `.cursor/rules/be-testing-conventions.mdc`
+- **Detail**: `agent-os/skills/be-test-generator/SKILL.md`, `agent-os/rules/be-testing-conventions.mdc`
 - **Chaos suite**: `src/tests/chaos/**/*.chaos.test.ts` — see **`docs/reference/reliability/chaos-testing.md`**
 - **Contract tests**: `src/tests/contract/**` — see **`docs/reference/testing/contract-tests.md`**
 - **k6 load tests**: `src/tests/load/k6/scenarios/` — see **`docs/reference/testing/load-testing.md`**

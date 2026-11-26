@@ -6,11 +6,11 @@ alwaysApply: true
 
 # Git branch naming
 
-Working branches: `<type>/<short-description>` (`feat`/`fix`/`hotfix`/`chore`/`refactor`/`docs`/`test`/`ci`/`build`/`perf`). Single trunk: `main` is the only long-lived branch. Hotfixes are ordinary short-lived `fix/*` (or `hotfix/*`) branches that fix-forward to `main` — there is no protected `release/*` branch. `claude/*` is reserved for AI web sessions. Enforced by `.husky/pre-push` (owner: **[be-code-quality-guard](../skills/be-code-quality-guard/SKILL.md)**).
+Working branches: `<type>/<short-description>`, `<type>` one of `BRANCH_TYPES` in [`tooling/validate/pre-push-steps.ts`](../../tooling/validate/pre-push-steps.ts) (the one list). Single trunk: `main` is the only long-lived branch. Hotfixes are ordinary short-lived `fix/*` (or `hotfix/*`) branches that fix-forward to `main` — there is no protected `release/*` branch. `claude/*` is reserved for AI web sessions. Enforced by `.husky/pre-push` (owner: **[be-code-quality-guard](../skills/be-code-quality-guard/SKILL.md)**).
 
 ## Deriving the name
 
-`<type>` is the change's conventional-commit type, matching `BRANCH_TYPES` in `.husky/pre-push`. `<short-description>` is kebab-case, 2–5 words, ≤ 40 chars, naming the change itself — never a ticket id, a date, or a session slug. Keep it aligned with the commit subject and the PR title.
+`<type>` is the change's conventional-commit type, one of `BRANCH_TYPES` (`tooling/validate/pre-push-steps.ts`). A name the pre-push hook rejects is renamed (`git branch -m`), never bypassed. `<short-description>` is kebab-case, 2–5 words, ≤ 40 chars, naming the change itself — never a ticket id, a date, or a session slug. Keep it aligned with the commit subject and the PR title.
 
 | Change | Branch |
 | ------ | ------ |

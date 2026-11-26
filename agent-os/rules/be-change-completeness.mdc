@@ -13,6 +13,6 @@ A change is done only when **every artifact that mirrors it has moved with it**,
 2. **Cross-cutting suites** — security / integration / global / contract / chaos / load — asserted once at the owning layer.
 3. **Docs** — `*.overview.md`, `docs/reference`, TSDoc (`pnpm tsdoc:check`), route `schema`, `.env.example`.
 4. **Rules** — the relevant `agent-os/rules` file (be-structure-maintainer).
-5. **Skills** — be-skill-index count + table, `groups.json`, `skill-triggers.md`, the `N project skills` count in `CLAUDE.md` / `AGENTS.md` (`pnpm agent-os:check`).
+5. **Skills** — be-skill-index count + table, `groups.json`, `skill-triggers.md`, the `N project skills` count in `AGENTS.md` (`pnpm agent-os:check`).
 
 When a single fact moves, **grep the literal across `src/`, `docs/`, `agent-os/`** and fix every stale mirror. Treat a gate failure as a mirror you missed.

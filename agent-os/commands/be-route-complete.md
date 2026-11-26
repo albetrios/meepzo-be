@@ -10,7 +10,7 @@ Run the **route-change** chain (`agent-os/skills/chains.json`) for the route(s) 
 2. **be-route-schema-doc-guard** — every route registration carries a `schema` block with `summary`, `description`, and `tags`.
 3. **be-route-catalog** — `pnpm routes:catalog`, then verify with `pnpm routes:catalog:check`.
 4. **be-seed-maintainer** — keep seed data aligned with the routes.
-5. If tags or operation copy changed: **be-openapi-multilingual** (`pnpm docs:generate:multilang`).
-6. **be-test-generator** — add or adjust e2e coverage for the route.
+5. **be-test-generator** — add or adjust e2e coverage for the route.
+6. Optional — if tags or operation copy changed: **be-openapi-multilingual** (`pnpm docs:generate:multilang`).
 
 Finish green: `pnpm validate` + `pnpm routes:catalog:check`. Report which routes changed and which artifacts regenerated.

@@ -145,6 +145,7 @@ flowchart TD
 - Add a write route: put `planGate` in its `config` beside `idempotencyRequired` (merge with a rate-limit preset as `config: { ...PRESET.config, planGate }`). Cite a `PLAN_GATE_OPEN_REASON` when one fits; otherwise write the one-line reason inline.
 - Gate a route on a read-only plan: add `read_only` to its gates — never attach a guard by hand.
 - Gate work on a feature or a limit: declare it on the route, then check it in the service from one snapshot (`can` / `limit`) and refuse with `buildPlanRefusal`.
+- Reuse the guard's snapshot: on a `read_only` route the controller passes `request.entitlementSnapshot` to its service, which hands it to every plan check of the request (go-live's month and feature checks, the broadcast send's), so the request reads the plan once (RG5). The app's services take the module through `ChannelAccountEntitlementService` and `readEntitlementSnapshot` ([channel-account-entitlement.util.ts](src/domains/app/sub-domains/channel-account/channel-account-entitlement.util.ts)) — the caller's snapshot, else one resolve.
 
 ## soft-delete
 

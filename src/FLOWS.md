@@ -359,6 +359,7 @@ sequenceDiagram
     Guard-->>Client: 403 error.reason organization_read_only (buildPlanRefusal)
   else active or grace
     Guard->>Guard: request.entitlementSnapshot → route permission gate → idempotency claim → handler
+    Note over Guard: the controller passes the snapshot to its service — go-live's and the send's month and feature checks read it, no second plan read (change-plan-gates RG5)
   end
 ```
 

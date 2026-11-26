@@ -263,7 +263,8 @@ session starts → session-start hook (returns at once) → bootstrap.sh, detach
   [4] .env.local (TEST_MODE on, so the sign-in code screen fills itself in; every run)
   [5] Postgres + Redis — a volume whose first-time setup a pause cut short is rebuilt
   [6] migrate + database logins
-  [7] full demo seed, with the API and worker already starting alongside
+  [7] the OpenAPI spec (pnpm docs:generate: gitignored, read by the API at boot), then the
+      full demo seed, with the API and worker already starting alongside
   [8] API on :3000 — kept running   [9] worker, health on :9090 — kept running
   [10] the demo user signs in (send-code → login → users/me)
   → "live" + the playground card (API, /reference, /admin/queues, worker, logs)

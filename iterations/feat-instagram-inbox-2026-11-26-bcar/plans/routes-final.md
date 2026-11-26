@@ -324,13 +324,16 @@ None.
 `organization_id`, `instagram_conversation_id`, `channel_account_id` and `contact_id` (copies), `sender_type`, `kind`,
 `text` (≤ 2,200 characters, nullable), `attachments` (list ≤ 10 of `{ type, upload_id, meta_url, meta_url_expires_at }`),
 `reply_to_meta_message_id`, `reaction` (`{ emoji, target_meta_message_id }` for a reaction), `meta_message_id`
-(nullable until a team reply is sent), `automation_id`, `automation_run_id`, `broadcast_id`,
+(nullable until a team reply is sent; Meta's message ids are opaque — every one of these id columns is
+`INSTAGRAM_OPAQUE_ID_MAX_LENGTH` (1,024) with **no format CHECK**, merged rule `f3ca17f`), `automation_id`, `automation_run_id`, `broadcast_id`,
 `instagram_automation_message_id` (copies, no reference — the ledger is split by week), `sent_by_membership_id`,
 `send_status` (`sending` · `sent` · `failed`, team replies only), `failure_reason`, `is_edited`, `edited_at`, `is_unsent`,
 `seen_at`, `sent_at`, `created_at`. Checks: `sender_type` and `kind` lists; `send_status` only for `team_member`;
 `sent_by_membership_id` exactly for `team_member`. Indexes: the thread keyset `(instagram_conversation_id, sent_at desc, id
 desc)`; unique `(channel_account_id, meta_message_id, sent_at)` where `meta_message_id` is set; the repair
-`(send_status, created_at)` where `sending`. FORCE RLS with the retention-sweep arm (the upkeep drops parts after 12 months).
+`(send_status, created_at)` where `sending`. FORCE RLS with the retention-sweep arm (the upkeep drops parts after 12 months). Every Meta value (text, ids, URLs,
+emoji) is bounded in code when read (`readBoundedText`) — stored `null` or skipped with a warning when it does not fit; the
+CHECKs are the backstop, never the first check.
 
 #### 2.B.4 Permissions
 

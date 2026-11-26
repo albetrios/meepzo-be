@@ -83,6 +83,13 @@ export function createChannelAccountController(service: ChannelAccountService) {
       });
       return successResponse({ data, request_id: getRequestIdentifier(request) });
     },
+    listChannelAccountCapabilities: async (request: AccountRequest, _reply: FastifyReply) => {
+      const data = await service.listCapabilities({
+        scope: requireOrganizationScope(request),
+        channelAccountPublicId: validateChannelAccountIdParam(request.params.channel_account_id),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
     disconnectChannelAccount: async (request: AccountRequest, reply: FastifyReply) => {
       const change = await service.disconnectAccount({
         scope: requireOrganizationScope(request),

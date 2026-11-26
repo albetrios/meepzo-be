@@ -18,6 +18,7 @@ is `app.instagram_accounts`, a 1:1 extension through its `channel_account_id` (s
 | --- | --- | --- | --- | --- |
 | 6 | GET | `/social/channel-accounts` | `channel-account:read` | — |
 | 7 | GET | `/social/channel-accounts/{channel_account_id}` | `channel-account:read` | — |
+| 153 | GET | `/social/channel-accounts/{channel_account_id}/capabilities` — every feature through the one check, and the stored blockers (feat-meta-connect-flow) | `channel-account:read` | — |
 | 8 | DELETE | `/social/channel-accounts/{channel_account_id}` | `channel-account:manage` | — |
 | 9 | POST | `/social/channel-accounts/{channel_account_id}/pause` | `channel-account:manage` | — |
 | 10 | POST | `/social/channel-accounts/{channel_account_id}/resume` | `channel-account:manage` | — |

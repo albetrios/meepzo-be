@@ -47,8 +47,13 @@ import {
   APP_UNTESTED_META_TRIGGER_TYPES,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import {
+  CHANNEL_ACCOUNT_BLOCKER_FIXES,
+  CHANNEL_ACCOUNT_BLOCKERS,
   CHANNEL_CAPABILITIES,
+  CHANNEL_FEATURE_KEYS,
+  CHANNEL_FEATURE_REFUSAL_FIXES,
   CHANNEL_FEATURES,
+  type ChannelAccountBlocker,
   type ChannelFeature,
 } from './channel-account-capabilities.constants.js';
 import {
@@ -69,7 +74,10 @@ import type {
   AutomationChannelAccount,
   AutomationRunChannelAccount,
   ChannelAutomationPartProblem,
+  ChannelAccountBlockerOutput,
+  ChannelAccountCapabilitiesOutput,
   ChannelAccountChange,
+  ChannelAccountFeatureCapabilityOutput,
   ChannelAccountLanePort,
   ChannelAccountOutput,
   ChannelAccountPlanStopMove,
@@ -130,7 +138,10 @@ export interface ChannelAccountCaller {
 /** The inputs of the one feature check that do not change per feature (one read each, CA11). */
 interface ChannelFeatureInputs {
   channel: ChannelAccountChannel;
-  connectionScopes: readonly string[];
+  /** The account's own permissions once read (AC5), else its connection's. */
+  grantedScopes: readonly string[];
+  /** Which of the two {@link grantedScopes} came from. */
+  scopesSource: 'account' | 'connection';
   planSwitches: Readonly<Record<string, boolean>> | null;
 }
 
@@ -170,10 +181,7 @@ function checkFeature({
     return { isAllowed: false, reason: 'channel_lacks_feature' };
   }
   const requirement = CHANNEL_FEATURES[feature];
-  if (
-    requirement.permission !== null &&
-    !inputs.connectionScopes.includes(requirement.permission)
-  ) {
+  if (requirement.permission !== null && !inputs.grantedScopes.includes(requirement.permission)) {
     return { isAllowed: false, reason: 'permission_not_granted' };
   }
   if (inputs.planSwitches?.[requirement.planSwitch] !== true) {
@@ -183,6 +191,54 @@ function checkFeature({
     return { isAllowed: false, reason: 'feature_not_offered' };
   }
   return { isAllowed: true };
+}
+
+/** One feature of route 153 from the one feature check (feat-meta-connect-flow AC1, AC3). */
+function toFeatureCapability({
+  feature,
+  result,
+}: {
+  feature: ChannelFeature;
+  result: ChannelFeatureCheckResult;
+}): ChannelAccountFeatureCapabilityOutput {
+  if (result.isAllowed) {
+    return {
+      feature,
+      is_allowed: true,
+      reason: null,
+      permission: null,
+      plan_switch: null,
+      fix: null,
+    };
+  }
+  const requirement = CHANNEL_FEATURES[feature];
+  return {
+    feature,
+    is_allowed: false,
+    reason: result.reason,
+    permission: result.reason === 'permission_not_granted' ? requirement.permission : null,
+    plan_switch: result.reason === 'plan_lacks_feature' ? requirement.planSwitch : null,
+    fix: CHANNEL_FEATURE_REFUSAL_FIXES[result.reason],
+  };
+}
+
+/** A stored state's blocker with its fix, or nothing when the value names none (AC2). */
+function toBlocker({
+  blocker,
+  since,
+}: {
+  blocker: string;
+  since: Date | null;
+}): ChannelAccountBlockerOutput[] {
+  if (!(CHANNEL_ACCOUNT_BLOCKERS as readonly string[]).includes(blocker)) return [];
+  const known = blocker as ChannelAccountBlocker;
+  return [
+    {
+      blocker: known,
+      since: since?.toISOString() ?? null,
+      fix: CHANNEL_ACCOUNT_BLOCKER_FIXES[known],
+    },
+  ];
 }
 
 /**
@@ -310,6 +366,68 @@ export class ChannelAccountService
         return this.toAccountOutput({ scope, organizationId, account });
       },
     });
+  }
+
+  /**
+   * Route 153 (feat-meta-connect-flow AC1, AC2): what this account can do, and why not — every
+   * feature through the one feature check, and the stored states that stop its sending.
+   *
+   * @remarks
+   * Algorithm: one unit — the team check, the account (not revoked), its connection, Instagram row
+   * and active lane stop; then the feature inputs (the same read every feature use makes) and
+   * {@link checkFeature} once per feature of `CHANNEL_FEATURE_KEYS`. Blockers come from what is
+   * stored only: the account or connection in `error`, the lane stop, the plan stop, the missing
+   * messaging webhooks, the owner's pause — in that order.
+   * Failure modes: `404 channel_account_not_found`, `404 team_organization_required`.
+   * Side effects: none — the database only, never Meta, so the screen and the refusal never disagree.
+   */
+  async listCapabilities({
+    scope,
+    channelAccountPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+  }): Promise<ChannelAccountCapabilitiesOutput> {
+    const { organizationId, account, blockers } = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const readableOrganizationId = await this.requireReadableOrganization(scope);
+        const row = await this.requireLiveAccount({
+          organizationId: readableOrganizationId,
+          channelAccountPublicId,
+        });
+        return {
+          organizationId: readableOrganizationId,
+          account: row,
+          blockers: await this.readBlockers({
+            scope,
+            organizationId: readableOrganizationId,
+            account: row,
+          }),
+        };
+      },
+    });
+    const inputs = await this.readFeatureInputs({
+      scope,
+      organizationId,
+      channelAccountId: account.id,
+    });
+    return {
+      channel_account_id: account.public_id,
+      channel: account.channel as ChannelAccountChannel,
+      scopes_source: inputs.scopesSource,
+      features: CHANNEL_FEATURE_KEYS.map((feature) =>
+        toFeatureCapability({
+          feature,
+          result: checkFeature({
+            inputs,
+            feature,
+            untestedMetaFeatures: this.untestedMetaFeatures,
+          }),
+        }),
+      ),
+      blockers,
+    };
   }
 
   /**
@@ -1660,10 +1778,55 @@ export class ChannelAccountService
         });
         return {
           channel: account.channel as ChannelAccountChannel,
-          connectionScopes: connection?.scopes ?? [],
+          grantedScopes: account.scopes ?? connection?.scopes ?? [],
+          scopesSource: (account.scopes ?? null) === null ? 'connection' : 'account',
           planSwitches: planAccess.features?.feature_switches ?? null,
         };
       },
+    });
+  }
+
+  /** Route 153's blockers of one account, from what is stored, inside the caller's unit (AC2). */
+  private async readBlockers({
+    scope,
+    organizationId,
+    account,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    account: ChannelAccountRow;
+  }): Promise<ChannelAccountBlockerOutput[]> {
+    const [connection] = await this.connectionRepository.findByIds({
+      organizationId,
+      channelConnectionIds: [account.channel_connection_id],
+    });
+    const instagram = await this.findInstagramRow({ scope, organizationId, account });
+    const activeStop = await this.lanePort?.readActiveStop({
+      scope,
+      organizationId,
+      channelAccountId: account.id,
+    });
+    const isInError =
+      account.connection_status === CHANNEL_ACCOUNT_STATUS.ERROR ||
+      connection?.status === CHANNEL_ACCOUNT_STATUS.ERROR;
+    const found: { blocker: ChannelAccountBlocker | string; since: Date | null }[] = [
+      ...(isInError
+        ? [{ blocker: 'connection_error', since: connection?.status_changed_at ?? null }]
+        : []),
+      ...(activeStop == null ? [] : [{ blocker: activeStop.reason, since: null }]),
+      ...(account.plan_stop_reason === null
+        ? []
+        : [{ blocker: account.plan_stop_reason, since: account.plan_stopped_at }]),
+      ...(instagram?.messages_webhook_missing_at == null
+        ? []
+        : [{ blocker: 'messages_webhook_missing', since: instagram.messages_webhook_missing_at }]),
+      ...(account.paused_at === null ? [] : [{ blocker: 'paused', since: account.paused_at }]),
+    ];
+    const seen = new Set<string>();
+    return found.flatMap(toBlocker).filter((item) => {
+      if (seen.has(item.blocker)) return false;
+      seen.add(item.blocker);
+      return true;
     });
   }
 

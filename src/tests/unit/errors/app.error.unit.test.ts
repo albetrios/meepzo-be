@@ -47,6 +47,7 @@ describe('AppError', () => {
       missing_permissions: 'string_list',
       expected_client_business_id: 'string',
       plan_room: 'plan_room',
+      permission: 'string',
     });
     expect([...APP_ERROR_FIELD_NAMES]).toEqual(Object.keys(APP_ERROR_FIELD_KINDS));
   });

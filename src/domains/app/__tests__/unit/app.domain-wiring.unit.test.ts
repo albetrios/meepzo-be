@@ -167,6 +167,7 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/segments/:segment_id`,
       `GET ${APP_PREFIX}/social/channel-accounts`,
       `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
+      `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id/capabilities`,
       `GET ${APP_PREFIX}/social/channel-connections`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ad-accounts`,

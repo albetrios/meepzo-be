@@ -44,14 +44,22 @@ function serviceWith({
   features = CREATOR_PLAN_FEATURES,
   untested = [],
   hasAccount = true,
+  accountScopes = null,
 }: {
   channel?: string;
   scopes?: string[];
+  /** The account's own permissions (feat-meta-connect-flow AC5); `null` = the connection's stand. */
+  accountScopes?: string[] | null;
   features?: PlanFeatures | null;
   untested?: ChannelFeature[];
   hasAccount?: boolean;
 }): ChannelAccountService {
-  const account = { id: 5, channel, channel_connection_id: 9 } as ChannelAccountRow;
+  const account = {
+    id: 5,
+    channel,
+    channel_connection_id: 9,
+    scopes: accountScopes,
+  } as ChannelAccountRow;
   const accountRepository = {
     findById: vi.fn(async () => (hasAccount ? account : null)),
   } as unknown as ChannelAccountRepository;
@@ -170,6 +178,25 @@ describe('ChannelAccountService.canChannelAccountUseFeature (CA11, P50, P61)', (
     });
   });
 
+  it("reads the account's own permissions over the connection's once read (feat-meta-connect-flow AC5)", async () => {
+    // The connection holds every permission; the account's own list lacks messaging.
+    expect(await check(serviceWith({ accountScopes: ['instagram_basic'] }), 'email_ask')).toEqual({
+      isAllowed: false,
+      reason: 'permission_not_granted',
+    });
+    // The account's own list grants what the connection lacks.
+    expect(
+      await check(
+        serviceWith({ scopes: ['instagram_basic'], accountScopes: ALL_SCOPES }),
+        'email_ask',
+      ),
+    ).toEqual({ isAllowed: true });
+    // `null` falls back to the connection's.
+    expect(
+      await check(serviceWith({ scopes: ['instagram_basic'], accountScopes: null }), 'email_ask'),
+    ).toMatchObject({ reason: 'permission_not_granted' });
+  });
+
   it('answers 404 channel_account_not_found for an account not in the organization', async () => {
     await expect(check(serviceWith({ hasAccount: false }), 'segments')).rejects.toMatchObject({
       reason: 'channel_account_not_found',
@@ -208,12 +235,19 @@ describe('channelFeatureRefusalError (P61)', () => {
       feature: 'broadcasts',
       upgrade_required: true,
     });
-    for (const reason of [
-      'channel_lacks_feature',
-      'permission_not_granted',
-      'feature_not_offered',
-    ] as const) {
+    for (const reason of ['channel_lacks_feature', 'feature_not_offered'] as const) {
       expect(refuse(reason).fields).toEqual({ feature: 'broadcasts' });
     }
+  });
+
+  it("feat-meta-connect-flow AC4: permission_not_granted names Meta's permission beside the feature", () => {
+    expect(refuse('permission_not_granted').fields).toEqual({
+      feature: 'broadcasts',
+      permission: 'instagram_manage_messages',
+    });
+    expect(
+      channelFeatureRefusalError({ reason: 'permission_not_granted', feature: 'past_comments' })
+        .fields,
+    ).toEqual({ feature: 'past_comments', permission: 'instagram_manage_comments' });
   });
 });

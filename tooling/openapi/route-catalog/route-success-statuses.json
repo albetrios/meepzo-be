@@ -33,6 +33,7 @@
   "GET /api/v1/app/segments/:segment_id": 200,
   "GET /api/v1/app/social/channel-accounts": 200,
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": 200,
+  "GET /api/v1/app/social/channel-accounts/:channel_account_id/capabilities": 200,
   "GET /api/v1/app/social/channel-connections": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": 200,

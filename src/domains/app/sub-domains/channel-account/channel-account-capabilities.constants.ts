@@ -148,3 +148,81 @@ export const CHANNEL_FEATURE_REFUSAL_REASONS = [
 
 /** One value of {@link CHANNEL_FEATURE_REFUSAL_REASONS}. */
 export type ChannelFeatureRefusalReason = (typeof CHANNEL_FEATURE_REFUSAL_REASONS)[number];
+
+/**
+ * What the owner does to lift a refusal or a blocker (feat-meta-connect-flow AC2, AC3) — the
+ * capability read's `fix` (route 153); `none` when nothing the owner does lifts it.
+ */
+export const CHANNEL_CAPABILITY_FIXES = [
+  'reconnect',
+  'reconnect_with_page',
+  'turn_on_message_access',
+  'share_account_in_meta',
+  'upgrade',
+  'resume',
+  'none',
+] as const;
+
+/** One value of {@link CHANNEL_CAPABILITY_FIXES}. */
+export type ChannelCapabilityFix = (typeof CHANNEL_CAPABILITY_FIXES)[number];
+
+/**
+ * The fix of each feature refusal (feat-meta-connect-flow AC3): Meta's login asks for a missing
+ * permission again, a plan change turns a switch on, and Meta's review or the channel itself is
+ * nothing the owner can fix.
+ */
+export const CHANNEL_FEATURE_REFUSAL_FIXES: Readonly<
+  Record<ChannelFeatureRefusalReason, ChannelCapabilityFix>
+> = {
+  channel_lacks_feature: 'none',
+  permission_not_granted: 'reconnect',
+  plan_lacks_feature: 'upgrade',
+  feature_not_offered: 'none',
+};
+
+/**
+ * The account-level states that stop sending whatever the feature (feat-meta-connect-flow AC2),
+ * each read from what is already stored: the connection or account in `error`, the lane stop
+ * the sending service holds, the plan stop, the missing messaging webhooks, the owner's pause.
+ */
+export const CHANNEL_ACCOUNT_BLOCKERS = [
+  'connection_error',
+  'login_expired',
+  'account_not_shared',
+  'wrong_permission',
+  'access_off',
+  'app_not_approved',
+  'account_flagged',
+  'blocked',
+  'instagram_down',
+  'too_fast',
+  'plan_limit',
+  'plan_ended',
+  'plan_downgrade',
+  'messages_webhook_missing',
+  'paused',
+] as const;
+
+/** One value of {@link CHANNEL_ACCOUNT_BLOCKERS}. */
+export type ChannelAccountBlocker = (typeof CHANNEL_ACCOUNT_BLOCKERS)[number];
+
+/** The fix of each blocker (feat-meta-connect-flow AC2); a stop that ends by itself is `none`. */
+export const CHANNEL_ACCOUNT_BLOCKER_FIXES: Readonly<
+  Record<ChannelAccountBlocker, ChannelCapabilityFix>
+> = {
+  connection_error: 'reconnect',
+  login_expired: 'reconnect',
+  account_not_shared: 'share_account_in_meta',
+  wrong_permission: 'reconnect',
+  access_off: 'turn_on_message_access',
+  app_not_approved: 'none',
+  account_flagged: 'none',
+  blocked: 'none',
+  instagram_down: 'none',
+  too_fast: 'none',
+  plan_limit: 'upgrade',
+  plan_ended: 'upgrade',
+  plan_downgrade: 'upgrade',
+  messages_webhook_missing: 'reconnect_with_page',
+  paused: 'resume',
+};

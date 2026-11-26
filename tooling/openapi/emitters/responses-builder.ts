@@ -139,6 +139,11 @@ const errorResponseSchema = {
           description:
             "The plan's room for channel accounts — beside `limit` / `used` on `plan_account_limit` (feat-meta-connect-flow CN6). Absent otherwise.",
         },
+        permission: {
+          type: 'string',
+          description:
+            'The Meta permission a feature needs and the connection lacks — beside `feature` on `permission_not_granted`, so the screen asks for exactly that one (feat-meta-connect-flow AC4). Absent otherwise.',
+        },
         documentation_url: {
           type: 'string',
           description: 'Link to the documentation page for this error code',

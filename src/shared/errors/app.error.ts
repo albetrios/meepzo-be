@@ -55,6 +55,7 @@ export const APP_ERROR_FIELD_KINDS = {
   missing_permissions: 'string_list',
   expected_client_business_id: 'string',
   plan_room: 'plan_room',
+  permission: 'string',
 } as const;
 
 /** The names of {@link APP_ERROR_FIELD_KINDS}, in their order. */

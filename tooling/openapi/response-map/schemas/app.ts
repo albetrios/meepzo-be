@@ -5,6 +5,12 @@
  * segment (§ 7.B.6).
  */
 import {
+  CHANNEL_ACCOUNT_BLOCKERS,
+  CHANNEL_CAPABILITY_FIXES,
+  CHANNEL_FEATURE_KEYS,
+  CHANNEL_FEATURE_REFUSAL_REASONS,
+} from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
+import {
   AUTOMATION_ALSO_START_FROM_VALUES,
   AUTOMATION_DEFAULT_REPLY_MODES,
   AUTOMATION_NEXT_POST_STATUSES,
@@ -394,6 +400,66 @@ export const channelConnectOptionsExample = {
   is_page_login_offered: false,
   can_manage: true,
   plan_room: { accounts_max: 3, accounts_used: 1, accounts_free: 2 },
+};
+
+// Route 153 (feat-meta-connect-flow AC1, AC2).
+export const channelAccountCapabilitiesSchema = {
+  type: 'object',
+  properties: {
+    channel_account_id: { type: 'string' },
+    channel: { type: 'string', enum: ['instagram'] },
+    scopes_source: { type: 'string', enum: ['account', 'connection'] },
+    features: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          feature: { type: 'string', enum: [...CHANNEL_FEATURE_KEYS] },
+          is_allowed: { type: 'boolean' },
+          reason: { type: 'string', nullable: true, enum: [...CHANNEL_FEATURE_REFUSAL_REASONS] },
+          permission: { type: 'string', nullable: true },
+          plan_switch: { type: 'string', nullable: true },
+          fix: { type: 'string', nullable: true, enum: [...CHANNEL_CAPABILITY_FIXES] },
+        },
+      },
+    },
+    blockers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          blocker: { type: 'string', enum: [...CHANNEL_ACCOUNT_BLOCKERS] },
+          since: { type: 'string', format: 'date-time', nullable: true },
+          fix: { type: 'string', enum: [...CHANNEL_CAPABILITY_FIXES] },
+        },
+      },
+    },
+  },
+};
+
+export const channelAccountCapabilitiesExample = {
+  channel_account_id: 'cha_7k2m9p4q8r1s5t3v6w0xy',
+  channel: 'instagram',
+  scopes_source: 'connection',
+  features: [
+    {
+      feature: 'email_ask',
+      is_allowed: true,
+      reason: null,
+      permission: null,
+      plan_switch: null,
+      fix: null,
+    },
+    {
+      feature: 'past_comments',
+      is_allowed: false,
+      reason: 'plan_lacks_feature',
+      permission: null,
+      plan_switch: 'past_comments',
+      fix: 'upgrade',
+    },
+  ],
+  blockers: [{ blocker: 'paused', since: '2026-11-26T10:00:00.000Z', fix: 'resume' }],
 };
 
 // Route 3.

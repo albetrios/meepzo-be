@@ -238,6 +238,7 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── channel-account.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-account-capabilities.integration.test.ts
     │   │   │   │   │   └── channel-account.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts

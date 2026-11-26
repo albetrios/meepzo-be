@@ -156,6 +156,10 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   // is 404 channel_account_not_found and unchanged (channel-account.integration.test.ts).
   'GET /api/v1/app/social/channel-accounts/:channel_account_id':
     'cross-organization-resource: channel account',
+  // feat-meta-connect-flow R4: channel-account-capabilities.integration.test.ts reads another
+  // organization's account's capabilities → 404 channel_account_not_found.
+  'GET /api/v1/app/social/channel-accounts/:channel_account_id/capabilities':
+    'cross-organization-resource: channel account capabilities',
   'GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status':
     "cross-organization-resource: Instagram sending status (route 63 — another organization's account answers 404 instagram_not_connected, instagram-sending.integration.test.ts)",
   'GET /api/v1/app/usage':

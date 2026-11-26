@@ -7,6 +7,8 @@ import type {
   ChannelAccountStatus,
 } from './channel-account.constants.js';
 import type {
+  ChannelAccountBlocker,
+  ChannelCapabilityFix,
   ChannelFeature,
   ChannelFeatureRefusalReason,
 } from './channel-account-capabilities.constants.js';
@@ -37,6 +39,37 @@ export interface ChannelAccountActiveStopOutput {
   lane: string;
   reason: string;
   stop_until: string | null;
+}
+
+/** One feature of the capability read (route 153, feat-meta-connect-flow AC1). */
+export interface ChannelAccountFeatureCapabilityOutput {
+  feature: ChannelFeature;
+  is_allowed: boolean;
+  /** The first refusal of the one feature check; `null` when allowed. */
+  reason: ChannelFeatureRefusalReason | null;
+  /** Meta's permission the feature needs — on `permission_not_granted` only. */
+  permission: string | null;
+  /** The plan switch the feature reads — on `plan_lacks_feature` only. */
+  plan_switch: string | null;
+  fix: ChannelCapabilityFix | null;
+}
+
+/** One account-level state that stops sending whatever the feature (route 153, AC2). */
+export interface ChannelAccountBlockerOutput {
+  blocker: ChannelAccountBlocker;
+  /** When the state began, as stored; `null` for a lane stop (its start is the lane's history). */
+  since: string | null;
+  fix: ChannelCapabilityFix;
+}
+
+/** The capability read of one account (route 153, feat-meta-connect-flow AC1, AC2). */
+export interface ChannelAccountCapabilitiesOutput {
+  channel_account_id: string;
+  channel: ChannelAccountChannel;
+  /** `account` once the token check read the account's own permissions (AC5), else `connection`. */
+  scopes_source: 'account' | 'connection';
+  features: ChannelAccountFeatureCapabilityOutput[];
+  blockers: ChannelAccountBlockerOutput[];
 }
 
 /** The Channel account object of routes 7, 9–11 (routes-final § 1B.6). */

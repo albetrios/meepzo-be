@@ -101,6 +101,14 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
     example: null,
   },
+  'GET /api/v1/app/social/channel-accounts/{channel_account_id}/capabilities': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.channelAccountCapabilitiesSchema,
+      schemas.channelAccountCapabilitiesExample,
+    ),
+    example: null,
+  },
   'DELETE /api/v1/app/social/channel-accounts/{channel_account_id}': {
     statusCode: 204,
     schema: null,

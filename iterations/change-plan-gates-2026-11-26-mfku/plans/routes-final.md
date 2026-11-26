@@ -20,8 +20,8 @@ Each part builds on the ones above it.
 | # | Part | Folder (`src/…`) | Paths | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Entitlement module | `domains/billing/sub-domains/entitlement/` | `billing/entitlements`, `billing/entitlement-overrides` | 4 (1 changed) | subscription, plan | **final (rev 1, confirmed 2026-11-26)** |
-| 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **rev 1 — awaiting your OK** |
-| 3 | Route plan-gate declaration and the one guard | shared middleware + every `*.routes.ts` | every write | 128 declared | 1 | draft |
+| 2 | Plan data (Free) | `domains/billing/sub-domains/plan/` | none | 0 | 1 | **final (rev 1, confirmed 2026-11-26)** |
+| 3 | Route plan-gate declaration and the one guard | `src/fastify.d.ts`, `src/routes.ts`, entitlement module, every `*.routes.ts` | every write | 128 declared | 1 | **rev 1 — awaiting your OK** |
 | 4 | App gate users | `domains/app/sub-domains/{automation, broadcast, broadcast-segment, channel-account, channel-connection, instagram-account-settings, instagram-sending}/` | 13 gated app writes | 13 | 1, 3 | draft |
 | 5 | Seats | `domains/tenancy/sub-domains/membership/` | 3 membership writes | 3 | 1, 3 | draft |
 | 6 | Paid-job declarations | queue worker registry + the 12 paid jobs | none | 0 | 1, 4 | draft |
@@ -181,7 +181,7 @@ None.
 
 ---
 
-## 2. Plan data (Free) — rev 1 (2026-11-26) — no nested sub-domains; awaiting your OK
+## 2. Plan data (Free) — final (rev 1, confirmed 2026-11-26) — no nested sub-domains
 
 Code: the existing **`plan` sub-domain folder**, `billing/sub-domains/plan/`: the plan catalog (its seed
 constants) and the billing migrations that write the catalog rows.
@@ -198,16 +198,14 @@ in favour of "on Free". No route and no code path changes; the gates of part 1 r
 | # | Decision |
 | --- | --- |
 | PL1 | **Free's `broadcasts` and `segments` switches turn on.** Today Free has every PRO switch off (`FREE_PLAN_FEATURES`, P83); the catalog rows were written once by migration `20261124060244_billing_flowdm_plans.sql`, and the seed inserts with `ON CONFLICT DO NOTHING`, so a seed change alone never reaches an existing database. After: **a new billing data migration** sets the two switches on in the stored rows, and the seed's Free constant says the same, so a fresh database and an existing one agree. "PRO" keeps meaning what it means elsewhere (the automation PRO parts, go-live); only Free's two values change. Free's month limit (1,000), accounts (1) and every other switch stay. |
-| PL2 | **The switched-off rows follow Free** *(P22, pending your answer, 2.2)*. Today Starter, Growth and Pro (inactive, never offered, never deleted, P80) carry Free's features through the same constant. After: they keep carrying Free's features, so the migration updates all four rows. Other option: only the Free row changes, and the three off rows get their own constant with today's values. |
+| PL2 | **The switched-off rows follow Free** (P27). Today Starter, Growth and Pro (inactive, never offered, never deleted, P80) carry Free's features through the same constant. After: they keep carrying Free's features, so the migration updates all four rows. Other option: only the Free row changes, and the three off rows get their own constant with today's values. |
 | PL3 | **No event and no follow-up job.** Today a plan change emits the plan-state event so app can stop or resume lanes. After: turning two switches **on** can't stop anything, and nothing was held for them (Free couldn't create a broadcast or a segment before), so the migration emits nothing; the next plan read (no cache, BL2) sees the new values. |
 | PL4 | **The refusal path keeps a test.** Today the two "on Free" integration tests prove `403 plan_lacks_feature` by moving an organization to Free. After: they prove Free is **allowed**, and the refusal is proven on an organization whose switch is off through an **override row** (`broadcasts` = off, `segments` = off), which also exercises P19's override → plan order. |
 | PL5 | **The frozen record isn't edited.** Oxak's AC-9.1 and P76 / BC3 answers stay as written in the frozen iteration. This iteration's decisions (P13) and its `AS-BUILT.md` › Standing deviations say Free now has both switches. |
 
 ### 2.2 Open questions
 
-| # | Question | Recommendation | Other option |
-| --- | --- | --- | --- |
-| Q-PL1 (P22) | Do the three switched-off plans (Starter, Growth, Pro) get the two switches too? | **Yes, they follow Free** (one shared constant, P80's "off rows carry Free's features" stays true) | only the Free row; the off rows get their own constant with today's values |
+None. Q-PL1 (P22) was answered by P27: the off rows follow Free.
 
 ### 2.3 Tables and relations
 
@@ -265,7 +263,116 @@ None.
 
 ---
 
-## 3. Route plan-gate declaration and the one guard — draft
+## 3. Route plan-gate declaration and the one guard — rev 1 (2026-11-26) — cross-cutting; awaiting your OK
+
+Code: no single folder. The declaration type sits beside the other route-config fields (`src/fastify.d.ts`),
+the guard is built by the entitlement module (part 1) and registered once in `src/routes.ts`, and each
+`*.routes.ts` declares its writes' gates.
+
+3.1 Decisions · 3.2 Open questions · 3.3 Tables and relations · 3.4 Permissions · 3.5 Common to every route ·
+3.6 Objects returned · 3.7 Routes · 3.8 Request details · 3.9 Errors · 3.10 Rules worth knowing ·
+3.11 Code changes · 3.12 Nested sub-domains.
+
+Every write route says, where it's registered, which plan gate it meets or why it meets none. One guard
+reads the declarations, and the coverage test reads the live routes instead of the hand-kept model.
+
+### 3.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| RG1 | **The declaration is a typed field of the route config**, `planGate`, beside `idempotencyRequired`. Today the gates are written only in a test helper (`src/tests/helpers/route-plan-gate-model.ts`, 128 entries). After: `planGate` is either `{ gates: [...] }` or `{ open: '<one line>' }`, the shape the model already uses (reused). A gate is `read_only`, `feature:<switch key>` or `limit:<limit key>`, typed from the registry (part 1), so an unknown key fails to compile. The model's names map one to one: `read_only_guard` → `read_only`, `account_limit` → `limit:channel_accounts_max`, `seat_limit` → `limit:seats`, `month_limit` → `limit:message_month_limit`. |
+| RG2 | **Shared open reasons move with it.** The model's reason constants (identity, user, paying, team, removing, draft, Meta callback, contact, account) move into the entitlement module beside the registry, so a route file and the coverage test cite the same words. |
+| RG3 | **One guard, attached by one route hook.** Today `createAppPlanAccessPreHandler` (app) is built in `app.routes.ts` and hand-placed first on 2 routes. After: the entitlement module builds the guard, and `src/routes.ts` registers one route hook after the domain containers and before the domain route plugins. For every route declaring `read_only`, the hook puts the guard **first** in the route's pre-handlers, so the order stays authenticate → plan guard → role permission → idempotency claim (the idempotency plugin still appends its claim last) (P4). The app's hand-made guard and its wiring are removed. |
+| RG4 | **The guard enforces `read_only` only** *(pending your answer, 3.2 Q-RG1)*. `feature:` and `limit:` declarations are recorded and checked by the coverage test, but enforced where they're used: services call `can()` / `limit()` (parts 4, 5), and counters keep their locks (P23). Those checks need the request body (which PRO parts a save turns on) or a transaction, and moving them ahead of the permission check or validation would change which error a caller sees (K1). Other option: the guard also enforces the unconditional switch gates (create broadcast, the 3 segment writes, past comments) before the permission check. |
+| RG5 | **The guard hands its snapshot on** (P24). On a route the guard runs on, it resolves once and attaches the snapshot to the request; the controller passes it to the service, so go-live and broadcast send do one plan read, not two (today they do two). Routes without the guard resolve once in their service. |
+| RG6 | **The coverage test reads the live routes.** Today it parses `docs/routes.txt` against the hand-kept model, and only the read-only check registers real routes. After: it builds the app with the existing test app builder, collects every route's `planGate` through a route hook, and fails on a write with no declaration, an empty or multi-line open reason, or a gate key not in the registry; the `read_only` set equals the routes the guard attached to. The route half of the hand-kept model is deleted (its job half moves in part 6). |
+| RG7 | **The order test comes first** (R2, P4). Before anything moves, a test pins the pre-handler order on go-live and broadcast send: plan guard → role permission → idempotency claim. It passes on today's code and must still pass after RG3. |
+
+### 3.2 Open questions
+
+| # | Question | Recommendation | Other option |
+| --- | --- | --- | --- |
+| Q-RG1 | Does the one guard enforce more than `read_only`? (RG4) | **`read_only` only**; feature and limit gates are declared, and enforced where used | the guard also enforces the unconditional switch gates before the permission check, which changes which 403 a caller without permission sees |
+
+### 3.3 Tables and relations
+
+None: no table.
+
+### 3.4 Permissions
+
+None change. The guard sits before each route's own permission check, as today (P4).
+
+### 3.5 Common to every route
+
+| Item | Value |
+| --- | --- |
+| Declaration | every non-`GET` route carries `config.planGate` |
+| Guard position | authenticate → plan guard (`read_only` routes only) → role permission → idempotency claim |
+| Refusal | built by the entitlement module (part 1, EN5); statuses unchanged |
+
+### 3.6 Objects returned
+
+None change. The read-only refusal keeps `organization_read_only` 403 with `grace_ends_at` and `upgrade_required`.
+
+### 3.7 Routes
+
+The 16 plan-gated writes and their declarations (parts 4 and 5 hold their details):
+
+| # | Method | Path | Plan gate |
+| --- | --- | --- | --- |
+| 1 | PATCH | `/app/automations/{automation_id}` | `feature:` the 5 automation PRO switches (`email_ask`, `phone_ask`, `reply_like_person`, `multiple_public_reply_lines`, `message_versions`) |
+| 2 | POST | `/app/automations/{automation_id}/backfills` | `feature:past_comments` |
+| 3 | POST | `/app/automations/{automation_id}/failed-messages/retry` | `limit:message_month_limit` |
+| 4 | POST | `/app/automations/{automation_id}/go-live` | `read_only`, the 5 PRO switches, `feature:starter_questions`, `limit:message_month_limit` |
+| 5 | POST | `/app/broadcasts` | `feature:broadcasts` |
+| 6 | POST | `/app/broadcasts/{broadcast_id}/send` | `read_only`, `feature:broadcasts`, `limit:message_month_limit` |
+| 7 | POST | `/app/segments` | `feature:segments` |
+| 8 | PATCH | `/app/segments/{segment_id}` | `feature:segments` |
+| 9 | POST | `/app/segments/audience-count` | `feature:segments` |
+| 10 | POST | `/app/contacts/{contact_id}/failed-messages/retry` | `limit:message_month_limit` |
+| 11 | POST | `/app/social/channel-accounts/{channel_account_id}/activate` | `limit:channel_accounts_max` |
+| 12 | POST | `/app/social/channel-connections/{channel_connection_id}/accounts` | `limit:channel_accounts_max` |
+| 13 | PATCH | `/app/social/instagram/accounts/{channel_account_id}/settings` | `feature:extra_delay`, `feature:mark_seen` |
+| 14 | POST | `/tenancy/organization/memberships` | `limit:seats` |
+| 15 | PATCH | `/tenancy/organization/memberships/{membership_id}` | `limit:seats` |
+| 16 | POST | `/tenancy/organization/memberships/{membership_id}/restore` | `limit:seats` |
+
+The other **112 writes declare `open`**, with the model's reasons carried over unchanged: identity 27,
+removing 15, user 14, team 14, paying 7, account 4, draft 3, Meta callback 3, contact 3, and 22 with their own
+one-line reason. Total **128**.
+
+### 3.8 Request details
+
+None change.
+
+### 3.9 Errors
+
+Unchanged: `403 organization_read_only` on routes 4 and 6 when the organization is read-only (only with
+`LAPSED_PLAN_READ_ONLY_ENABLED` on, P5), now built by the entitlement module's refusal builder.
+
+### 3.10 Rules worth knowing
+
+- A new write route can't merge without a `planGate`: the coverage test fails.
+- A refused write holds no idempotency key: the guard runs before the claim (as today).
+- `open` is a decision, not a gap: its one-line reason says why no plan gate applies.
+
+### 3.11 Code changes
+
+| # | Change |
+| --- | --- |
+| RGC1 | RG7: the pre-handler order test for go-live and broadcast send, **written first** |
+| RGC2 | RG1: `planGate` on the route-config type, typed from the registry |
+| RGC3 | RG2: the shared open reasons move into the entitlement module |
+| RGC4 | RG1: `planGate` on all 128 write routes across every `*.routes.ts` (one commit per domain), carried over from the model |
+| RGC5 | RG3, RG5: the guard factory in the entitlement module; one route hook in `src/routes.ts`; the snapshot on the request; the app's hand-made guard (`app-plan-access.ts`) and its wiring in `app.routes.ts`, `automation.routes.ts` and `broadcast.routes.ts` removed |
+| RGC6 | RG6: the coverage test reads live declarations; the route half of `route-plan-gate-model.ts` deleted |
+| RGC7 | Docs: `src/PATTERNS.md` "plan gates" pattern; `src/FLOWS.md:336` corrected (P9); TSDoc on the guard and the type |
+
+### 3.12 Nested sub-domains
+
+None.
+
+---
 
 ## 4. App gate users — draft
 

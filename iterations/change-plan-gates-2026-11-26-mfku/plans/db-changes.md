@@ -73,7 +73,7 @@ erDiagram
 - **Sources:** decisions P13 (closes oxak pending #12 in favour of AC-9.1).
 - **Added / Replaced:** the Free row's `broadcasts` and `segments` switches turn **on**; its seed values move
   with it. Free's month limit (1,000), accounts (1) and the other PRO switches are unchanged.
-- **Open:** P22: today the switched-off plan rows reuse Free's values, so do they get the two switches too? (Step 5.)
+- **Open:** none. The three switched-off rows (Starter, Growth, Pro) follow Free (P27), so the migration updates four rows.
 
 ```mermaid
 erDiagram

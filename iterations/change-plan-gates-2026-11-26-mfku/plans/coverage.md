@@ -7,7 +7,7 @@ A brief from scratch has no `PRD.md` or `schema-routes.md`, so **Reconciliation*
 **the code as it stands** (`feat/instagram-automation` at `e247c4a`) and against the frozen
 `feat-instagram-dm-sending-2026-11-23-oxak` iteration's decisions and Standing deviations.
 
-Step 4 answers: `decisions.md` P1–P22 (P2, P11, P15 are superseded by P17, P18, P19; P22 is open for Step 5).
+Step 4 answers: `decisions.md` P1–P22 (P2, P11, P15 are superseded by P17, P18, P19; P22 is answered by P27).
 
 Status: `covered` (a requirement reaches it) · `open` (waits for a RED answer in Step 4) · `out-of-scope` (with its reason).
 Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
@@ -120,5 +120,5 @@ Paths are cited as evidence only; the plan does not prescribe them.
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
 | decisions P5 | `LAPSED_PLAN_READ_ONLY_ENABLED` defaults to `false`; template, catalog and docs agree | `quality.read-only-flag-default` | launch-defaults | AC-14 | covered — P5 |
-| decisions P13 | Free's segments and broadcasts switches on | `data.free-plan-segments-broadcasts` | launch-defaults | AC-15 | covered — P13 (P22 open for Step 5) |
+| decisions P13 | Free's segments and broadcasts switches on | `data.free-plan-segments-broadcasts` | launch-defaults | AC-15 | covered — P13 (P22 answered by P27) |
 | coverage R2 | the order test (authenticate → plan gate → permission → idempotency claim) is written first | `access.read-only-before-idempotency` | route-gates | AC-10 | covered — P4 |

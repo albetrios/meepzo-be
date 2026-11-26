@@ -368,6 +368,9 @@ connect, its hosts and its scopes are gone.)
    and `pages_show_list` (Meta's workaround for accounts shared without their Page, which may get no `messages`
    webhooks) → `META_PAGE_CONFIG_ID`; keep the first for everyone else. Choose **never expires** for the
    token in each configuration (owner decision, [P359](../../iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/decisions.md)) — there is no refresh job; the 7-day expiry warning stays as the safety net.
+   A connect that still receives a dated token (Meta's exchange names `expires_in`) logs the warning
+   `app.channel_connection.token_dated` with the configuration id — the configuration drifted from **Never expires**;
+   fix it in the App Dashboard and ask that client to reconnect ([fix F4](../../iterations/fix-meta-unified-login-2026-11-26-ceuy/KICKOFF.md)).
    **Settings** → **Valid OAuth redirect URIs**: add the frontend callback of every
    environment — e.g. `https://app.example.com/auth/meta/callback` — and put that environment's one
    value in `META_REDIRECT_URI`. It must match character for character: the code exchange sends it

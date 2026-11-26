@@ -453,6 +453,15 @@ export class ChannelConnectionService {
       scope,
       accounts: committed.reconnected.map(({ account }) => account),
     });
+    if (login.tokenExpiresAt !== null) {
+      this.logDatedToken({
+        requestId,
+        configId: payload.config_id,
+        organizationPublicId: scope.organizationPublicId,
+        channelConnectionPublicId: committed.connection.public_id,
+        expiresAt: login.tokenExpiresAt,
+      });
+    }
 
     return {
       data: {
@@ -1037,6 +1046,37 @@ export class ChannelConnectionService {
       this.logFailedConnect({ requestId, step: 'read', error });
       throw toChannelConnectRouteError({ error, isCodeSpent: true });
     }
+  }
+
+  /**
+   * A connect whose token ends (fix-meta-unified-login F4): the configuration should issue a
+   * never-ending token (P359, F-D2), so a dated one means `META_CONFIG_ID` / `META_PAGE_CONFIG_ID`
+   * drifted — flagged on the day it happens, not 7 days before the end (the token check, P355).
+   * Never the token; the end is logged as `expiresAt` (a key holding `token` is redacted).
+   */
+  private logDatedToken({
+    requestId,
+    configId,
+    organizationPublicId,
+    channelConnectionPublicId,
+    expiresAt,
+  }: {
+    requestId: string;
+    configId: string;
+    organizationPublicId: string;
+    channelConnectionPublicId: string;
+    expiresAt: Date;
+  }): void {
+    logger.warn(
+      {
+        requestId,
+        configId,
+        organizationPublicId,
+        channelConnectionPublicId,
+        expiresAt: expiresAt.toISOString(),
+      },
+      'app.channel_connection.token_dated',
+    );
   }
 
   /** The support record of a failed connect (MC12, plan:L4590) — never a token or the secret. */

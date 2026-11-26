@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   getBullMQConnectionOptions,
@@ -14,6 +14,7 @@ import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/p
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -260,10 +261,22 @@ describe('Channel connection routes', () => {
           expiresInSeconds: 60 * 24 * 60 * 60,
         });
         const before = Date.now();
+        const warnings = vi.spyOn(logger, 'warn');
         const response = await callback({ state });
         expect(response.statusCode, response.body).toBe(200);
         const [row] = await readChannelConnectionRows(team.organization.id);
         expect(row?.config_id).toBe(configAtStart);
+        // F4 (AF-8): a dated token is flagged at connect, with the configuration and no token.
+        const dated = warnings.mock.calls.filter(
+          ([, message]) => message === 'app.channel_connection.token_dated',
+        );
+        expect(dated).toHaveLength(1);
+        expect(dated[0]?.[0]).toMatchObject({
+          configId: configAtStart,
+          channelConnectionPublicId: row?.public_id,
+        });
+        expect(JSON.stringify(dated[0]?.[0])).not.toContain(TEST_META_SYSTEM_USER_TOKEN);
+        warnings.mockRestore();
         const [expiresAt] = await readChannelConnectionTokenExpiries(team.organization.id);
         expect(expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 60 * 24 * 60 * 60 * 1000);
         expect(expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 60 * 24 * 60 * 60 * 1000);
@@ -298,8 +311,14 @@ describe('Channel connection routes', () => {
         clientBusinessId: nextClientBusinessId(),
         assignedAccounts: [nextAccount()],
       });
+      const warnings = vi.spyOn(logger, 'warn');
       expect((await callback({ state })).statusCode).toBe(200);
       expect(await readChannelConnectionTokenExpiries(team.organization.id)).toEqual([null]);
+      // F4 (AF-8): a never-ending token is not flagged.
+      expect(
+        warnings.mock.calls.some(([, message]) => message === 'app.channel_connection.token_dated'),
+      ).toBe(false);
+      warnings.mockRestore();
     });
 
     it('refuses a used, foreign or unknown state with 400 channel_connect_state_invalid and saves nothing (AC-1.1)', async () => {

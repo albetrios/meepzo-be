@@ -311,7 +311,7 @@ const BILLING_POLICY_VARS = {
     meta: {
       allowed: 'true | false (or 1 | 0)',
       description:
-        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active.',
+        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, only POST /app/automations/{automation_id}/go-live and POST /app/broadcasts/{broadcast_id}/send answer 403 organization_read_only (P10); drafts, edits, pause and delete stay open, as do billing, auth, team management and data export, so the owner can always pay. Off, every organization reports plan_access active.',
     },
   }),
 } satisfies Record<string, EnvVarSpec>;

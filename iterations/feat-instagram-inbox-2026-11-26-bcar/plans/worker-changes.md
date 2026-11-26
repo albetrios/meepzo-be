@@ -15,8 +15,8 @@ What must happen without a click — never how.
 | Change | Count |
 | --- | --- |
 | NEW | 5 |
-| CHANGED | 7 |
-| **Total** | **12** |
+| CHANGED | 8 |
+| **Total** | **13** |
 
 | # | Change | Work | What must be true | Brief |
 | --- | --- | --- | --- | --- |
@@ -31,4 +31,5 @@ What must happen without a click — never how.
 | WC-9 | NEW | window-closing notice | notifies the assignee when a conversation waiting on us has under 2 hours of window left | 15 |
 | WC-10 | NEW | snooze wake-up | a snoozed conversation reopens at its time | 14 |
 | WC-12 | CHANGED | the send repair sweep | also repairs a team reply stuck `sending` ([I-D10](decisions.md)) | 3 |
+| WC-13 | CHANGED | every job reading the sender's ledger | reads `app.instagram_automation_messages` after the rename ([I-D13](decisions.md)); no behaviour change | — |
 | WC-11 | NEW | idle hand-off release | a taken conversation with no team message for **24 hours** releases and the bot resumes ([I-D3](decisions.md)) | 4 |

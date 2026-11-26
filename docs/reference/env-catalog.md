@@ -104,7 +104,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `JWT_PRIVATE_KEY` | — | — *(required)* |  | — |
 | `JWT_PUBLIC_KEY` | — | — *(required)* |  | — |
 | `JWT_SIGNING_KID` | — | `default` |  | — |
-| `LAPSED_PLAN_READ_ONLY_ENABLED` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active. |
+| `LAPSED_PLAN_READ_ONLY_ENABLED` | true \| false (or 1 \| 0) | `false` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active. |
 | `LOG_LEVEL` | fatal \| error \| warn \| info \| debug \| trace \| silent | `info` | ✓ | Pino log level. Enum-constrained so a typo fails at boot instead of silently degrading. |
 | `LOG_PRETTY` | — | `false` |  | — |
 | `MAIL_OUTBOX_RECLAIM_SENDING_MINUTES` | — | `30` |  | — |

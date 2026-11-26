@@ -301,12 +301,13 @@ const SERVER_VARS = {
  * 2026-10-17; routes-final BL3, BL4): an organization whose PAID plan lapsed keeps writing through
  * its dunning grace, then reports `plan_access` `read_only`; a cancelled paid plan reads `read_only`
  * from its period end. Free never ends, so an organization that never paid is always `active`.
- * Category-A: the static default `true` is the production-safe value — only a lapsed or cancelled
- * paid plan reaches `read_only`, and the owner can always choose a plan — so no refine pins it.
+ * Category-A: billing policy, not a security guard, so no refine pins it. The static default is `false`
+ * (change-plan-gates P5, the product-first launch): a lapsed paid plan keeps writing until a deploy turns
+ * read-only on with an explicit `true`.
  */
 const BILLING_POLICY_VARS = {
   LAPSED_PLAN_READ_ONLY_ENABLED: envVar({
-    schema: booleanString('true'),
+    schema: booleanString('false'),
     meta: {
       allowed: 'true | false (or 1 | 0)',
       description:

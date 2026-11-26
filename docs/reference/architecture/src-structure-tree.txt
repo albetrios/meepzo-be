@@ -520,6 +520,7 @@ src/
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-estimate.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-gate.month-cap.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-pace.util.unit.test.ts
@@ -1234,6 +1235,7 @@ src/
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
     │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-plan-state-audit.util.ts
     │   │   │   ├── subscription-plan-state.util.ts
     │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
@@ -2785,6 +2787,7 @@ src/
     │   ├── openapi-cursor-pagination.global.test.ts
     │   ├── openapi-mcp.global.test.ts
     │   ├── outbound-bypass-guard.global.test.ts
+    │   ├── plan-gate-coverage.global.test.ts
     │   ├── public-route-allowlist.global.test.ts
     │   ├── rls-context-network-isolation.global.test.ts
     │   ├── route-completeness.global.test.ts
@@ -2832,6 +2835,7 @@ src/
     │   ├── route-catalog-registry.ts
     │   ├── route-http-coverage.helper.ts
     │   ├── route-organization-scope.helper.ts
+    │   ├── route-plan-gate-model.ts
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts

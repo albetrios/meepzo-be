@@ -15,6 +15,7 @@ What this suite covers:
 - Worker readiness — every domain that registers a worker has a corresponding heartbeat and DLQ wiring.
 - Cross-domain audit surface pinning — exactly the reviewed set of non-audit files imports `@/domains/audit/*`, so an audit trail can neither vanish nor grow silently (`audit-surface-pinning.global.test.ts`).
 - Schema / route catalog drift detection.
+- Plan-gate coverage — every write route in `docs/routes.txt` declares its plan gates (`read_only_guard`, `feature:<key>`, `account_limit`, `seat_limit`, `month_limit`) or a one-line reason it is deliberately open, and every job that sends or starts paid work its gates, in `src/tests/helpers/route-plan-gate-model.ts`; the read-only guard the model declares is checked on the real app routes plugin by its mark (`plan-gate-coverage.global.test.ts`). A new write route is one line there.
 - Schema ↔ FORCE-RLS parity — every table declared in a `*.schema.ts` appears in `EXPECTED_FORCE_RLS_TABLES` (or a reviewed exemption) and vice versa, catching new-table-without-RLS offline before the DB-bound RLS matrix runs (`schema-rls-parity.global.test.ts`).
 - Route rate-limit coverage — every route registration carries a `*_RATE_LIMIT` preset or a reviewed global-limiter-only allowlist entry (`route-rate-limit-coverage.global.test.ts`).
 - Serializer response leak guard — no credential-shaped output keys (`password`, `*_hash`, `secret`, `encrypted`) and no whole-row spreads in `*.serializer.ts` (`serializer-response-leak.global.test.ts`).

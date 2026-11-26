@@ -2,6 +2,17 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
 import { requireOrganizationScope } from '@/shared/utils/http/request.util.js';
 
+/**
+ * The mark {@link createAppPlanAccessPreHandler} puts on the guard it builds, so a test can tell from
+ * a registered route's `preHandler` list that the read-only guard really runs there.
+ *
+ * @remarks
+ * `Symbol.for`, so the mark survives a second copy of this module in a test runner. Read it with
+ * {@link isAppPlanAccessPreHandler}; the plan-gate coverage test
+ * (`src/tests/global/plan-gate-coverage.global.test.ts`) does.
+ */
+export const APP_PLAN_ACCESS_GUARD_MARK: unique symbol = Symbol.for('meepzo.app.plan-access-guard');
+
 /** The one billing step the read-only guard calls — structural, so a test can stub it. */
 export type AppPlanAccessGuardService = Pick<SubscriptionService, 'assertOrganizationWritable'>;
 
@@ -27,10 +38,22 @@ export type AppPlanAccessGuardService = Pick<SubscriptionService, 'assertOrganiz
 export function createAppPlanAccessPreHandler(
   subscriptionService: AppPlanAccessGuardService,
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
-  return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
+  const guard = async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
     const scope = requireOrganizationScope(request);
     await subscriptionService.assertOrganizationWritable({
       organizationPublicId: scope.organizationPublicId,
     });
   };
+  return Object.assign(guard, { [APP_PLAN_ACCESS_GUARD_MARK]: true as const });
+}
+
+/**
+ * Whether a route hook is the read-only guard {@link createAppPlanAccessPreHandler} built — by its
+ * {@link APP_PLAN_ACCESS_GUARD_MARK}.
+ */
+export function isAppPlanAccessPreHandler(handler: unknown): boolean {
+  return (
+    typeof handler === 'function' &&
+    (handler as unknown as Record<symbol, unknown>)[APP_PLAN_ACCESS_GUARD_MARK] === true
+  );
 }

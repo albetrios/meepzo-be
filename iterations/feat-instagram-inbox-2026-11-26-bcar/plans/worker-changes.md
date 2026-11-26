@@ -10,13 +10,13 @@ What must happen without a click — never how.
 | Intake mode | brief — from scratch |
 | Intake hash | `1082fd1734e6` |
 | Date | 2026-11-26 |
-| Stage | Step 4 — I-D3 (24 h idle), I-D5 (12 months), I-D6 (Meta deletion erases), I-D7 (copy files), I-D9 (direct team send) |
+| Stage | Step 5 — matched to `routes-final.md` § 2 (CV4 hold reason `conversation_taken`, CV9 `messaging_seen`, CV10 notification kinds) |
 
 | Change | Count |
 | --- | --- |
 | NEW | 5 |
-| CHANGED | 8 |
-| **Total** | **13** |
+| CHANGED | 10 |
+| **Total** | **15** |
 
 | # | Change | Work | What must be true | Brief |
 | --- | --- | --- | --- | --- |
@@ -32,4 +32,6 @@ What must happen without a click — never how.
 | WC-10 | NEW | snooze wake-up | a snoozed conversation reopens at its time | 14 |
 | WC-12 | CHANGED | the send repair sweep | also repairs a team reply stuck `sending` ([I-D10](decisions.md)) | 3 |
 | WC-13 | CHANGED | every job reading the sender's ledger | reads `app.instagram_automation_messages` after the rename ([I-D13](decisions.md)); no behaviour change | — |
+| WC-14 | CHANGED | the send gate | a new hold reason `conversation_taken`: an automation DM to a taken conversation waits (routes-final CV4) | 4 |
+| WC-15 | CHANGED | the webhook subscription and the account set-up job | `messaging_seen` subscribed; existing accounts re-subscribed on their next set-up run (CV9) | 16 |
 | WC-11 | NEW | idle hand-off release | a taken conversation with no team message for **24 hours** releases and the bot resumes ([I-D3](decisions.md)) | 4 |

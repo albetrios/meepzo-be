@@ -11,6 +11,7 @@ Add-only; a changed mind is a new row that supersedes an old one.
 | E-D5 | Step 4 — access and table names | as the brief · Owner and Admin only | **as the brief**: `instagram-comment:manage` for Owner, Admin, Editor (Viewer reads); tables `app.instagram_comments`, `app.instagram_mentions` | 2026-11-26 | user | RED |
 | E-D6 | Step 5 — route review sub-domain 1, Instagram comment (IC1–IC6, routes 175–179) | confirm · change | **confirmed as drafted** (rev 1) | 2026-11-27 | user | RED |
 | E-D7 | Step 5 — route review sub-domain 2, Instagram mention (IM1–IM7, routes 180–181, routes 28 / 30 changed) | confirm · caption list only · no `sources` | **confirmed as drafted** (rev 1): `app.instagram_mentions` (`igmn_`), `mentions` subscribed, trigger `mention` with optional `sources`, a caption mention without an open window ends `no_message_path` | 2026-11-27 | user | RED |
+| E-D8 | Approval of the plan (KICKOFF, 8-row ROUTE, stories, acceptance) | approve · approve and kick off now · changes | **approved**; kickoff waits until the inbox closes (shared webhook intake and partition upkeep) | 2026-11-27 | user | RED |
 
 ## Owner items (need the Meta dev app — not code)
 

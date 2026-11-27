@@ -14,7 +14,7 @@ import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-ac
  * Types, plus the empty failed-message summary: Instagram's implementation is sub-domain 6's message service (ROUTE rows R19–R20); the
  * run engine (4.B) saves every step through it since ROUTE row R14 and takes results at its
  * `recordMessageResult` (a follow check's `sent` result carries `reason` `following` or
- * `not_following`). Instagram's port is wired since ROUTE row R19 (`InstagramMessageService`); a
+ * `not_following`). Instagram's port is wired since ROUTE row R19 (`InstagramOutgoingMessageService`); a
  * channel without one makes the engine throw on its event and the automation routes skip the port's
  * side effects (a pause's cancel is still recorded as `cancelled_before_at`, which the lanes read).
  */

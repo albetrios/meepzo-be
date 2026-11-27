@@ -18,7 +18,7 @@ import { INSTAGRAM_SEND_LANES } from '@/domains/app/sub-domains/instagram-sendin
 import {
   INSTAGRAM_SEND_ATTEMPT_COUNT_GROUPS,
   INSTAGRAM_SEND_ATTEMPT_RESULT_GROUP_MAX_LENGTH,
-} from './instagram-message.constants.js';
+} from './instagram-outgoing-message.constants.js';
 
 /**
  * `app.instagram_send_attempts` — one call to Meta for a message (feat-instagram-dm-sending
@@ -31,7 +31,7 @@ import {
  *   `app.fn_create_daily_partitions`, dropped by the shared upkeep (ROUTE row R49). Primary key
  *   `(id, started_at)`.
  * - **Copies without a reference:** the account, our message (`instagram_message_id` is
- *   `app.instagram_messages.id`, not Meta's id), the automation and the contact.
+ *   `app.instagram_outgoing_messages.id`, not Meta's id), the automation and the contact.
  * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only.
  */
 export const instagram_send_attempts = appSchema

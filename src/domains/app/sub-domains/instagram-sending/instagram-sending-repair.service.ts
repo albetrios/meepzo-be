@@ -14,12 +14,12 @@ import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import { createWorkerAutomationReplyStateRepository } from '@/domains/app/sub-domains/automation/automation-reply-state.repository.js';
-import { INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS } from './instagram-message/instagram-message.constants.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
+import { INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
 import type {
-  InstagramMessageReason,
+  InstagramOutgoingMessageReason,
   InstagramSendAttemptCountGroup,
-} from './instagram-message/instagram-message.constants.js';
+} from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import type { InstagramSendGateService } from './instagram-send-gate.service.js';
 import { InstagramSendLaneRepository } from './instagram-send-lane.repository.js';
 import {
@@ -71,7 +71,7 @@ export interface InstagramRepairFastTicket {
  * limiter (SN24). Tests pass fakes.
  */
 export interface InstagramSendingRepairDependencies {
-  messageService: Pick<InstagramMessageService, 'saveSendResult' | 'settleWaitingMessages'>;
+  messageService: Pick<InstagramOutgoingMessageService, 'saveSendResult' | 'settleWaitingMessages'>;
   gateService: Pick<InstagramSendGateService, 'readGateOneCount'>;
   addLaneTurns(tickets: readonly InstagramRepairLaneTicket[]): Promise<{ added: number }>;
   addFastMessages(tickets: readonly InstagramRepairFastTicket[]): Promise<{ added: number }>;
@@ -110,7 +110,7 @@ const EXPIRY_REASONS = [
   'plan_limit',
   'plan_downgrade',
   'expired',
-] as const satisfies readonly InstagramMessageReason[];
+] as const satisfies readonly InstagramOutgoingMessageReason[];
 
 /**
  * A waiting message's expiry reason by its account's plan stop (WC-15, P265): behind the month
@@ -532,7 +532,7 @@ export class InstagramSendingRepairService {
    * `expired` — never sent.
    *
    * @remarks
-   * Algorithm: keyset pieces over `idx_instagram_messages_expiry`; per organization one settle
+   * Algorithm: keyset pieces over `idx_instagram_outgoing_messages_expiry`; per organization one settle
    * commit. Failure modes: as the class says. Side effects: the messages, their runs, the day line.
    */
   async expireWaitingMessages(context: RepairDutyContext): Promise<RepairDutyOutcome> {
@@ -855,9 +855,9 @@ export class InstagramSendingRepairService {
   }: {
     organizationPublicId: string;
     duty: string;
-    keys: Parameters<InstagramMessageService['settleWaitingMessages']>[0]['keys'];
+    keys: Parameters<InstagramOutgoingMessageService['settleWaitingMessages']>[0]['keys'];
     status: 'expired' | 'skipped';
-    reason: Parameters<InstagramMessageService['settleWaitingMessages']>[0]['reason'];
+    reason: Parameters<InstagramOutgoingMessageService['settleWaitingMessages']>[0]['reason'];
   }): Promise<number> {
     if (keys.length === 0) return Promise.resolve(0);
     return this.dependencies

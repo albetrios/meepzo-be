@@ -8,8 +8,8 @@ import {
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
-import { instagram_messages } from './instagram-message/instagram-message.schema.js';
-import { instagram_send_attempts } from './instagram-message/instagram-send-attempt.schema.js';
+import { instagram_outgoing_messages } from './instagram-outgoing-message/instagram-outgoing-message.schema.js';
+import { instagram_send_attempts } from './instagram-outgoing-message/instagram-send-attempt.schema.js';
 import { instagram_send_lanes } from './instagram-send-lane.schema.js';
 import { instagram_send_minute_counts } from './instagram-send-minute-count.schema.js';
 
@@ -128,15 +128,15 @@ export class InstagramSendingWatchRepository {
       afterChannelAccountId,
       limit,
       waitingCondition: sql`EXISTS (
-        SELECT 1 FROM ${instagram_messages}
+        SELECT 1 FROM ${instagram_outgoing_messages}
         JOIN ${automation_runs}
-          ON ${automation_runs.organization_id} = ${instagram_messages.organization_id}
-         AND ${automation_runs.id} = ${instagram_messages.automation_run_id}
-         AND ${automation_runs.started_at} = ${instagram_messages.automation_run_started_at}
-        WHERE ${instagram_messages.organization_id} = ${channel_accounts.organization_id}
-          AND ${instagram_messages.channel_account_id} = ${channel_accounts.id}
-          AND ${instagram_messages.status} = 'waiting'
-          AND ${instagram_messages.channel} = 'private_reply'
+          ON ${automation_runs.organization_id} = ${instagram_outgoing_messages.organization_id}
+         AND ${automation_runs.id} = ${instagram_outgoing_messages.automation_run_id}
+         AND ${automation_runs.started_at} = ${instagram_outgoing_messages.automation_run_started_at}
+        WHERE ${instagram_outgoing_messages.organization_id} = ${channel_accounts.organization_id}
+          AND ${instagram_outgoing_messages.channel_account_id} = ${channel_accounts.id}
+          AND ${instagram_outgoing_messages.status} = 'waiting'
+          AND ${instagram_outgoing_messages.channel} = 'private_reply'
           AND ${automation_runs.trigger_type} = 'live_comment')`,
     });
   }
@@ -156,12 +156,12 @@ export class InstagramSendingWatchRepository {
       afterChannelAccountId,
       limit,
       waitingCondition: sql`(EXISTS (
-        SELECT 1 FROM ${instagram_messages}
-        WHERE ${instagram_messages.organization_id} = ${channel_accounts.organization_id}
-          AND ${instagram_messages.channel_account_id} = ${channel_accounts.id}
-          AND ${instagram_messages.lane} = 'slow'
-          AND ${instagram_messages.status} = 'waiting'
-          AND ${instagram_messages.message_type} = 'opening_message')
+        SELECT 1 FROM ${instagram_outgoing_messages}
+        WHERE ${instagram_outgoing_messages.organization_id} = ${channel_accounts.organization_id}
+          AND ${instagram_outgoing_messages.channel_account_id} = ${channel_accounts.id}
+          AND ${instagram_outgoing_messages.lane} = 'slow'
+          AND ${instagram_outgoing_messages.status} = 'waiting'
+          AND ${instagram_outgoing_messages.message_type} = 'opening_message')
         OR EXISTS (
         SELECT 1 FROM ${instagram_send_lanes}
         WHERE ${instagram_send_lanes.organization_id} = ${channel_accounts.organization_id}

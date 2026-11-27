@@ -9,11 +9,11 @@ import {
   nextInstagramObjectId,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
 import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramSendingWatchService } from '@/domains/app/sub-domains/instagram-sending/instagram-sending-watch.service.js';
@@ -82,7 +82,7 @@ describe('instagram sending watches (database)', () => {
         readSendAccess: async () => accessOf(),
         buildUsageRecorder: () => undefined,
       },
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async (input) => {
           recorded.push({ result: input.result, reason: input.reason });
         },
@@ -131,7 +131,7 @@ describe('instagram sending watches (database)', () => {
       trigger_instagram_comment_id: nextInstagramObjectId(),
       trigger_occurred_at: occurredAt,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'opening_message',
@@ -160,7 +160,7 @@ describe('instagram sending watches (database)', () => {
       automationId: automation.id,
       contactId: contact.id,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'opening_message',
@@ -272,7 +272,7 @@ describe('instagram sending watches (database)', () => {
       onAir = [OTHER_LIVE_MEDIA_ID];
       await runInstagramSendingWatchDuty({ duty: 'live-check', dependencies: dependencies() });
       expect(liveReads).toBe(1);
-      const messages = await readInstagramMessages(organization.id);
+      const messages = await readInstagramOutgoingMessages(organization.id);
       const statuses = messages.map((message) => [message.status, message.reason]).sort();
       expect(statuses).toEqual([
         ['expired', 'live_ended'],
@@ -286,7 +286,9 @@ describe('instagram sending watches (database)', () => {
       await runInstagramSendingWatchDuty({ duty: 'live-check', dependencies: dependencies() });
       expect(recorded).toHaveLength(1);
       expect(
-        (await readInstagramMessages(organization.id)).filter((m) => m.status === 'waiting'),
+        (await readInstagramOutgoingMessages(organization.id)).filter(
+          (m) => m.status === 'waiting',
+        ),
       ).toHaveLength(1);
     });
 
@@ -294,7 +296,7 @@ describe('instagram sending watches (database)', () => {
       await liveReply({ mediaId: LIVE_MEDIA_ID, commentAgeMinutes: 241 });
       onAir = [LIVE_MEDIA_ID];
       await runInstagramSendingWatchDuty({ duty: 'live-check', dependencies: dependencies() });
-      expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+      expect((await readInstagramOutgoingMessages(organization.id))[0]).toMatchObject({
         status: 'expired',
         reason: 'live_ended',
       });
@@ -332,7 +334,7 @@ describe('instagram sending watches (database)', () => {
         estimate_will_go_count: 2,
       });
 
-      await operatorQuery`UPDATE app.instagram_messages SET status = 'expired', reason = 'expired'
+      await operatorQuery`UPDATE app.instagram_outgoing_messages SET status = 'expired', reason = 'expired'
         WHERE organization_id = ${organization.id}`;
       await runInstagramSendingWatchDuty({
         duty: 'waiting-estimate',

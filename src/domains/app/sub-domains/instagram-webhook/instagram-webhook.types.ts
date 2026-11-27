@@ -84,7 +84,7 @@ export interface InstagramOwnSentMessageAccount {
  * account. Runs inside the receiver's store unit (the caller's organization scope).
  *
  * @remarks
- * Sub-domain 6's `InstagramMessageService.findOwnSentMessageIds` over `app.instagram_messages`
+ * Sub-domain 6's `InstagramOutgoingMessageService.findOwnSentMessageIds` over `app.instagram_outgoing_messages`
  * implements it at ROUTE row R19 (the message table lands there) and the app container wires it
  * into `InstagramWebhookService`. Until then {@link NO_OWN_SENT_MESSAGES} answers "none", so every
  * echo is saved `received` — the case WH10 already covers for an echo that arrives before its

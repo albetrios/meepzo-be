@@ -41,7 +41,7 @@ import type {
   AutomationRunHandlingResult,
   AutomationRunTriggerInput,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run.types.js';
-import type { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import type { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { STOP_WORDS } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type {
   InstagramWebhookEventIntakeGroup,
@@ -142,8 +142,8 @@ export interface InstagramWebhookIntakeServices {
     AutomationRunService,
     'startCommentRun' | 'handleDirectMessage' | 'handleButtonClick'
   >;
-  instagramMessageService: Pick<
-    InstagramMessageService,
+  instagramOutgoingMessageService: Pick<
+    InstagramOutgoingMessageService,
     'findOwnSentMessageIds' | 'matchEchoedMessage' | 'markTappedMessageSent'
   >;
 }
@@ -364,7 +364,7 @@ async function readIsOwnerChatting({
     since: new Date(Date.now() - INSTAGRAM_OWNER_CHAT_QUIET_HOURS * 60 * ONE_MINUTE_MILLISECONDS),
   });
   if (echoMessageIds.length === 0) return false;
-  const ours = await services.instagramMessageService.findOwnSentMessageIds({
+  const ours = await services.instagramOutgoingMessageService.findOwnSentMessageIds({
     scope,
     channelAccount,
     messageIds: echoMessageIds,
@@ -894,7 +894,7 @@ async function readTapBeforeEngine({
   if (dispatch.inboundKind !== 'postback') return null;
   const organizationId = prepared.account.instagramAccount.organizationId;
   if (dispatch.messagePublicId !== null) {
-    await context.services.instagramMessageService.markTappedMessageSent({
+    await context.services.instagramOutgoingMessageService.markTappedMessageSent({
       databaseHandle,
       organizationId,
       messagePublicId: dispatch.messagePublicId,
@@ -942,7 +942,7 @@ async function runEventTransaction({
         if (dispatch.inboundKind === 'owner_message') {
           // WH10: our own message whose send was not saved with Meta's id yet → `sent`; else the
           // owner typed it — the quiet time reads this processed echo (6 hours).
-          await services.instagramMessageService.matchEchoedMessage({
+          await services.instagramOutgoingMessageService.matchEchoedMessage({
             scope,
             organizationId,
             channelAccountId: account.channelAccountId,

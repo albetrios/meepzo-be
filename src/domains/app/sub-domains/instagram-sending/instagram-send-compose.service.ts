@@ -19,9 +19,9 @@ import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.rep
 import { buildBroadcastButtonPayload } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient-button-payload.util.js';
 import { BroadcastRecipientRepository } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.repository.js';
 import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
-import { composeInstagramMessage } from './instagram-message/instagram-message-compose.util.js';
-import type { InstagramMessageRow } from './instagram-message/instagram-message.repository.js';
-import type { InstagramMessageReason } from './instagram-message/instagram-message.constants.js';
+import { composeInstagramMessage } from './instagram-outgoing-message/instagram-outgoing-message-compose.util.js';
+import type { InstagramOutgoingMessageRow } from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
+import type { InstagramOutgoingMessageReason } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import type { InstagramSendAccess, InstagramSendComposition } from './instagram-sending.types.js';
 
 /** Graph's invalid-parameter code and the two subcodes that may mean "the comment is gone" (§33.7). */
@@ -106,7 +106,7 @@ export async function callWithCommentCheck<T>({
 }
 
 /** A composition that never goes, with its reason. */
-function skipOf(reason: InstagramMessageReason): InstagramSendComposition {
+function skipOf(reason: InstagramOutgoingMessageReason): InstagramSendComposition {
   return { kind: 'skip', reason };
 }
 
@@ -143,7 +143,7 @@ export class InstagramSendComposeService {
     message,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
   }): Promise<InstagramSendComposition> {
     if (message.automation_id === null || message.automation_run_id === null) {
       return skipOf('automation_deleted');
@@ -236,7 +236,7 @@ export class InstagramSendComposeService {
     message,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
   }): Promise<InstagramSendComposition> {
     const broadcastId = message.broadcast_id;
     if (broadcastId === null) return skipOf('cancelled_by_owner');

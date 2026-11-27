@@ -55,10 +55,10 @@ import {
   readStopRows,
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { InstagramSendCoreService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-core.service.js';
 import {
   type InstagramRepairFastTicket,
@@ -168,7 +168,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
         const [next] = await operatorQuery<
           { public_id: string; automation_run_started_at: Date }[]
         >`
-          SELECT public_id, automation_run_started_at FROM app.instagram_messages
+          SELECT public_id, automation_run_started_at FROM app.instagram_outgoing_messages
           WHERE channel_account_id = ${target.channelAccountId} AND lane = ${lane} AND status = 'waiting'
           ORDER BY id LIMIT 1`;
         return next === undefined
@@ -206,7 +206,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
     const domain = app.appDomain;
     return new InstagramSendCoreService({
       laneService: domain.instagramSendLaneService,
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async () => undefined,
         recordBroadcastMessageResult: async () => undefined,
       }),
@@ -273,7 +273,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
   async function waitingMessage(
     account: FlowAccount,
     lane: 'slow' | 'fast',
-    values: Partial<Parameters<typeof insertInstagramMessage>[0]> = {},
+    values: Partial<Parameters<typeof insertInstagramOutgoingMessage>[0]> = {},
   ) {
     const contact = await insertContact({
       organizationId: team.organization.id,
@@ -285,7 +285,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
       automationId: account.automationId,
       contactId: contact.id,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channelAccountId,
       ...(lane === 'slow'
@@ -331,7 +331,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
   }
 
   async function statusOf(publicId: string): Promise<string | undefined> {
-    const rows = await readInstagramMessages(team.organization.id);
+    const rows = await readInstagramOutgoingMessages(team.organization.id);
     return rows.find((row) => row.public_id === publicId)?.status;
   }
 
@@ -443,7 +443,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
     laneTickets = [];
     fastTickets = [];
     repair = new InstagramSendingRepairService({
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async () => undefined,
         recordBroadcastMessageResult: async () => undefined,
       }),

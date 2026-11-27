@@ -6,8 +6,8 @@ import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-con
 import type { z } from 'zod';
 import type { MetaGraphUsageRecorder } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type { MetaUsagePace } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-usage.util.js';
-import type { InstagramMessageReason } from './instagram-message/instagram-message.constants.js';
-import type { InstagramMessageRow } from './instagram-message/instagram-message.repository.js';
+import type { InstagramOutgoingMessageReason } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
+import type { InstagramOutgoingMessageRow } from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import type { InstagramSendLaneRow } from './instagram-send-lane.repository.js';
 import type {
   InstagramSendLane,
@@ -326,7 +326,7 @@ export type InstagramSendCall = (input: {
  * and the file (`upl_…`) it sends, uploaded once per account before the call (6.C).
  */
 export type InstagramSendComposition =
-  | { kind: 'skip'; reason: InstagramMessageReason }
+  | { kind: 'skip'; reason: InstagramOutgoingMessageReason }
   | { kind: 'send'; uploadPublicId: string | null; call: InstagramSendCall };
 
 /** The limits a lane reads for one send (the account's settings, `resolveInstagramEffectiveLimits`). */
@@ -420,7 +420,7 @@ export interface InstagramSendLaneRules {
   /** The claimed message's Meta call, read from Postgres at the last moment (plan §24.4). */
   composeMessage(input: {
     scope: OrganizationPrincipalDatabaseScope;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
     access: InstagramSendAccess;
   }): Promise<InstagramSendComposition>;
   /**

@@ -326,7 +326,7 @@ export class ChannelAccountRepository {
         (SELECT count(*) FROM week_runs w WHERE w.channel_account_id = ca.id)::int AS runs_started,
         (SELECT count(*) FROM week_runs w JOIN tapped_runs t ON t.automation_run_id = w.id
           WHERE w.channel_account_id = ca.id)::int AS tapped_runs,
-        (SELECT count(*) FROM app.instagram_messages m
+        (SELECT count(*) FROM app.instagram_outgoing_messages m
           WHERE m.organization_id = ${organizationId} AND m.channel_account_id = ca.id
             AND m.status = 'sent' AND m.is_counted_as_direct_message
             AND m.sent_at >= ${from}::timestamptz AND m.sent_at < ${to}::timestamptz)::int AS direct_messages_sent,

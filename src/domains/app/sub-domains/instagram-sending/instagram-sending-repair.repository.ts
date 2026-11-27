@@ -8,7 +8,7 @@ import {
   INSTAGRAM_SENDING_REPAIR_SETTINGS,
   type InstagramSendLane,
 } from './instagram-sending.constants.js';
-import type { InstagramMessageType } from './instagram-message/instagram-message.constants.js';
+import type { InstagramOutgoingMessageType } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 
 /** The rows of a raw `execute` — postgres-js answers an array, node-postgres `{ rows }`. */
 function rowsOf<Row>(result: unknown): Row[] {
@@ -36,7 +36,7 @@ export interface InstagramRepairMessageRow {
   channel_account_id: number;
   channel_account_public_id: string;
   automation_run_started_at: Date;
-  message_type: InstagramMessageType;
+  message_type: InstagramOutgoingMessageType;
   tries: number;
   instagram_message_id: string | null;
   /** The account's plan stop, when the read asks for it (the 7-day expiry's `plan_limit`). */
@@ -93,11 +93,11 @@ const MESSAGE_COLUMNS = sql`
  * `app.global_retention_cleanup` arm, and each organization's change in its own job scope.
  *
  * @remarks
- * - **Algorithm:** raw statements over `app.instagram_send_lanes`, `app.instagram_messages`,
+ * - **Algorithm:** raw statements over `app.instagram_send_lanes`, `app.instagram_outgoing_messages`,
  *   `app.channel_accounts`, `app.contact_activities`, `app.automations`,
  *   `app.automation_reply_states` and the count tables; every read is keyset-ordered by its id and
  *   capped by `limit`, on the partial indexes the send tables carry for them
- *   (`idx_instagram_send_lanes_next_run`, `_lease`, `idx_instagram_messages_pick`, `_sending`,
+ *   (`idx_instagram_send_lanes_next_run`, `_lease`, `idx_instagram_outgoing_messages_pick`, `_sending`,
  *   `_expiry`, `_automation_waiting`, `idx_instagram_send_minute_counts_minute`).
  * - **Failure modes:** a database error propagates to the duty (the next minute tries again).
  * - **Side effects:** the writes named on each method.
@@ -160,7 +160,7 @@ export class InstagramSendingRepairRepository {
         AND l.state IN ('ready', 'sleeping') AND l.next_run_at IS NULL AND l.stop_reason IS NULL
         AND (a.plan_stop_reason IS NULL OR (a.plan_stop_reason = 'plan_limit' AND l.lane = 'reply'))
         AND EXISTS (
-          SELECT 1 FROM app.instagram_messages m
+          SELECT 1 FROM app.instagram_outgoing_messages m
           WHERE m.channel_account_id = l.channel_account_id AND m.lane = l.lane
             AND m.status = 'waiting'
             AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz))
@@ -193,7 +193,7 @@ export class InstagramSendingRepairRepository {
             - make_interval(secs => ${INSTAGRAM_SENDING_REPAIR_SETTINGS.fastSpreadAfterStopMilliseconds / 1000})
             THEN l.stop_cleared_at
         END AS stop_until
-      FROM app.instagram_messages m
+      FROM app.instagram_outgoing_messages m
       JOIN app.instagram_send_lanes l
         ON l.organization_id = m.organization_id AND l.channel_account_id = m.channel_account_id
        AND l.lane = 'fast'
@@ -219,7 +219,7 @@ export class InstagramSendingRepairRepository {
       FROM app.instagram_send_lanes l ${ACCOUNT_JOIN}
       WHERE l.lane = 'fast' AND l.id > ${afterLaneId}
         AND l.sending_count <> (
-          SELECT count(*) FROM app.instagram_messages m
+          SELECT count(*) FROM app.instagram_outgoing_messages m
           WHERE m.channel_account_id = l.channel_account_id AND m.lane = 'fast'
             AND m.status = 'sending')
       ORDER BY l.id
@@ -238,7 +238,7 @@ export class InstagramSendingRepairRepository {
   }): Promise<InstagramRepairMessageRow[]> {
     return this.rows<InstagramRepairMessageRow>(sql`
       SELECT ${MESSAGE_COLUMNS}, NULL::varchar AS plan_stop_reason, NULL::timestamptz AS stop_until
-      FROM app.instagram_messages m
+      FROM app.instagram_outgoing_messages m
       JOIN app.channel_accounts a ON a.organization_id = m.organization_id AND a.id = m.channel_account_id
       JOIN tenancy.organizations o ON o.id = m.organization_id
       WHERE m.status = 'sending' AND m.sending_at < ${sendingBefore.toISOString()}::timestamptz
@@ -287,7 +287,7 @@ export class InstagramSendingRepairRepository {
 
   /**
    * Waiting opening DMs, public replies and hides whose comment time is before `triggerBefore`
-   * (WC-15, `idx_instagram_messages_expiry`); `plan_stop_reason` is the account's.
+   * (WC-15, `idx_instagram_outgoing_messages_expiry`); `plan_stop_reason` is the account's.
    */
   async listExpiredWaitingMessages({
     triggerBefore,
@@ -300,7 +300,7 @@ export class InstagramSendingRepairRepository {
   }): Promise<InstagramRepairMessageRow[]> {
     return this.rows<InstagramRepairMessageRow>(sql`
       SELECT ${MESSAGE_COLUMNS}, a.plan_stop_reason, NULL::timestamptz AS stop_until
-      FROM app.instagram_messages m
+      FROM app.instagram_outgoing_messages m
       JOIN app.channel_accounts a ON a.organization_id = m.organization_id AND a.id = m.channel_account_id
       JOIN tenancy.organizations o ON o.id = m.organization_id
       WHERE m.status = 'waiting' AND m.lane IN ('slow', 'reply')
@@ -325,7 +325,7 @@ export class InstagramSendingRepairRepository {
   }): Promise<InstagramRepairMessageRow[]> {
     return this.rows<InstagramRepairMessageRow>(sql`
       SELECT ${MESSAGE_COLUMNS}, NULL::varchar AS plan_stop_reason, NULL::timestamptz AS stop_until
-      FROM app.instagram_messages m
+      FROM app.instagram_outgoing_messages m
       JOIN app.channel_accounts a ON a.organization_id = m.organization_id AND a.id = m.channel_account_id
       JOIN tenancy.organizations o ON o.id = m.organization_id
       LEFT JOIN app.contact_activities c
@@ -375,7 +375,7 @@ export class InstagramSendingRepairRepository {
       JOIN tenancy.organizations o ON o.id = au.organization_id
       WHERE au.cancelled_before_at IS NOT NULL AND au.id > ${afterAutomationId}
         AND EXISTS (
-          SELECT 1 FROM app.instagram_messages m
+          SELECT 1 FROM app.instagram_outgoing_messages m
           WHERE m.organization_id = au.organization_id AND m.automation_id = au.id
             AND m.status = 'waiting' AND m.created_at < au.cancelled_before_at)
       ORDER BY au.id
@@ -430,7 +430,7 @@ export class InstagramSendingRepairRepository {
     return this.rows<InstagramRepairMonthCheckRow>(sql`
       SELECT k.organization_id, o.public_id AS organization_public_id, k.month_start::text AS month_start,
         k.counted,
-        (SELECT count(*)::int FROM app.instagram_messages m
+        (SELECT count(*)::int FROM app.instagram_outgoing_messages m
           WHERE m.organization_id = k.organization_id AND m.is_counted_as_direct_message
             AND m.status IN ('sent', 'unknown', 'sending')
             AND coalesce(m.sent_at, m.sending_at, m.updated_at)
@@ -481,14 +481,14 @@ export class InstagramSendingRepairRepository {
     const changed = await this.rows<{ id: number }>(sql`
       UPDATE app.instagram_send_lanes l
       SET sending_count = least(20, (
-            SELECT count(*) FROM app.instagram_messages m
+            SELECT count(*) FROM app.instagram_outgoing_messages m
             WHERE m.organization_id = l.organization_id
               AND m.channel_account_id = l.channel_account_id
               AND m.lane = 'fast' AND m.status = 'sending')),
         updated_at = greatest(now(), l.created_at)
       WHERE l.organization_id = ${organizationId} AND l.id = ${laneId} AND l.lane = 'fast'
         AND l.sending_count <> (
-            SELECT count(*) FROM app.instagram_messages m
+            SELECT count(*) FROM app.instagram_outgoing_messages m
             WHERE m.organization_id = l.organization_id
               AND m.channel_account_id = l.channel_account_id
               AND m.lane = 'fast' AND m.status = 'sending')
@@ -513,12 +513,12 @@ export class InstagramSendingRepairRepository {
   }): Promise<{ public_id: string; automation_run_started_at: Date; id: number }[]> {
     return this.rows(sql`
       SELECT m.public_id, m.automation_run_started_at, m.id
-      FROM app.instagram_messages m
+      FROM app.instagram_outgoing_messages m
       WHERE m.organization_id = ${organizationId} AND m.automation_id = ${automationId}
         AND m.status = 'waiting' AND m.message_type = 'public_reply'
       ORDER BY m.created_at, m.id
       LIMIT greatest(0, least(${limit}, (
-        SELECT count(*) FROM app.instagram_messages w
+        SELECT count(*) FROM app.instagram_outgoing_messages w
         WHERE w.organization_id = ${organizationId} AND w.automation_id = ${automationId}
           AND w.status = 'waiting' AND w.message_type = 'public_reply') - ${keep}))`);
   }
@@ -539,11 +539,11 @@ export class InstagramSendingRepairRepository {
     limit: number;
   }): Promise<number> {
     const cancelled = await this.rows<{ id: number }>(sql`
-      UPDATE app.instagram_messages m
+      UPDATE app.instagram_outgoing_messages m
       SET status = 'cancelled', reason = 'cancelled_by_owner', updated_at = now()
       WHERE m.organization_id = ${organizationId} AND m.status = 'waiting'
         AND (m.id, m.automation_run_started_at) IN (
-          SELECT w.id, w.automation_run_started_at FROM app.instagram_messages w
+          SELECT w.id, w.automation_run_started_at FROM app.instagram_outgoing_messages w
           WHERE w.organization_id = ${organizationId} AND w.automation_id = ${automationId}
             AND w.status = 'waiting' AND w.created_at < ${createdBefore.toISOString()}::timestamptz
           ORDER BY w.id

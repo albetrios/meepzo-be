@@ -6,9 +6,9 @@ import {
   MILLISECONDS_PER_SECOND,
 } from '@/shared/constants/ttl.constants.js';
 import type {
-  InstagramMessageChannel,
-  InstagramMessageReason,
-} from './instagram-message/instagram-message.constants.js';
+  InstagramOutgoingMessageChannel,
+  InstagramOutgoingMessageReason,
+} from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
   FAST_LANE_SETTINGS,
   INSTAGRAM_ATTACHMENT_UPLOAD_MAX_TRIES,
@@ -115,7 +115,7 @@ export function classifyInstagramSendError({
   channel,
 }: {
   error: unknown;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
 }): InstagramSendErrorReading {
   const reading = readGroup(error);
   if (INSTAGRAM_SEND_STOP_GROUPS.includes(reading.group)) return reading;
@@ -184,7 +184,7 @@ export type InstagramSendStopAction =
 export interface InstagramSendOutcome {
   /** The final status, or `waiting` — the message goes back. */
   status: 'sent' | 'unknown' | 'failed' | 'skipped' | 'expired' | 'waiting';
-  reason: InstagramMessageReason | null;
+  reason: InstagramOutgoingMessageReason | null;
   /** Back to `waiting` only: whether a try is used up (`tries` + 1). */
   isTryUsed: boolean;
   /** Back to `waiting` only: not before this many milliseconds from now. */
@@ -233,7 +233,7 @@ function settle({
   reason,
 }: {
   status: InstagramSendOutcome['status'];
-  reason: InstagramMessageReason | null;
+  reason: InstagramOutgoingMessageReason | null;
 }): InstagramSendOutcome {
   return {
     status,
@@ -367,7 +367,7 @@ export function decideInstagramSendOutcome({
   reading: InstagramSendErrorReading;
   lane: InstagramSendLane;
   messageType: string;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   /** The message's tries before this call. */
   tries: number;
 }): InstagramSendOutcome {
@@ -430,7 +430,7 @@ function decideTryLater({
   tries,
 }: {
   messageType: string;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   tries: number;
 }): InstagramSendOutcome {
   if (messageType !== 'opening_message' || channel !== 'private_reply') {

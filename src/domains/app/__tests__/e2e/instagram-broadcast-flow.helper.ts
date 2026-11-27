@@ -15,7 +15,7 @@ import { broadcast_recipients } from '@/domains/app/sub-domains/broadcast/broadc
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { nextInstagramUserId } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { readInstagramMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { readInstagramOutgoingMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
@@ -296,9 +296,9 @@ export async function sendWaitingFastMessages({
   account: FlowAccount;
 }): Promise<number> {
   await operatorQuery`
-    UPDATE app.instagram_messages SET not_before = now() - interval '1 second'
+    UPDATE app.instagram_outgoing_messages SET not_before = now() - interval '1 second'
     WHERE organization_id = ${team.organization.id} AND lane = 'fast' AND status = 'waiting'`;
-  const waiting = (await readInstagramMessages(team.organization.id)).filter(
+  const waiting = (await readInstagramOutgoingMessages(team.organization.id)).filter(
     (row) => row.lane === 'fast' && row.status === 'waiting',
   );
   const work = app.appDomain.instagramSendWork.fastMessage;

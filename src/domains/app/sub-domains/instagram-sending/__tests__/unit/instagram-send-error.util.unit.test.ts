@@ -16,7 +16,7 @@ import {
   INSTAGRAM_SEND_ERROR_CODE_GROUPS,
   INSTAGRAM_SEND_RESULT_GROUPS,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
-import { INSTAGRAM_PERSON_FINAL_ERRORS } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.constants.js';
+import { INSTAGRAM_PERSON_FINAL_ERRORS } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.constants.js';
 
 /** Meta's error answer for a code and subcode, as the client reads it. */
 function metaError({

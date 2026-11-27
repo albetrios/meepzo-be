@@ -24,7 +24,7 @@ import {
   insertContact,
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   type InstagramTeamFixture,
   createInstagramTeam,
@@ -343,7 +343,7 @@ describe('Flow: a move down at the period end (R58)', () => {
       organizationId: team.organization.id,
       instagramAccountId: kept.id,
     });
-    const queued = await insertInstagramMessage({
+    const queued = await insertInstagramOutgoingMessage({
       run: await insertAutomationRun({
         organizationId: team.organization.id,
         automationId: guide.id,
@@ -431,7 +431,7 @@ describe('Flow: a move down at the period end (R58)', () => {
     expect(reads).toEqual([{ status: 'failed', fail_reason: 'plan_feature_off' }]);
     // … and the opening DM it already queued still goes (still waiting on the kept account).
     const [queuedNow] = await operatorQuery<{ status: string }[]>`
-      SELECT status FROM app.instagram_messages WHERE public_id = ${queued.public_id}`;
+      SELECT status FROM app.instagram_outgoing_messages WHERE public_id = ${queued.public_id}`;
     expect(queuedNow?.status).toBe('waiting');
     // Nothing is deleted and no automation is stopped (AC-23.7, D57).
     const automations = await operatorQuery<

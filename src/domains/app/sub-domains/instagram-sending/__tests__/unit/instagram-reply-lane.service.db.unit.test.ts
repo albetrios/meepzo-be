@@ -11,9 +11,9 @@ import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automa
 import { AutomationReplyStateRepository } from '@/domains/app/sub-domains/automation/automation-reply-state.repository.js';
 import { AutomationReplyStateService } from '@/domains/app/sub-domains/automation/automation-reply-state.service.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import {
   buildLaneHarness,
@@ -96,14 +96,14 @@ describe('InstagramReplyLaneRules (database)', () => {
       not_before: new Date(Date.now() - 1_000),
     } as const;
     const reply = withReply
-      ? await insertInstagramMessage({
+      ? await insertInstagramOutgoingMessage({
           ...common,
           message_type: 'public_reply',
           channel: 'comment_reply',
         })
       : null;
     const hide = withHide
-      ? await insertInstagramMessage({
+      ? await insertInstagramOutgoingMessage({
           ...common,
           message_type: 'hide_comment',
           channel: 'comment_hide',
@@ -239,7 +239,7 @@ describe('InstagramReplyLaneRules (database)', () => {
     });
     await harness.turn('reply');
     expect(hidden.isDone()).toBe(true);
-    const rows = await readInstagramMessages(organization.id);
+    const rows = await readInstagramOutgoingMessages(organization.id);
     expect(rows.map((row) => [row.public_id, row.status])).toEqual([
       [reply!.public_id, 'sent'],
       [hide!.public_id, 'sent'],
@@ -318,7 +318,7 @@ describe('InstagramReplyLaneRules (database)', () => {
     });
     metaHides('17900000000000041', 400, { error: { code: 100, error_subcode: 9, message: 'x' } });
     await harness.turn('reply');
-    const [failed] = await readInstagramMessages(organization.id);
+    const [failed] = await readInstagramOutgoingMessages(organization.id);
     expect(failed).toMatchObject({ status: 'failed', reason: 'bad_text' });
     const lane = await readLaneRow({ organizationId: organization.id, account, lane: 'reply' });
     expect(lane.stop_reason).toBeNull();
@@ -337,7 +337,7 @@ describe('InstagramReplyLaneRules (database)', () => {
       .query(true)
       .reply(400, { error: { code: 100, error_subcode: 33, message: 'gone' } });
     await harness.turn('reply');
-    expect((await readInstagramMessages(organization.id))[1]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[1]).toMatchObject({
       status: 'skipped',
       reason: 'deleted_comment',
     });
@@ -369,7 +369,7 @@ describe('InstagramReplyLaneRules (database)', () => {
     });
     const statuses: string[] = [];
     harness.beforeCompose.value = async (claimed) => {
-      const rows = await readInstagramMessages(organization.id);
+      const rows = await readInstagramOutgoingMessages(organization.id);
       statuses.push(rows.find((row) => row.public_id === claimed.public_id)!.status);
       await eraseContactRow({
         organizationPublicId: organization.public_id,
@@ -385,7 +385,7 @@ describe('InstagramReplyLaneRules (database)', () => {
     expect(statuses).toEqual(['sending']);
     expect(replied.isDone()).toBe(false);
     expect(hidden.isDone()).toBe(false);
-    const rows = await readInstagramMessages(organization.id);
+    const rows = await readInstagramOutgoingMessages(organization.id);
     expect(rows.map((row) => [row.public_id, row.status, row.reason])).toEqual([
       [reply!.public_id, 'skipped', 'contact_deleted'],
       [hide!.public_id, 'skipped', 'contact_deleted'],

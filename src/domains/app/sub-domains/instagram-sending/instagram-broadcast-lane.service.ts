@@ -10,13 +10,13 @@ import type { MetaUsagePace } from '@/domains/app/sub-domains/channel-connection
 import { BROADCAST_ACTIVE_STATUSES } from '@/domains/app/sub-domains/broadcast/broadcast.constants.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
-import type { InstagramMessageReason } from './instagram-message/instagram-message.constants.js';
+import type { InstagramOutgoingMessageReason } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
   type InstagramBroadcastPickCandidate,
-  InstagramMessageRepository,
-} from './instagram-message/instagram-message.repository.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
-import { isInstagramChatWindowOpen } from './instagram-message/instagram-message.util.js';
+  InstagramOutgoingMessageRepository,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { isInstagramChatWindowOpen } from './instagram-outgoing-message/instagram-outgoing-message.util.js';
 import type { InstagramSendComposeService } from './instagram-send-compose.service.js';
 import type { InstagramSendLaneRow } from './instagram-send-lane.repository.js';
 import {
@@ -43,7 +43,7 @@ const BOX_SECOND_TOLERANCE_MILLISECONDS = 50;
 /** How one pick's check again ends a message for good (plan §30.14 step 7). */
 interface BroadcastEnding {
   status: 'skipped' | 'cancelled';
-  reason: InstagramMessageReason;
+  reason: InstagramOutgoingMessageReason;
 }
 
 /**
@@ -81,7 +81,7 @@ export class InstagramBroadcastLaneRules implements InstagramSendLaneRules {
 
   constructor(
     private readonly dependencies: {
-      messageService: Pick<InstagramMessageService, 'endWaitingMessage'>;
+      messageService: Pick<InstagramOutgoingMessageService, 'endWaitingMessage'>;
       composeService: Pick<InstagramSendComposeService, 'composeBroadcastMessage'>;
       random?: InstagramPaceRandom | undefined;
     },
@@ -126,7 +126,7 @@ export class InstagramBroadcastLaneRules implements InstagramSendLaneRules {
   }): Promise<InstagramSendPick> {
     const notYet = this.boxSecondNotReached({ lane, now });
     if (notYet !== null) return { key: null, nextRunAt: notYet, waitReason: 'box' };
-    const repository = () => new InstagramMessageRepository();
+    const repository = () => new InstagramOutgoingMessageRepository();
     const candidates = await withAppDatabaseContext({
       scope,
       callback: () =>
@@ -235,7 +235,7 @@ export class InstagramBroadcastLaneRules implements InstagramSendLaneRules {
     const hers = await withAppDatabaseContext({
       scope,
       callback: () =>
-        new InstagramMessageRepository().countSentToContactInLastHour({
+        new InstagramOutgoingMessageRepository().countSentToContactInLastHour({
           organizationId: target.organizationId,
           contactId: candidate.contactId,
         }),
@@ -244,7 +244,7 @@ export class InstagramBroadcastLaneRules implements InstagramSendLaneRules {
     await withAppDatabaseContext({
       scope,
       callback: () =>
-        new InstagramMessageRepository().delayWaiting({
+        new InstagramOutgoingMessageRepository().delayWaiting({
           key,
           notBefore: new Date(
             now.getTime() +

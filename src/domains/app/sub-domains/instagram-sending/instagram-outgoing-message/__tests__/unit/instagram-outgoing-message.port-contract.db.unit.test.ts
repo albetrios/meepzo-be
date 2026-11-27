@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelMessageResultInput } from '@/domains/app/app.channel-ports.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
-import type { InstagramSendResultInput } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.types.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
+import type { InstagramSendResultInput } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.types.js';
 import {
   insertContact,
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -21,14 +21,14 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
  * routes-final § 6.C SNC16, SN22; AU35): every final status of a run's message reaches the engine's
  * `recordMessageResult` exactly once, in the result's own commit, mapped to the engine's result; a
  * repeat save of a settled message reaches it no more. The lane of each step and the `skipped`
- * answer are proved by `instagram-message.util.unit.test.ts` and
- * `instagram-message.service.db.unit.test.ts` (ROUTE row R19).
+ * answer are proved by `instagram-outgoing-message.util.unit.test.ts` and
+ * `instagram-outgoing-message.service.db.unit.test.ts` (ROUTE row R19).
  */
 describe('ChannelSendingPort — Instagram reports each result to the engine once (SNC16)', () => {
   let organization: { id: number; public_id: string };
   let channelAccountId: number;
   let recorded: ChannelMessageResultInput[];
-  let messages: InstagramMessageService;
+  let messages: InstagramOutgoingMessageService;
   let run: Awaited<ReturnType<typeof insertAutomationRun>>;
 
   const scope = () => PRINCIPAL_SCOPE.JOB({ organizationPublicId: organization.public_id });
@@ -54,7 +54,7 @@ describe('ChannelSendingPort — Instagram reports each result to the engine onc
       contactId: contact.id,
     });
     recorded = [];
-    messages = new InstagramMessageService({
+    messages = new InstagramOutgoingMessageService({
       recordRunMessageResult: async (input) => {
         recorded.push(input);
       },
@@ -64,7 +64,7 @@ describe('ChannelSendingPort — Instagram reports each result to the engine onc
 
   /** One waiting list message of the run, claimed in the fast lane. */
   async function claimedMessage(messageNumber: number) {
-    const row = await insertInstagramMessage({
+    const row = await insertInstagramOutgoingMessage({
       run,
       channelAccountId,
       message_number: messageNumber,

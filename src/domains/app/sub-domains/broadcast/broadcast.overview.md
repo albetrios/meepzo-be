@@ -41,7 +41,7 @@ broadcast lane (R45).
   a segment empties `segment_id` on the drafts that use it (BC17, the segment delete's step).
 - Soft delete, then purge 90 days later (BC4, P9, P75 — the purge is ROUTE row R50); only a draft,
   done or cancelled broadcast may be deleted (`409 broadcast_active`).
-- The messages' link: `app.instagram_messages (organization_id, broadcast_id)` → `app.broadcasts`,
+- The messages' link: `app.instagram_outgoing_messages (organization_id, broadcast_id)` → `app.broadcasts`,
   `ON DELETE CASCADE` (SN17) — sub-domain 7 never writes a message itself; it hands them to the
   account's channel's `ChannelSendingPort` (BC18, R23 / R46).
 

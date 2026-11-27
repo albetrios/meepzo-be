@@ -9,11 +9,11 @@ import {
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import {
   type InstagramRepairFastTicket,
   type InstagramRepairLaneTicket,
@@ -58,7 +58,7 @@ describe('InstagramSendingRepairService (database)', () => {
   }
 
   async function messageOf(publicId: string) {
-    const rows = await readInstagramMessages(organization.id);
+    const rows = await readInstagramOutgoingMessages(organization.id);
     return rows.find((row) => row.public_id === publicId)!;
   }
 
@@ -90,7 +90,7 @@ describe('InstagramSendingRepairService (database)', () => {
     fastTickets = [];
     service = new InstagramSendingRepairService({
       jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async (input) => {
           recorded.push(input);
         },
@@ -111,14 +111,14 @@ describe('InstagramSendingRepairService (database)', () => {
 
   it('settles a send past its lease as unknown · worker_lost, one with a Meta id as sent, a follow check back to waiting — and a second run changes nothing (WC-14, AC-17.19, D17)', async () => {
     const sendingAt = new Date(Date.now() - 3 * MINUTE);
-    const lost = await insertInstagramMessage({
+    const lost = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       status: 'sending',
       reason: null,
       sending_at: sendingAt,
     });
-    const answered = await insertInstagramMessage({
+    const answered = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_number: 2,
@@ -127,7 +127,7 @@ describe('InstagramSendingRepairService (database)', () => {
       sending_at: sendingAt,
       instagram_message_id: 'mid.lost-save',
     });
-    const followCheck = await insertInstagramMessage({
+    const followCheck = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'follow_check',
@@ -138,7 +138,7 @@ describe('InstagramSendingRepairService (database)', () => {
       reason: null,
       sending_at: sendingAt,
     });
-    const fresh = await insertInstagramMessage({
+    const fresh = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_number: 3,
@@ -189,7 +189,7 @@ describe('InstagramSendingRepairService (database)', () => {
     await operatorQuery`
       UPDATE app.instagram_send_lanes SET sending_count = 3
       WHERE channel_account_id = ${account.channel_account_id} AND lane = 'fast'`;
-    await insertInstagramMessage({
+    await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'public_reply',
@@ -200,7 +200,7 @@ describe('InstagramSendingRepairService (database)', () => {
       status: 'waiting',
       reason: null,
     });
-    const late = await insertInstagramMessage({
+    const late = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       status: 'waiting',
@@ -233,7 +233,7 @@ describe('InstagramSendingRepairService (database)', () => {
 
   it('expires a waiting opening DM 7 days minus 30 minutes after its comment, plan_limit behind the month limit, plan_downgrade behind a move down, never twice (WC-15, AC-17.13)', async () => {
     const old = new Date(Date.now() - 7 * DAY);
-    const opening = await insertInstagramMessage({
+    const opening = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'opening_message',
@@ -244,7 +244,7 @@ describe('InstagramSendingRepairService (database)', () => {
       reason: null,
       trigger_occurred_at: old,
     });
-    const young = await insertInstagramMessage({
+    const young = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'public_reply',
@@ -268,7 +268,7 @@ describe('InstagramSendingRepairService (database)', () => {
     await operatorQuery`
       UPDATE app.channel_accounts SET plan_stop_reason = 'plan_limit', plan_stopped_at = now()
       WHERE id = ${account.channel_account_id}`;
-    const behindLimit = await insertInstagramMessage({
+    const behindLimit = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'hide_comment',
@@ -297,7 +297,7 @@ describe('InstagramSendingRepairService (database)', () => {
         await insertContact({ organizationId: organization.id, instagramAccountId: account.id })
       ).id,
     });
-    const behindDowngrade = await insertInstagramMessage({
+    const behindDowngrade = await insertInstagramOutgoingMessage({
       run: downgradeRun,
       channelAccountId: account.channel_account_id,
       message_type: 'hide_comment',
@@ -327,7 +327,7 @@ describe('InstagramSendingRepairService (database)', () => {
       automationId: automation.id,
       contactId: closedContact.id,
     });
-    const closed = await insertInstagramMessage({
+    const closed = await insertInstagramOutgoingMessage({
       run: closedRun,
       channelAccountId: account.channel_account_id,
       message_type: 'nudge',
@@ -335,7 +335,7 @@ describe('InstagramSendingRepairService (database)', () => {
       status: 'waiting',
       reason: null,
     });
-    const open = await insertInstagramMessage({
+    const open = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       status: 'waiting',
@@ -354,7 +354,7 @@ describe('InstagramSendingRepairService (database)', () => {
     // The limit is 500 in the settings; a small one keeps the fixture short.
     const trimming = new InstagramSendingRepairService({
       jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async (input) => {
           recorded.push(input);
         },
@@ -380,7 +380,7 @@ describe('InstagramSendingRepairService (database)', () => {
         contactId: contact.id,
       });
       replies.push(
-        await insertInstagramMessage({
+        await insertInstagramOutgoingMessage({
           run: replyRun,
           channelAccountId: account.channel_account_id,
           message_type: 'public_reply',
@@ -394,7 +394,7 @@ describe('InstagramSendingRepairService (database)', () => {
         }),
       );
     }
-    const hide = await insertInstagramMessage({
+    const hide = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'hide_comment',
@@ -424,7 +424,7 @@ describe('InstagramSendingRepairService (database)', () => {
   });
 
   it('cancels the waiting messages made before a pause with Cancel, not the ones after (WC-19, AC-6.15)', async () => {
-    const before = await insertInstagramMessage({
+    const before = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       status: 'waiting',
@@ -434,7 +434,7 @@ describe('InstagramSendingRepairService (database)', () => {
     await operatorQuery`
       UPDATE app.automations SET status = 'paused', cancelled_before_at = now() - interval '5 minutes'
       WHERE id = ${automation.id}`;
-    const after = await insertInstagramMessage({
+    const after = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_number: 2,

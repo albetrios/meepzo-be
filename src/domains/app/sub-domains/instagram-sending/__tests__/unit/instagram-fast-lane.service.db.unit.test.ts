@@ -10,9 +10,9 @@ import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import { parseAutomationButtonPayload } from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import {
   buildLaneHarness,
@@ -33,7 +33,7 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
-type MessageRow = Awaited<ReturnType<typeof insertInstagramMessage>>;
+type MessageRow = Awaited<ReturnType<typeof insertInstagramOutgoingMessage>>;
 
 /**
  * The fast lane's rules in the real send core (feat-instagram-dm-sending routes-final § 6.10 WC-7;
@@ -74,7 +74,7 @@ describe('InstagramFastLaneRules (database)', () => {
   }: {
     contactId: number;
     triggerType?: 'dm_keyword' | 'comment' | 'live_comment';
-    message?: Partial<Parameters<typeof insertInstagramMessage>[0]>;
+    message?: Partial<Parameters<typeof insertInstagramOutgoingMessage>[0]>;
   }): Promise<MessageRow> {
     const isComment = triggerType !== 'dm_keyword';
     const occurredAt = (message.trigger_occurred_at as Date | undefined) ?? new Date();
@@ -97,7 +97,7 @@ describe('InstagramFastLaneRules (database)', () => {
       waiting_for: null,
       waiting_since_at: null,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'message',
@@ -138,7 +138,7 @@ describe('InstagramFastLaneRules (database)', () => {
   }
 
   async function messageOf(publicId: string) {
-    return (await readInstagramMessages(organization.id)).find(
+    return (await readInstagramOutgoingMessages(organization.id)).find(
       (row) => row.public_id === publicId,
     )!;
   }
@@ -344,7 +344,7 @@ describe('InstagramFastLaneRules (database)', () => {
       message: { message_kind: 'audio' },
     });
     await operatorQuery`
-      UPDATE app.instagram_messages SET status = 'waiting' WHERE public_id = ${message.public_id}`;
+      UPDATE app.instagram_outgoing_messages SET status = 'waiting' WHERE public_id = ${message.public_id}`;
     for (let index = 0; index < 5; index += 1) {
       const someone = await contactWith({ username: `listener.${index}` });
       await waitingFast({
@@ -416,7 +416,7 @@ describe('InstagramFastLaneRules (database)', () => {
       expect.objectContaining({ instagramMessagePublicId: check.public_id, tries: 1 }),
     ]);
     await operatorQuery`
-      UPDATE app.instagram_messages SET not_before = now() WHERE public_id = ${check.public_id}`;
+      UPDATE app.instagram_outgoing_messages SET not_before = now() WHERE public_id = ${check.public_id}`;
     read();
     await harness.fast(afterFirst);
     expect(await messageOf(check.public_id)).toMatchObject({

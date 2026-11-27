@@ -9,7 +9,7 @@ import { broadcastSendQueue } from '@/domains/app/app.tasks.js';
 import { runBroadcastEndDuty } from '@/domains/app/sub-domains/broadcast/workers/broadcast-end.processor.js';
 import { runBroadcastStartDuty } from '@/domains/app/sub-domains/broadcast/workers/broadcast-start.processor.js';
 import { insertContact } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { readInstagramMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { readInstagramOutgoingMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { setMonthCount } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -78,7 +78,7 @@ describe('Flow — a broadcast from draft to done (R56)', () => {
   async function sendTheBroadcastLane(maxTurns: number): Promise<number> {
     let turns = 0;
     for (; turns < maxTurns; turns += 1) {
-      const waiting = (await readInstagramMessages(team.organization.id)).filter(
+      const waiting = (await readInstagramOutgoingMessages(team.organization.id)).filter(
         (row) => row.lane === 'broadcast' && row.status === 'waiting',
       );
       if (waiting.length === 0) break;
@@ -415,7 +415,7 @@ describe('Flow — a broadcast from draft to done (R56)', () => {
     expect(await sendWaitingFastMessages({ app, team, account })).toBeGreaterThan(0);
     expect(sends.length).toBeGreaterThan(sentBefore);
     expect(
-      (await readInstagramMessages(team.organization.id)).some(
+      (await readInstagramOutgoingMessages(team.organization.id)).some(
         (row) => row.lane === 'fast' && row.status === 'sent',
       ),
     ).toBe(true);

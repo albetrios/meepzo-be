@@ -15,9 +15,9 @@ import { InstagramSendingRepairService } from '@/domains/app/sub-domains/instagr
 import { SENDING_SETTINGS_VERSION } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type { InstagramSendTicketContext } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import {
-  readInstagramMessages,
+  readInstagramOutgoingMessages,
   readInstagramSendAttempts,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { addMissingInstagramSendFastMessages } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { addMissingInstagramSendLaneTurns } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { decideSending } from '@/domains/app/sub-domains/instagram-sending/sending-state.service.js';
@@ -112,7 +112,7 @@ describe('Flow — recovery after an outage (R62)', () => {
   const repairContext = () => ({ now: new Date(), isBudgetSpent: () => false });
   const repairService = () =>
     new InstagramSendingRepairService({
-      messageService: app.appDomain.instagramMessageService,
+      messageService: app.appDomain.instagramOutgoingMessageService,
       gateService: app.appDomain.instagramSendGateService,
       addLaneTurns: addMissingInstagramSendLaneTurns,
       addFastMessages: addMissingInstagramSendFastMessages,
@@ -149,7 +149,7 @@ describe('Flow — recovery after an outage (R62)', () => {
   }
 
   async function waitingFast() {
-    return (await readInstagramMessages(team.organization.id)).filter(
+    return (await readInstagramOutgoingMessages(team.organization.id)).filter(
       (row) => row.lane === 'fast' && row.status === 'waiting',
     );
   }
@@ -157,9 +157,9 @@ describe('Flow — recovery after an outage (R62)', () => {
   /** One fast message's ticket through the app's send core, its wait over; the returned delay. */
   async function sendFast(publicId: string): Promise<number | null> {
     await operatorQuery`
-      UPDATE app.instagram_messages SET not_before = now() - interval '1 second'
+      UPDATE app.instagram_outgoing_messages SET not_before = now() - interval '1 second'
       WHERE public_id = ${publicId} AND status = 'waiting'`;
-    const message = (await readInstagramMessages(team.organization.id)).find(
+    const message = (await readInstagramOutgoingMessages(team.organization.id)).find(
       (row) => row.public_id === publicId,
     )!;
     try {
@@ -282,7 +282,7 @@ describe('Flow — recovery after an outage (R62)', () => {
     expect(await sendFast(waiting!.public_id)).toBeNull();
     expect(calls).toEqual(['read', 'send']);
     expect(sends).toHaveLength(1);
-    expect((await readInstagramMessages(team.organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(team.organization.id))[0]?.status).toBe('sent');
     expect(await sendFast(waiting!.public_id)).toBeNull();
     expect(sends).toHaveLength(1);
     expect((await sendingStateRow()).all_release_started_at).toBeInstanceOf(Date);
@@ -383,14 +383,17 @@ describe('Flow — recovery after an outage (R62)', () => {
     // Two sends whose worker died after Meta answered (`sending`, past the lease): one with its
     // Instagram id → `sent`; one without → `unknown`.
     await operatorQuery`
-      UPDATE app.instagram_messages SET status = 'sending', sending_at = now() - interval '3 minutes'
+      UPDATE app.instagram_outgoing_messages SET status = 'sending', sending_at = now() - interval '3 minutes'
       WHERE public_id IN (${second!.public_id}, ${third!.public_id})`;
     await operatorQuery`
-      UPDATE app.instagram_messages SET instagram_message_id = 'mid.answered'
+      UPDATE app.instagram_outgoing_messages SET instagram_message_id = 'mid.answered'
       WHERE public_id = ${second!.public_id}`;
     expect((await repairService().settleStuckSends(repairContext())).done).toBe(2);
     const settled = new Map(
-      (await readInstagramMessages(team.organization.id)).map((row) => [row.public_id, row]),
+      (await readInstagramOutgoingMessages(team.organization.id)).map((row) => [
+        row.public_id,
+        row,
+      ]),
     );
     expect(settled.get(second!.public_id)?.status).toBe('sent');
     expect(settled.get(third!.public_id)).toMatchObject({
@@ -404,7 +407,7 @@ describe('Flow — recovery after an outage (R62)', () => {
     expect(await sendFast(third!.public_id)).toBeNull();
     expect(sends).toHaveLength(1);
     expect(
-      (await readInstagramMessages(team.organization.id)).find(
+      (await readInstagramOutgoingMessages(team.organization.id)).find(
         (row) => row.public_id === third!.public_id,
       )?.status,
     ).toBe('unknown');
@@ -458,7 +461,7 @@ describe('Flow — recovery after an outage (R62)', () => {
 
     // The lost-ticket repair: every due waiting message has its ticket again.
     await operatorQuery`
-      UPDATE app.instagram_messages SET not_before = now() - interval '2 minutes'
+      UPDATE app.instagram_outgoing_messages SET not_before = now() - interval '2 minutes'
       WHERE organization_id = ${team.organization.id} AND status = 'waiting'`;
     await repairService().repairLostTurns(repairContext());
     const fastQueue = queues.find((queue) => queue.name === 'instagram-send-fast')!;

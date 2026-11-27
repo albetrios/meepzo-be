@@ -111,7 +111,7 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: automation backfill start',
   'GET /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id':
     'cross-organization-resource: automation backfill',
-  // feat-instagram-dm-sending R19: instagram-message.integration.test.ts reads another
+  // feat-instagram-dm-sending R19: instagram-outgoing-message.integration.test.ts reads another
   // organization's contact activity and failed messages and an automation's → 404; the retries
   // → 404 with every message unchanged.
   'GET /api/v1/app/contacts/:contact_id/activity': 'cross-organization-resource: contact activity',

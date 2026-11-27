@@ -27,7 +27,7 @@ import {
 import { insertContact } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 
 /**
  * The delivery's Meta times: an hour ago, so the store function's 8-day replay guard (WH9 step 5,
@@ -598,7 +598,7 @@ describe('Instagram webhook — routes 16–17', () => {
         automationId: automation.id,
         contactId: contact.id,
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channelAccountId,
         status: 'sent',

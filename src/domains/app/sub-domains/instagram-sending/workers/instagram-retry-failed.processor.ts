@@ -1,6 +1,6 @@
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import type { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import type { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import type { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 import type { InstagramTaskHandler } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import {
@@ -15,7 +15,7 @@ import {
  *
  * @remarks
  * - **Algorithm:** the owner resolved by public id in the job's organization scope (gone → nothing);
- *   `InstagramMessageService.retryAllowedFailedMessages` with each piece in a database slot and,
+ *   `InstagramOutgoingMessageService.retryAllowedFailedMessages` with each piece in a database slot and,
  *   after each commit, `wakeLanes` per touched account (marked due; their tickets by the repair,
  *   R47 — the retry holds internal ids only).
  * - **Failure modes:** a database error propagates (one attempt, then the dead letter — committed
@@ -28,7 +28,7 @@ export function createInstagramRetryFailedTaskHandler({
   laneService,
 }: {
   messageService: Pick<
-    InstagramMessageService,
+    InstagramOutgoingMessageService,
     'resolveFailedMessagesTarget' | 'retryAllowedFailedMessages'
   >;
   laneService: Pick<InstagramSendLaneService, 'wakeLanes'>;

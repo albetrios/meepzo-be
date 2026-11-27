@@ -27,18 +27,18 @@ import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
 } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import {
-  type InstagramMessageKey,
-  InstagramMessageRepository,
-  type InstagramMessageRow,
-} from './instagram-message/instagram-message.repository.js';
+  type InstagramOutgoingMessageKey,
+  InstagramOutgoingMessageRepository,
+  type InstagramOutgoingMessageRow,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import {
   type InstagramSendAttemptKey,
   InstagramSendAttemptRepository,
-} from './instagram-message/instagram-send-attempt.repository.js';
+} from './instagram-outgoing-message/instagram-send-attempt.repository.js';
 import type {
-  InstagramMessageChannel,
+  InstagramOutgoingMessageChannel,
   InstagramSendAttemptCountGroup,
-} from './instagram-message/instagram-message.constants.js';
+} from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
   InstagramSendLaneRepository,
   type InstagramSendLaneRow,
@@ -78,9 +78,9 @@ function gateOneKey({
  */
 export interface InstagramSendClaimInput {
   scope: OrganizationPrincipalDatabaseScope;
-  key: InstagramMessageKey;
+  key: InstagramOutgoingMessageKey;
   lane: InstagramSendLane;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   countGroup: InstagramSendAttemptCountGroup;
   /** Gate 2's hour limit of the group (the lane's, from the account's settings). */
   hourLimit: number;
@@ -99,7 +99,7 @@ export interface InstagramSendClaimInput {
 export type InstagramSendClaim =
   | {
       kind: 'claimed';
-      message: InstagramMessageRow;
+      message: InstagramOutgoingMessageRow;
       attempt: InstagramSendAttemptKey;
       /** The month reached the limit with this message (its plan stop started, SN8). */
       isMonthLimitReached: boolean;
@@ -424,7 +424,7 @@ export class InstagramSendGateService {
     lanes,
   }: {
     input: InstagramSendClaimInput;
-    found: InstagramMessageRow;
+    found: InstagramOutgoingMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
     lanes: InstagramSendLaneRepository;
   }): Promise<MonthGuard> {
@@ -458,10 +458,10 @@ export class InstagramSendGateService {
     messages,
   }: {
     input: InstagramSendClaimInput;
-    found: InstagramMessageRow;
+    found: InstagramOutgoingMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
     lanes: InstagramSendLaneRepository;
-    messages: InstagramMessageRepository;
+    messages: InstagramOutgoingMessageRepository;
   }): Promise<'person_busy' | 'fast_busy' | null> {
     const contact = { organizationId: found.organization_id, contactId: found.contact_id };
     if (input.lane === 'fast' || input.lane === 'broadcast') {
@@ -491,7 +491,7 @@ export class InstagramSendGateService {
     input: InstagramSendClaimInput;
     databaseHandle: RequestScopedPostgresDatabase;
   }): Promise<InstagramSendClaim> {
-    const messages = new InstagramMessageRepository(databaseHandle);
+    const messages = new InstagramOutgoingMessageRepository(databaseHandle);
     const found = await messages.findByKey(input.key);
     if (found === null || found.status !== 'waiting' || found.lane !== input.lane) {
       return { kind: 'refused', reason: 'gone' };
@@ -554,10 +554,10 @@ export class InstagramSendGateService {
     lanes,
     messages,
   }: {
-    found: InstagramMessageRow;
+    found: InstagramOutgoingMessageRow;
     laneRow: InstagramSendLaneRow;
     lanes: InstagramSendLaneRepository;
-    messages: InstagramMessageRepository;
+    messages: InstagramOutgoingMessageRepository;
   }): Promise<boolean> {
     if (laneRow.sending_count >= INSTAGRAM_SEND_FAST_SENDING_MAX) return true;
     if (found.message_kind === 'audio') {
@@ -583,8 +583,8 @@ export class InstagramSendGateService {
     minutes,
   }: {
     input: InstagramSendClaimInput;
-    found: InstagramMessageRow;
-    messages: InstagramMessageRepository;
+    found: InstagramOutgoingMessageRow;
+    messages: InstagramOutgoingMessageRepository;
     minutes: InstagramSendMinuteCountRepository;
   }): Promise<'hour_limit' | 'person_limit' | null> {
     if (input.countGroup !== 'none') {

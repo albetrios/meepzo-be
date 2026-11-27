@@ -37,9 +37,9 @@ import {
   insertAutomationRun,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -161,9 +161,9 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
   /** Two failed DMs to her open chat (retryable) and one already retried. */
   async function seedFailed(): Promise<void> {
     const channelAccountId = account.channel_account_id;
-    await insertInstagramMessage({ run, channelAccountId, message_number: 1 });
-    await insertInstagramMessage({ run, channelAccountId, message_number: 2 });
-    await insertInstagramMessage({
+    await insertInstagramOutgoingMessage({ run, channelAccountId, message_number: 1 });
+    await insertInstagramOutgoingMessage({ run, channelAccountId, message_number: 2 });
+    await insertInstagramOutgoingMessage({
       run,
       channelAccountId,
       message_number: 3,
@@ -174,7 +174,7 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
   describe('route 24 — what happened (CT14, AC-7.1)', () => {
     it('merges her messages and her run history newest first across pages, never her text', async () => {
       const base = Date.now() - 10 * 60 * 1000;
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         message_number: 1,
@@ -184,7 +184,7 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
         created_at: new Date(base + 1000),
         updated_at: new Date(base + 2000),
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         message_number: 2,
@@ -260,19 +260,19 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
         'contact_not_found',
       );
       await seedFailed();
-      const before = await readInstagramMessages(team.organization.id);
+      const before = await readInstagramOutgoingMessages(team.organization.id);
       expect((await read(`${contactFailed()}/summary`, other.ownerToken)).statusCode).toBe(404);
       expect(
         (await retry({ url: `${contactFailed()}/retry`, token: other.ownerToken })).statusCode,
       ).toBe(404);
-      expect(await readInstagramMessages(team.organization.id)).toEqual(before);
+      expect(await readInstagramOutgoingMessages(team.organization.id)).toEqual(before);
     });
   });
 
   describe('routes 36–37 — an automation (AU18, AC-7.2–AC-7.4, AC-7.10, AC-7.11)', () => {
     it('counts by reason and changes nothing; a Viewer may read', async () => {
       await seedFailed();
-      const before = await readInstagramMessages(team.organization.id);
+      const before = await readInstagramOutgoingMessages(team.organization.id);
       const response = await read(`${automationFailed()}/summary`, team.viewerToken);
       expect(response.statusCode).toBe(200);
       expect((response.json() as { data: unknown }).data).toEqual({
@@ -288,7 +288,7 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
         },
         horizon_days: 30,
       });
-      expect(await readInstagramMessages(team.organization.id)).toEqual(before);
+      expect(await readInstagramOutgoingMessages(team.organization.id)).toEqual(before);
     });
 
     it('refuses a Viewer, needs X-Idempotency-Key, retries the allowed ones once for an Editor and writes one audit entry', async () => {
@@ -313,13 +313,11 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
         is_queued: true,
       });
       // The press answers at once; the `retry-failed` job puts them back (WC-42, R46).
-      expect((await readInstagramMessages(team.organization.id)).map((row) => row.status)).toEqual([
-        'failed',
-        'failed',
-        'failed',
-      ]);
+      expect(
+        (await readInstagramOutgoingMessages(team.organization.id)).map((row) => row.status),
+      ).toEqual(['failed', 'failed', 'failed']);
       expect(await runQueuedRetries()).toBe(1);
-      const rows = await readInstagramMessages(team.organization.id);
+      const rows = await readInstagramOutgoingMessages(team.organization.id);
       expect(rows.map((row) => row.status)).toEqual(['waiting', 'waiting', 'failed']);
       // The same key again starts nothing twice; a new press finds nothing left to retry.
       const replay = await retry({
@@ -349,11 +347,11 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
       const response = await read(`${automationFailed()}/summary`, other.ownerToken);
       expect(response.statusCode).toBe(404);
       await seedFailed();
-      const before = await readInstagramMessages(team.organization.id);
+      const before = await readInstagramOutgoingMessages(team.organization.id);
       expect(
         (await retry({ url: `${automationFailed()}/retry`, token: other.ownerToken })).statusCode,
       ).toBe(404);
-      expect(await readInstagramMessages(team.organization.id)).toEqual(before);
+      expect(await readInstagramOutgoingMessages(team.organization.id)).toEqual(before);
     });
   });
 
@@ -371,7 +369,7 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
       });
       expect(await runQueuedRetries()).toBe(1);
       expect(
-        (await readInstagramMessages(team.organization.id)).filter(
+        (await readInstagramOutgoingMessages(team.organization.id)).filter(
           (row) => row.status === 'waiting',
         ),
       ).toHaveLength(2);
@@ -393,7 +391,7 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
         waiting_for: null,
         waiting_since_at: null,
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run: optedOutRun,
         channelAccountId: account.channel_account_id,
       });

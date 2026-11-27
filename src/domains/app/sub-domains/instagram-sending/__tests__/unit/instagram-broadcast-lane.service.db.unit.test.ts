@@ -17,7 +17,7 @@ import {
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { createWorkerContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
-import { readInstagramMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { readInstagramOutgoingMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   insertLanes,
   setMonthCount,
@@ -223,7 +223,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
     expect(message.text).toBe('Hi Riya, drop 1');
     const payload = parseBroadcastButtonPayload(message.quick_replies[0]!.payload);
     expect(payload?.broadcastPublicId).toBe(broadcast.public_id);
-    const messages = await readInstagramMessages(organization.id);
+    const messages = await readInstagramOutgoingMessages(organization.id);
     const first = messages.find(
       (row) => row.contact_id === soonest.id && row.message_number === 1,
     )!;
@@ -268,13 +268,15 @@ describe('InstagramBroadcastLaneRules (database)', () => {
     expect(row.next_run_at!.getTime() - Date.now()).toBeGreaterThan(HOUR - 60_000);
     await harness.turn('broadcast');
     expect(
-      (await readInstagramMessages(organization.id)).filter((m) => m.status === 'sent'),
+      (await readInstagramOutgoingMessages(organization.id)).filter((m) => m.status === 'sent'),
     ).toHaveLength(1);
 
     // The box forced open: gate 2 of the `broadcast` group still holds the hour limit.
     await freeTheBox();
     await harness.turn('broadcast');
-    const statuses = (await readInstagramMessages(organization.id)).map((m) => m.status).sort();
+    const statuses = (await readInstagramOutgoingMessages(organization.id))
+      .map((m) => m.status)
+      .sort();
     expect(statuses).toEqual(['sent', 'waiting']);
     expect(
       (await readLaneRow({ organizationId: organization.id, account, lane: 'broadcast' }))
@@ -326,7 +328,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
       status: 'skipped',
       reason: 'broadcast_cancelled',
     });
-    const cancelledMessage = (await readInstagramMessages(organization.id)).find(
+    const cancelledMessage = (await readInstagramOutgoingMessages(organization.id)).find(
       (row) => row.broadcast_id === cancelled.id,
     );
     expect(cancelledMessage).toMatchObject({ status: 'cancelled', reason: 'broadcast_cancelled' });
@@ -357,7 +359,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
 
     await harness.turn('broadcast');
 
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('waiting');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('waiting');
     const [plan] = await operatorQuery<Array<{ plan_stop_reason: string | null }>>`
       SELECT plan_stop_reason FROM app.channel_accounts WHERE id = ${account.channel_account_id}`;
     expect(plan?.plan_stop_reason).toBe('plan_limit');
@@ -387,7 +389,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
       (await readLaneRow({ organizationId: organization.id, account, lane: 'slow' })).stop_reason,
     ).toBeNull();
     // The message goes back to `waiting`, no try used (a stop never fails a DM).
-    expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[0]).toMatchObject({
       status: 'waiting',
       tries: 0,
     });
@@ -399,7 +401,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
     await buildAudience(broadcast.public_id);
     const statuses: string[] = [];
     harness.beforeCompose.value = async (claimed) => {
-      const rows = await readInstagramMessages(organization.id);
+      const rows = await readInstagramOutgoingMessages(organization.id);
       statuses.push(rows.find((row) => row.public_id === claimed.public_id)!.status);
       await eraseContactRow({
         organizationPublicId: organization.public_id,
@@ -413,7 +415,7 @@ describe('InstagramBroadcastLaneRules (database)', () => {
 
     expect(statuses).toEqual(['sending']);
     expect(meta.isDone()).toBe(false);
-    const [message] = await readInstagramMessages(organization.id);
+    const [message] = await readInstagramOutgoingMessages(organization.id);
     expect(message).toMatchObject({ status: 'skipped', reason: 'contact_deleted' });
     const [recipient] = await readRecipients(broadcast.id);
     expect(recipient).toMatchObject({

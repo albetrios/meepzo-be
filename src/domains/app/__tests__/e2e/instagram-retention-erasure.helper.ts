@@ -683,7 +683,7 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
     FROM app.automations WHERE organization_id = ${organizationId}`;
   // One sent opening DM per run and its call to Meta (feat-instagram-dm-sending R19, § 6.B.3).
   await operatorQuery`
-    INSERT INTO app.instagram_messages
+    INSERT INTO app.instagram_outgoing_messages
       (public_id, organization_id, channel_account_id, automation_id, automation_run_id,
        automation_run_started_at, contact_id, message_type, message_kind, lane, channel,
        is_counted_as_direct_message, status, sent_at, trigger_occurred_at)
@@ -700,7 +700,7 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
       (organization_id, channel_account_id, instagram_message_id, automation_id, contact_id, lane,
        count_group, result_group)
     SELECT organization_id, channel_account_id, id, automation_id, contact_id, lane, 'open', 'sent'
-    FROM app.instagram_messages WHERE organization_id = ${organizationId}`;
+    FROM app.instagram_outgoing_messages WHERE organization_id = ${organizationId}`;
 }
 
 /**

@@ -4,7 +4,7 @@ import {
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
-import type { InstagramSendAttemptCountGroup } from './instagram-message.constants.js';
+import type { InstagramSendAttemptCountGroup } from './instagram-outgoing-message.constants.js';
 import { instagram_send_attempts } from './instagram-send-attempt.schema.js';
 
 /** One `app.instagram_send_attempts` row as Drizzle reads it. */
@@ -46,7 +46,7 @@ export class InstagramSendAttemptRepository {
   }: {
     organizationId: number;
     channelAccountId: number;
-    /** `app.instagram_messages.id`. */
+    /** `app.instagram_outgoing_messages.id`. */
     messageId: number;
     automationId: number | null;
     contactId: number;

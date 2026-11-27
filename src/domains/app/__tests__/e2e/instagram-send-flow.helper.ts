@@ -8,12 +8,12 @@ import {
   META_GRAPH_BASE_URL,
   META_GRAPH_VERSION,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import { instagram_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.schema.js';
+import { instagram_outgoing_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.schema.js';
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import {
-  type InstagramMessageFixtureRow,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  type InstagramOutgoingMessageFixtureRow,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import type { InstagramSendTicketContext } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -210,8 +210,8 @@ export class InstagramSendDriver {
   }
 
   /** The organization's messages, oldest first. */
-  messages(): Promise<InstagramMessageFixtureRow[]> {
-    return readInstagramMessages(this.flow.team.organization.id);
+  messages(): Promise<InstagramOutgoingMessageFixtureRow[]> {
+    return readInstagramOutgoingMessages(this.flow.team.organization.id);
   }
 
   /**
@@ -250,15 +250,15 @@ export class InstagramSendDriver {
     const database = getOperatorDatabase();
     const organizationId = this.flow.team.organization.id;
     await database
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
-        not_before: sql`LEAST(${instagram_messages.not_before}, now() - interval '1 second')`,
+        not_before: sql`LEAST(${instagram_outgoing_messages.not_before}, now() - interval '1 second')`,
       })
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.status, 'waiting'),
-          sql`${instagram_messages.not_before} <= now() + make_interval(secs => ${horizonMilliseconds / 1_000})`,
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.status, 'waiting'),
+          sql`${instagram_outgoing_messages.not_before} <= now() + make_interval(secs => ${horizonMilliseconds / 1_000})`,
         ),
       );
     await database

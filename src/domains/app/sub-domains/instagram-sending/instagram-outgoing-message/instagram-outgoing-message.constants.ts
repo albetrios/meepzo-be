@@ -5,7 +5,7 @@ import {
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 
 /**
- * The message types of `app.instagram_messages` (feat-instagram-dm-sending routes-final § 6.B.3,
+ * The message types of `app.instagram_outgoing_messages` (feat-instagram-dm-sending routes-final § 6.B.3,
  * plan §19.1): every Instagram call that should go to her — a DM, a nudge, a broadcast message, a
  * public reply, a hide, or a follow check.
  */
@@ -24,13 +24,13 @@ export const INSTAGRAM_MESSAGE_TYPES = [
 ] as const;
 
 /** One value of {@link INSTAGRAM_MESSAGE_TYPES}. */
-export type InstagramMessageType = (typeof INSTAGRAM_MESSAGE_TYPES)[number];
+export type InstagramOutgoingMessageType = (typeof INSTAGRAM_MESSAGE_TYPES)[number];
 
 /**
  * The types that go into her chat (plan §19.1 check 5): `is_counted_as_direct_message` is true
  * exactly for these — the month count's messages (D34).
  */
-export const INSTAGRAM_DIRECT_MESSAGE_TYPES: readonly InstagramMessageType[] = [
+export const INSTAGRAM_DIRECT_MESSAGE_TYPES: readonly InstagramOutgoingMessageType[] = [
   'opening_message',
   'nudge',
   'follow_request',
@@ -43,7 +43,7 @@ export const INSTAGRAM_DIRECT_MESSAGE_TYPES: readonly InstagramMessageType[] = [
 
 /** The run engine's step (AU35) → the message type it saves (SN22). */
 export const INSTAGRAM_MESSAGE_TYPE_OF_STEP: Readonly<
-  Record<ChannelMessageStep, InstagramMessageType>
+  Record<ChannelMessageStep, InstagramOutgoingMessageType>
 > = {
   hello: 'opening_message',
   follow: 'follow_request',
@@ -77,7 +77,7 @@ export const INSTAGRAM_MESSAGE_CHANNELS = [
 ] as const;
 
 /** One value of {@link INSTAGRAM_MESSAGE_CHANNELS}. */
-export type InstagramMessageChannel = (typeof INSTAGRAM_MESSAGE_CHANNELS)[number];
+export type InstagramOutgoingMessageChannel = (typeof INSTAGRAM_MESSAGE_CHANNELS)[number];
 
 /** The status machine of a message (SN16, plan §20.7). */
 export const INSTAGRAM_MESSAGE_STATUSES = [
@@ -92,7 +92,7 @@ export const INSTAGRAM_MESSAGE_STATUSES = [
 ] as const;
 
 /** One value of {@link INSTAGRAM_MESSAGE_STATUSES}. */
-export type InstagramMessageStatus = (typeof INSTAGRAM_MESSAGE_STATUSES)[number];
+export type InstagramOutgoingMessageStatus = (typeof INSTAGRAM_MESSAGE_STATUSES)[number];
 
 /** The statuses a send's result ends in (`saveSendResult`, SN4). */
 export const INSTAGRAM_MESSAGE_FINAL_STATUSES = [
@@ -101,16 +101,16 @@ export const INSTAGRAM_MESSAGE_FINAL_STATUSES = [
   'failed',
   'skipped',
   'expired',
-] as const satisfies readonly InstagramMessageStatus[];
+] as const satisfies readonly InstagramOutgoingMessageStatus[];
 
 /** One value of {@link INSTAGRAM_MESSAGE_FINAL_STATUSES}. */
-export type InstagramMessageFinalStatus = (typeof INSTAGRAM_MESSAGE_FINAL_STATUSES)[number];
+export type InstagramOutgoingMessageFinalStatus = (typeof INSTAGRAM_MESSAGE_FINAL_STATUSES)[number];
 
 /**
  * Every `reason` of a message, one place (plan §19.1 "All reason values", plus P35's `replaced`, the
  * engine's 7-day wait cancel `wait_expired` (R14), a follow check's `following` /
  * `not_following` on its `sent` result (P130) and the 7-day expiry's `plan_downgrade` behind that
- * plan stop (P265)). Mirrors `chk_instagram_messages_reason`.
+ * plan stop (P265)). Mirrors `chk_instagram_outgoing_messages_reason`.
  */
 export const INSTAGRAM_MESSAGE_REASONS = [
   'opted_out',
@@ -149,11 +149,11 @@ export const INSTAGRAM_MESSAGE_REASONS = [
 ] as const;
 
 /** One value of {@link INSTAGRAM_MESSAGE_REASONS}. */
-export type InstagramMessageReason = (typeof INSTAGRAM_MESSAGE_REASONS)[number];
+export type InstagramOutgoingMessageReason = (typeof INSTAGRAM_MESSAGE_REASONS)[number];
 
 /** The lanes each message type may wait in (plan §19.1 checks 1–3; the lane move keeps them). */
 export const INSTAGRAM_MESSAGE_LANE_CHANNELS: Readonly<
-  Record<InstagramSendLane, readonly (InstagramMessageChannel | null)[]>
+  Record<InstagramSendLane, readonly (InstagramOutgoingMessageChannel | null)[]>
 > = {
   slow: ['private_reply'],
   reply: ['comment_reply', 'comment_hide'],
@@ -231,5 +231,5 @@ export const INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS = [
 ] as const;
 
 /** One value of {@link INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS}. */
-export type InstagramMessageNotRetryableReason =
+export type InstagramOutgoingMessageNotRetryableReason =
   (typeof INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS)[number];

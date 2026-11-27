@@ -12,8 +12,8 @@ import type {
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import { broadcast_recipients } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.schema.js';
 import { BroadcastRecipientService } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.service.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
-import { readInstagramMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { readInstagramOutgoingMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   type ContactFixtureRow,
   insertContact,
@@ -319,7 +319,7 @@ describe('BroadcastRecipientService (database)', () => {
       const contact = await lead();
       const broadcast = await insertBroadcast({ messageCount: 2 });
       let recipients: BroadcastRecipientService | undefined;
-      const instagram = new InstagramMessageService({
+      const instagram = new InstagramOutgoingMessageService({
         recordRunMessageResult: async () => undefined,
         recordBroadcastMessageResult: (input) => recipients!.recordMessageResult(input),
       });
@@ -331,7 +331,7 @@ describe('BroadcastRecipientService (database)', () => {
           afterContactPublicId: null,
         }),
       );
-      const [message] = await readInstagramMessages(organization.id);
+      const [message] = await readInstagramOutgoingMessages(organization.id);
       expect(message).toMatchObject({
         broadcast_id: broadcast.id,
         contact_id: contact.id,
@@ -369,7 +369,7 @@ describe('BroadcastRecipientService (database)', () => {
 
       expect((await readRecipients(broadcast.id))[0]).toMatchObject({ status: 'sent' });
       expect(await readBroadcast(broadcast.id)).toMatchObject({ matched: 1, sent: 1 });
-      const messages = await readInstagramMessages(organization.id);
+      const messages = await readInstagramOutgoingMessages(organization.id);
       expect(messages.map((row) => [row.message_number, row.status]).sort()).toEqual([
         [1, 'sent'],
         [2, 'waiting'],

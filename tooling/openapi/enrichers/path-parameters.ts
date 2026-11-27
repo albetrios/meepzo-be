@@ -34,6 +34,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   automation: 'automation',
   automationRun: 'automation run',
   automationCommentLog: 'automation comment log',
+  instagramConversation: 'Instagram conversation',
   segment: 'segment',
   automationBackfill: 'past-comments read',
   trialAccount: 'trial account',

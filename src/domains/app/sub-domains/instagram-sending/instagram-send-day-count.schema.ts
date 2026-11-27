@@ -18,7 +18,7 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
  * `app.instagram_send_day_counts` — one account's message results of one day of its organization's
  * time zone (feat-instagram-dm-sending scale review S8, P97): sent, not sure (`unknown`), skipped
  * and of those "chat closed", expired. Route 63's "today" line reads this one row instead of
- * scanning the account's week parts of `app.instagram_messages`.
+ * scanning the account's week parts of `app.instagram_outgoing_messages`.
  *
  * @remarks
  * - Raised by the one shared result save (`saveSendResult`, ROUTE row R42) in the result's own

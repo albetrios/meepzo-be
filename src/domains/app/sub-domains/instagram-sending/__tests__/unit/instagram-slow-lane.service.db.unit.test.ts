@@ -9,9 +9,9 @@ import {
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import {
   buildLaneHarness,
@@ -93,7 +93,7 @@ describe('InstagramSlowLaneRules (database)', () => {
       waiting_for: null,
       waiting_since_at: null,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: messageType,
@@ -198,7 +198,7 @@ describe('InstagramSlowLaneRules (database)', () => {
         },
       },
     });
-    const [sent] = await readInstagramMessages(organization.id);
+    const [sent] = await readInstagramOutgoingMessages(organization.id);
     expect(sent).toMatchObject({ public_id: message.public_id, status: 'sent' });
     const lane = await readLaneRow({ organizationId: organization.id, account, lane: 'slow' });
     // A new account opens 150 an hour for its first 7 days (D5): 24-second boxes; this send opened
@@ -245,10 +245,9 @@ describe('InstagramSlowLaneRules (database)', () => {
     const lane = await readLaneRow({ organizationId: organization.id, account, lane: 'slow' });
     expect(lane.next_run_at!.getTime()).toBe(booked.getTime());
     expect(lane.wait_reason).toBe('box');
-    expect((await readInstagramMessages(organization.id)).map((row) => row.status).sort()).toEqual([
-      'sent',
-      'waiting',
-    ]);
+    expect(
+      (await readInstagramOutgoingMessages(organization.id)).map((row) => row.status).sort(),
+    ).toEqual(['sent', 'waiting']);
   });
 
   it('mixes new and old comments 4 : 1: place 5 takes the oldest (plan §28.2)', async () => {
@@ -267,7 +266,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     metaSends([{ status: 200, body: { message_id: 'mid.old' } }], bodies);
     await harness.turn('slow');
     expect(bodies[0]?.recipient).toEqual({ comment_id: '17900000000000009' });
-    const rows = await readInstagramMessages(organization.id);
+    const rows = await readInstagramOutgoingMessages(organization.id);
     expect(rows.find((row) => row.public_id === old.public_id)?.status).toBe('sent');
     expect(
       (await readLaneRow({ organizationId: organization.id, account, lane: 'slow' })).pick_count,
@@ -285,7 +284,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     const meta = metaSends([{ status: 200, body: { message_id: 'mid.never' } }]);
     await harness.turn('slow');
     expect(meta.isDone()).toBe(false);
-    const [held] = await readInstagramMessages(organization.id);
+    const [held] = await readInstagramOutgoingMessages(organization.id);
     expect(held).toMatchObject({ public_id: message.public_id, status: 'waiting' });
     expect(held!.not_before!.getTime()).toBe(openedAt.getTime() + 24 * HOUR);
     // The lane sleeps until her 24 hours pass.
@@ -302,7 +301,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     const meta = metaSends([{ status: 200, body: { message_id: 'mid.never' } }]);
     await harness.turn('slow');
     expect(meta.isDone()).toBe(false);
-    const rows = await readInstagramMessages(organization.id);
+    const rows = await readInstagramOutgoingMessages(organization.id);
     expect(rows.map((row) => [row.status, row.reason])).toEqual([
       ['expired', 'expired'],
       ['skipped', 'opted_out'],
@@ -321,7 +320,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     const meta = metaSends([{ status: 200, body: { message_id: 'mid.never' } }]);
     await harness.turn('slow');
     expect(meta.isDone()).toBe(false);
-    const [moved] = await readInstagramMessages(organization.id);
+    const [moved] = await readInstagramOutgoingMessages(organization.id);
     expect(moved).toMatchObject({ lane: 'fast', channel: 'direct', status: 'waiting' });
     expect(fastTickets).toEqual([
       expect.objectContaining({ instagramMessagePublicId: message.public_id, tries: 0 }),
@@ -338,7 +337,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     expect(bodies.map((body) => body.message)).toEqual([
       { text: 't:common:automationMessages.emailQuestion' },
     ]);
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('sent');
   });
 
   it('reads the comment once before a deleted_comment: gone → skipped, still there → bad text (plan §33.7)', async () => {
@@ -351,7 +350,7 @@ describe('InstagramSlowLaneRules (database)', () => {
       .query(true)
       .reply(400, { error: { code: 100, error_subcode: 33, message: 'gone' } });
     await harness.turn('slow');
-    expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[0]).toMatchObject({
       status: 'skipped',
       reason: 'deleted_comment',
     });
@@ -365,7 +364,7 @@ describe('InstagramSlowLaneRules (database)', () => {
       .query(true)
       .reply(200, { id: '17900000000000005', hidden: false });
     await harness.turn('slow');
-    expect((await readInstagramMessages(organization.id))[1]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[1]).toMatchObject({
       status: 'failed',
       reason: 'bad_text',
     });
@@ -394,7 +393,9 @@ describe('InstagramSlowLaneRules (database)', () => {
       if (testTurn < 3) expect(stopUntil.getTime()).toBeLessThan(Date.now());
       else expect(stopUntil.getTime()).toBeGreaterThan(Date.now() + 10 * MINUTE);
     }
-    const statuses = (await readInstagramMessages(organization.id)).map((row) => row.status);
+    const statuses = (await readInstagramOutgoingMessages(organization.id)).map(
+      (row) => row.status,
+    );
     expect(statuses.filter((status) => status === 'skipped')).toHaveLength(3);
     expect(statuses.filter((status) => status === 'waiting')).toHaveLength(1);
   });
@@ -403,7 +404,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     const contact = await contactWith();
     const message = await waitingOpening({ contactId: contact.id });
     await operatorQuery`
-      UPDATE app.instagram_messages SET status = 'skipped', reason = 'window_closed', updated_at = now()
+      UPDATE app.instagram_outgoing_messages SET status = 'skipped', reason = 'window_closed', updated_at = now()
       WHERE public_id = ${message.public_id}`;
     const lines = await harness.messageService.listWindowClosedByAutomation({
       scope: scope(),
@@ -443,7 +444,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     harness.beforeCompose.value = null;
 
     const byId = new Map(
-      (await readInstagramMessages(organization.id)).map((row) => [row.public_id, row]),
+      (await readInstagramOutgoingMessages(organization.id)).map((row) => [row.public_id, row]),
     );
     // One message claimed and composed in the turn; it settles, the other stays waiting.
     expect(composed).toHaveLength(1);
@@ -458,7 +459,7 @@ describe('InstagramSlowLaneRules (database)', () => {
     // A late ticket of the stopped lane claims no turn: nothing else is picked or sent.
     await harness.turn('slow');
     expect(
-      (await readInstagramMessages(organization.id)).find(
+      (await readInstagramOutgoingMessages(organization.id)).find(
         (row) => row.public_id === left.public_id,
       ),
     ).toMatchObject({ status: 'waiting' });

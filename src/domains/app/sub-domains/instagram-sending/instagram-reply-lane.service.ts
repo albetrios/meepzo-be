@@ -12,12 +12,12 @@ import { AUTOMATION_PUBLIC_REPLY_HOUR_LIMIT_DEFAULT } from '@/domains/app/sub-do
 import type { AutomationReplyStateService } from '@/domains/app/sub-domains/automation/automation-reply-state.service.js';
 import { AutomationRunRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-run.repository.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
-import { INSTAGRAM_COMMENT_REPLY_EXPIRY_MILLISECONDS } from './instagram-message/instagram-message.constants.js';
+import { INSTAGRAM_COMMENT_REPLY_EXPIRY_MILLISECONDS } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
-  type InstagramMessagePickCandidate,
-  InstagramMessageRepository,
-} from './instagram-message/instagram-message.repository.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
+  type InstagramOutgoingMessagePickCandidate,
+  InstagramOutgoingMessageRepository,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { callWithCommentCheck } from './instagram-send-compose.service.js';
 import type { InstagramSendLaneRow } from './instagram-send-lane.repository.js';
 import {
@@ -43,7 +43,7 @@ const REPLY_REQUEST_ID = 'instagram-reply';
 
 /** A reply candidate and whether its send is paced ("Reply like a person" ON). */
 interface ReplyChoice {
-  candidate: InstagramMessagePickCandidate;
+  candidate: InstagramOutgoingMessagePickCandidate;
   isPaced: boolean;
 }
 
@@ -79,7 +79,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
 
   constructor(
     private readonly dependencies: {
-      messageService: Pick<InstagramMessageService, 'endWaitingMessage'>;
+      messageService: Pick<InstagramOutgoingMessageService, 'endWaitingMessage'>;
       replyStateService: Pick<AutomationReplyStateService, 'lockReplyState' | 'saveReplyState'>;
       /**
        * The one feature check (CA11, P50) for `reply_like_person` on the account: the plan's switch
@@ -152,7 +152,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
     const notBefore = await withAppDatabaseContext({
       scope,
       callback: () =>
-        new InstagramMessageRepository().findEarliestWaitingNotBefore({
+        new InstagramOutgoingMessageRepository().findEarliestWaitingNotBefore({
           organizationId: target.organizationId,
           channelAccountId: target.channelAccountId,
           lane: 'reply',
@@ -192,7 +192,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
     const due = await withAppDatabaseContext({
       scope,
       callback: () =>
-        new InstagramMessageRepository().findReplyDueCandidate({
+        new InstagramOutgoingMessageRepository().findReplyDueCandidate({
           ...account,
           now,
           isReplyLikePersonOffered: isOffered,
@@ -203,7 +203,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
-        const paced = await new InstagramMessageRepository().listReplyPacedCandidates({
+        const paced = await new InstagramOutgoingMessageRepository().listReplyPacedCandidates({
           ...account,
           now,
         });
@@ -211,8 +211,11 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
           lane.last_sent_at === null
             ? 0
             : lane.last_sent_at.getTime() + REPLY_LANE_SETTINGS.gapMilliseconds;
-        let best: { candidate: InstagramMessagePickCandidate; box: number; boxStart: Date } | null =
-          null;
+        let best: {
+          candidate: InstagramOutgoingMessagePickCandidate;
+          box: number;
+          boxStart: Date;
+        } | null = null;
         let earliest: number | null = null;
         for (const candidate of paced) {
           const box = replyBoxMilliseconds({
@@ -265,7 +268,7 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     target: InstagramSendLaneTarget;
-    candidate: InstagramMessagePickCandidate & { boxStart: Date | null };
+    candidate: InstagramOutgoingMessagePickCandidate & { boxStart: Date | null };
     box: number;
     now: Date;
   }): Promise<Date> {
@@ -310,13 +313,13 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     target: InstagramSendLaneTarget;
-    candidate: InstagramMessagePickCandidate;
+    candidate: InstagramOutgoingMessagePickCandidate;
     key: InstagramSendMessageKey;
     now: Date;
   }): Promise<boolean> {
     const message = await withAppDatabaseContext({
       scope,
-      callback: () => new InstagramMessageRepository().findByKey(key),
+      callback: () => new InstagramOutgoingMessageRepository().findByKey(key),
     });
     if (message === null || message.status !== 'waiting') return true;
     const isTooOld =

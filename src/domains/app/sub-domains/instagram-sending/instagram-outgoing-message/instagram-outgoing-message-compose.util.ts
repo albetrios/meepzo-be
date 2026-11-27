@@ -9,7 +9,7 @@ import {
   AUTOMATION_MESSAGE_TEXT_MAX_BYTES,
 } from '@/domains/app/sub-domains/automation/automation.constants.js';
 import type { InstagramOutgoingMessage } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import type { InstagramMessageRow } from './instagram-message.repository.js';
+import type { InstagramOutgoingMessageRow } from './instagram-outgoing-message.repository.js';
 
 /** The account's profile address a follow ask's first button opens. */
 const INSTAGRAM_PROFILE_URL = 'https://www.instagram.com/';
@@ -20,7 +20,7 @@ const NAME_PLACEHOLDER = /\{name\}/g;
 /** What one waiting message is composed from, read at the last moment (plan §24.4). */
 export interface InstagramComposeInput {
   message: Pick<
-    InstagramMessageRow,
+    InstagramOutgoingMessageRow,
     'message_type' | 'message_number' | 'message_kind' | 'version_number' | 'wording_number'
   >;
   /** The automation's `steps` now (a live edit is sent as edited); a broadcast's `{ messages }`. */

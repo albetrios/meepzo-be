@@ -19,7 +19,7 @@ import {
   mockInstagramUnsubscribe,
   readStagedAuditRows,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   FORM_CONTENT_TYPE,
   META_DATA_DELETION_PATH,
@@ -164,7 +164,7 @@ describe('Meta data deletion and contact erase flow (e2e, AC-26)', () => {
         UPDATE app.contacts SET note = 'Jordan Privateperson asked about sizes'
         WHERE id = ${jordan.contact.id}`;
       const channelAccountId = Number(jordan.contact.channel_account_id);
-      const waitingMessage = await insertInstagramMessage({
+      const waitingMessage = await insertInstagramOutgoingMessage({
         run: jordan.waitingRun,
         channelAccountId,
         message_type: 'opening_message',
@@ -174,7 +174,7 @@ describe('Meta data deletion and contact erase flow (e2e, AC-26)', () => {
         status: 'waiting',
         reason: null,
       });
-      const morganMessage = await insertInstagramMessage({
+      const morganMessage = await insertInstagramOutgoingMessage({
         run: morgan.waitingRun,
         channelAccountId,
         message_type: 'opening_message',
@@ -220,7 +220,7 @@ describe('Meta data deletion and contact erase flow (e2e, AC-26)', () => {
         });
       }
       const messages = await operatorQuery<Array<{ id: string; status: string; reason: string }>>`
-        SELECT id::text, status, reason FROM app.instagram_messages
+        SELECT id::text, status, reason FROM app.instagram_outgoing_messages
         WHERE id IN (${waitingMessage.id}, ${morganMessage.id}) ORDER BY id`;
       expect(messages.map((row) => [row.status, row.reason])).toEqual([
         ['cancelled', 'contact_deleted'],

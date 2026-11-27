@@ -26,10 +26,10 @@ import {
   INSTAGRAM_MESSAGE_REASONS,
   INSTAGRAM_MESSAGE_STATUSES,
   INSTAGRAM_MESSAGE_TYPES,
-} from './instagram-message.constants.js';
+} from './instagram-outgoing-message.constants.js';
 
-/** The columns of `app.instagram_messages` (routes-final § 6.B.3), as the table is built from them. */
-const instagramMessageColumns = {
+/** The columns of `app.instagram_outgoing_messages` (routes-final § 6.B.3), as the table is built from them. */
+const instagramOutgoingMessageColumns = {
   id: bigserial('id', { mode: 'number' }).notNull(),
   /** `igm_…` (P22, kickoff choice of R19). */
   public_id: varchar('public_id', { length: 28 }).notNull(),
@@ -86,58 +86,58 @@ const instagramMessageColumns = {
 };
 
 /** The table's columns as its checks read them. */
-type InstagramMessageTableColumns = BuildExtraConfigColumns<
-  'instagram_messages',
-  typeof instagramMessageColumns,
+type InstagramOutgoingMessageTableColumns = BuildExtraConfigColumns<
+  'instagram_outgoing_messages',
+  typeof instagramOutgoingMessageColumns,
   'pg'
 >;
 
 /** The CHECKs of 6.B.3 (plan §19.1 checks 1–8): kinds, statuses, reasons, lanes and their pairs. */
-function instagramMessageChecks(table: InstagramMessageTableColumns) {
+function instagramOutgoingMessageChecks(table: InstagramOutgoingMessageTableColumns) {
   return [
     check(
-      'chk_instagram_messages_type',
+      'chk_instagram_outgoing_messages_type',
       sql`${table.message_type} IN (${sqlLiteralList(INSTAGRAM_MESSAGE_TYPES)})`,
     ),
     check(
-      'chk_instagram_messages_kind',
+      'chk_instagram_outgoing_messages_kind',
       sql`${table.message_kind} IN (${sqlLiteralList(INSTAGRAM_MESSAGE_KINDS)})`,
     ),
     check(
-      'chk_instagram_messages_status',
+      'chk_instagram_outgoing_messages_status',
       sql`${table.status} IN (${sqlLiteralList(INSTAGRAM_MESSAGE_STATUSES)})`,
     ),
     check(
-      'chk_instagram_messages_reason',
+      'chk_instagram_outgoing_messages_reason',
       sql`${table.reason} IN (${sqlLiteralList(INSTAGRAM_MESSAGE_REASONS)})`,
     ),
     check(
-      'chk_instagram_messages_status_reason',
+      'chk_instagram_outgoing_messages_status_reason',
       sql`(${table.status} NOT IN ('waiting', 'sending') OR ${table.reason} IS NULL)
         AND (${table.status} NOT IN ('failed', 'skipped', 'cancelled', 'expired') OR ${table.reason} IS NOT NULL)`,
     ),
     check(
-      'chk_instagram_messages_lane_channel',
+      'chk_instagram_outgoing_messages_lane_channel',
       sql`(${table.lane} = 'slow' AND ${table.channel} = 'private_reply')
         OR (${table.lane} = 'reply' AND ${table.channel} IN ('comment_reply', 'comment_hide'))
         OR (${table.lane} = 'fast' AND (${table.channel} IS NULL OR ${table.channel} IN ('direct', 'private_reply')))
         OR (${table.lane} = 'broadcast' AND ${table.channel} = 'direct')`,
     ),
     check(
-      'chk_instagram_messages_type_lane',
+      'chk_instagram_outgoing_messages_type_lane',
       sql`(${table.message_type} = 'public_reply') = (${table.channel} IS NOT DISTINCT FROM 'comment_reply')
         AND (${table.message_type} = 'hide_comment') = (${table.channel} IS NOT DISTINCT FROM 'comment_hide')
         AND (${table.message_type} = 'follow_check') = (${table.channel} IS NULL)
         AND (${table.message_type} = 'broadcast') = (${table.lane} = 'broadcast')`,
     ),
     check(
-      'chk_instagram_messages_source',
+      'chk_instagram_outgoing_messages_source',
       sql`num_nonnulls(${table.automation_run_id}, ${table.broadcast_id}) = 1
         AND (${table.message_type} = 'broadcast') = (${table.broadcast_id} IS NOT NULL)
         AND (${table.automation_id} IS NULL) = (${table.broadcast_id} IS NOT NULL)`,
     ),
     check(
-      'chk_instagram_messages_numbers',
+      'chk_instagram_outgoing_messages_numbers',
       sql`(${table.message_number} IS NOT NULL) = (${table.message_type} IN ('message', 'broadcast'))
         AND ${table.message_number} BETWEEN 1 AND (CASE WHEN ${table.message_type} = 'broadcast' THEN 3 ELSE 10 END)
         AND ${table.version_number} BETWEEN 1 AND 3
@@ -145,28 +145,34 @@ function instagramMessageChecks(table: InstagramMessageTableColumns) {
         AND ${table.text_number} BETWEEN 1 AND 10`,
     ),
     check(
-      'chk_instagram_messages_counted',
+      'chk_instagram_outgoing_messages_counted',
       sql`${table.is_counted_as_direct_message} = (${table.message_type} IN (${sqlLiteralList(INSTAGRAM_DIRECT_MESSAGE_TYPES)}))`,
     ),
     check(
-      'chk_instagram_messages_sending',
+      'chk_instagram_outgoing_messages_sending',
       sql`(${table.status} = 'sending') = (${table.sending_at} IS NOT NULL)`,
     ),
     check(
-      'chk_instagram_messages_sent',
+      'chk_instagram_outgoing_messages_sent',
       sql`(${table.status} = 'sent') = (${table.sent_at} IS NOT NULL)`,
     ),
-    check('chk_instagram_messages_counters', sql`${table.tries} >= 0 AND ${table.asks} >= 0`),
     check(
-      'chk_instagram_messages_error',
+      'chk_instagram_outgoing_messages_counters',
+      sql`${table.tries} >= 0 AND ${table.asks} >= 0`,
+    ),
+    check(
+      'chk_instagram_outgoing_messages_error',
       sql`${table.error_subcode} IS NULL OR ${table.error_code} IS NOT NULL`,
     ),
-    check('chk_instagram_messages_updated', sql`${table.updated_at} >= ${table.created_at}`),
+    check(
+      'chk_instagram_outgoing_messages_updated',
+      sql`${table.updated_at} >= ${table.created_at}`,
+    ),
   ];
 }
 
 /**
- * `app.instagram_messages` — one message we send or plan to send to her, of a run or of a broadcast
+ * `app.instagram_outgoing_messages` — one message we send or plan to send to her, of a run or of a broadcast
  * (feat-instagram-dm-sending routes-final § 6.B.3, SN16, SN17; plan §19.1). It holds no text: the
  * lane reads it from the automation (or broadcast) at the last moment (6.B.10).
  *
@@ -180,7 +186,7 @@ function instagramMessageChecks(table: InstagramMessageTableColumns) {
  *   `(organization_id, broadcast_id)` → `app.broadcasts`, `CASCADE` (SN17, added by sub-domain 7's
  *   migration `20261125120000_app_broadcasts.sql`, ROUTE row R22). The account, automation and contact are copies without
  *   a reference; nothing points into this table.
- * - **One row per run, type and list place** (`idx_instagram_messages_run_type`, `NULLS NOT
+ * - **One row per run, type and list place** (`idx_instagram_outgoing_messages_run_type`, `NULLS NOT
  *   DISTINCT` in the migration — Drizzle's index builder has no such flag): asking again, or her next
  *   action after an `unknown`, reuses the row.
  * - **Status machine (SN16):** `waiting` → `sending` → `sent` · `unknown` · `failed`; `waiting` →
@@ -188,14 +194,14 @@ function instagramMessageChecks(table: InstagramMessageTableColumns) {
  *   → `waiting` once by the owner's retry (SN18). Only the result save changes a claimed row.
  * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only.
  */
-export const instagram_messages = appSchema
-  .table('instagram_messages', instagramMessageColumns, (table) => [
+export const instagram_outgoing_messages = appSchema
+  .table('instagram_outgoing_messages', instagramOutgoingMessageColumns, (table) => [
     primaryKey({
-      name: 'instagram_messages_pkey',
+      name: 'instagram_outgoing_messages_pkey',
       columns: [table.id, table.automation_run_started_at],
     }),
     foreignKey({
-      name: 'instagram_messages_automation_run_fk',
+      name: 'instagram_outgoing_messages_automation_run_fk',
       columns: [table.organization_id, table.automation_run_id, table.automation_run_started_at],
       foreignColumns: [
         automation_runs.organization_id,
@@ -205,15 +211,15 @@ export const instagram_messages = appSchema
     }).onDelete('cascade'),
     // The broadcast's messages (SN17) — added by sub-domain 7's migration (ROUTE row R22).
     foreignKey({
-      name: 'instagram_messages_broadcast_fk',
+      name: 'instagram_outgoing_messages_broadcast_fk',
       columns: [table.organization_id, table.broadcast_id],
       foreignColumns: [broadcasts.organization_id, broadcasts.id],
     }).onDelete('cascade'),
-    uniqueIndex('idx_instagram_messages_public_id').on(
+    uniqueIndex('idx_instagram_outgoing_messages_public_id').on(
       table.public_id,
       table.automation_run_started_at,
     ),
-    uniqueIndex('idx_instagram_messages_run_type')
+    uniqueIndex('idx_instagram_outgoing_messages_run_type')
       .on(
         table.organization_id,
         table.automation_run_id,
@@ -223,43 +229,43 @@ export const instagram_messages = appSchema
         table.automation_run_started_at,
       )
       .where(sql`${table.automation_run_id} IS NOT NULL`),
-    index('idx_instagram_messages_automation_run').on(
+    index('idx_instagram_outgoing_messages_automation_run').on(
       table.organization_id,
       table.automation_run_id,
       table.automation_run_started_at,
     ),
-    index('idx_instagram_messages_pick')
+    index('idx_instagram_outgoing_messages_pick')
       .on(table.channel_account_id, table.lane, table.not_before)
       .where(sql`${table.status} = 'waiting'`),
-    index('idx_instagram_messages_automation_waiting')
+    index('idx_instagram_outgoing_messages_automation_waiting')
       .on(table.organization_id, table.automation_id)
       .where(sql`${table.status} = 'waiting'`),
     // A broadcast's messages, and the broadcast key's cascade (R22).
-    index('idx_instagram_messages_broadcast')
+    index('idx_instagram_outgoing_messages_broadcast')
       .on(table.organization_id, table.broadcast_id, table.status)
       .where(sql`${table.broadcast_id} IS NOT NULL`),
-    index('idx_instagram_messages_instagram_message_id')
+    index('idx_instagram_outgoing_messages_instagram_message_id')
       .on(table.channel_account_id, table.instagram_message_id)
       .where(sql`${table.instagram_message_id} IS NOT NULL`),
-    index('idx_instagram_messages_person_sent')
+    index('idx_instagram_outgoing_messages_person_sent')
       .on(table.contact_id, table.sent_at)
       .where(sql`${table.status} = 'sent'`),
-    index('idx_instagram_messages_automation_failed')
+    index('idx_instagram_outgoing_messages_automation_failed')
       .on(table.organization_id, table.automation_id, table.created_at)
       .where(sql`${table.status} = 'failed'`),
-    index('idx_instagram_messages_contact').on(
+    index('idx_instagram_outgoing_messages_contact').on(
       table.organization_id,
       table.contact_id,
       table.created_at,
     ),
-    index('idx_instagram_messages_expiry')
+    index('idx_instagram_outgoing_messages_expiry')
       .on(table.trigger_occurred_at)
       .where(sql`${table.status} = 'waiting' AND ${table.lane} IN ('slow', 'reply')`),
-    index('idx_instagram_messages_sending')
+    index('idx_instagram_outgoing_messages_sending')
       .on(table.channel_account_id, table.sending_at)
       .where(sql`${table.status} = 'sending'`),
-    ...instagramMessageChecks(table),
-    pgPolicy('instagram_messages_tenant_isolation', {
+    ...instagramOutgoingMessageChecks(table),
+    pgPolicy('instagram_outgoing_messages_tenant_isolation', {
       as: 'permissive',
       for: 'all',
       to: 'public',

@@ -161,7 +161,7 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       ),
       automationService: createTestAutomationService({ organizationService }),
       automationRunService: engine,
-      instagramMessageService: {
+      instagramOutgoingMessageService: {
         findOwnSentMessageIds: async () => new Set<string>(),
         matchEchoedMessage: async () => 'none',
         markTappedMessageSent: async () => false,
@@ -402,8 +402,8 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
           taps.push(broadcastId);
         },
       },
-      instagramMessageService: {
-        ...services.instagramMessageService,
+      instagramOutgoingMessageService: {
+        ...services.instagramOutgoingMessageService,
         markTappedMessageSent: async ({ messagePublicId: named }) => {
           tapped.push(named);
           return true;

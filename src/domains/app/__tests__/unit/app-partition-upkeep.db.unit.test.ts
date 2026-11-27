@@ -18,7 +18,7 @@ import {
   insertAutomationRun,
   insertAutomationRunEvent,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -187,7 +187,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
       'instagram_webhook_events',
       'instagram_webhook_event_keys',
       'instagram_send_attempts',
-      'instagram_messages',
+      'instagram_outgoing_messages',
       'automation_comment_logs',
       'automation_run_events',
       'automation_runs',
@@ -201,7 +201,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     expect(await partExists(`instagram_webhook_events_p${fourteenDaysAhead}`)).toBe(true);
     expect(await partExists(`instagram_webhook_event_keys_p${fourteenDaysAhead}`)).toBe(true);
     expect(await partExists(`instagram_send_attempts_p${fourteenDaysAhead}`)).toBe(true);
-    expect(await partExists(await weekPart('instagram_messages', utcDay(14)))).toBe(true);
+    expect(await partExists(await weekPart('instagram_outgoing_messages', utcDay(14)))).toBe(true);
     expect(await partExists(monthPart('automation_runs', monthStart(0)))).toBe(true);
   });
 
@@ -217,7 +217,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     ]) {
       await operatorQuery`SELECT app.fn_create_daily_partitions(${table}::regclass, ${oldDay}::date, ${oldDay}::date)`;
     }
-    await operatorQuery`SELECT app.fn_create_weekly_partitions('app.instagram_messages'::regclass, ${oldWeekDay}::date, ${oldWeekDay}::date)`;
+    await operatorQuery`SELECT app.fn_create_weekly_partitions('app.instagram_outgoing_messages'::regclass, ${oldWeekDay}::date, ${oldWeekDay}::date)`;
     await operatorQuery`SELECT app.fn_create_monthly_partitions('app.automation_comment_logs'::regclass, ${oldMonthDay}::date, ${oldMonthDay}::date)`;
     await makeRunMonthParts(oldMonth);
     const oldDayParts = [
@@ -227,7 +227,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     ].map((table) => `${table}_p${oldDay.replaceAll('-', '')}`);
     const oldParts = [
       ...oldDayParts,
-      await weekPart('instagram_messages', oldWeekDay),
+      await weekPart('instagram_outgoing_messages', oldWeekDay),
       monthPart('automation_comment_logs', oldMonth),
       monthPart('automation_run_events', oldMonth),
       monthPart('automation_runs', oldMonth),
@@ -299,15 +299,15 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     await makeRunMonthParts(oldMonth);
     const run = await insertEndedRun(fixture, oldMonth);
     const runDay = run.started_at.toISOString().slice(0, 10);
-    await operatorQuery`SELECT app.fn_create_weekly_partitions('app.instagram_messages'::regclass, ${runDay}::date, ${runDay}::date)`;
-    await insertInstagramMessage({ run, channelAccountId: fixture.channelAccountId });
+    await operatorQuery`SELECT app.fn_create_weekly_partitions('app.instagram_outgoing_messages'::regclass, ${runDay}::date, ${runDay}::date)`;
+    await insertInstagramOutgoingMessage({ run, channelAccountId: fixture.channelAccountId });
     await insertAutomationRunEvent({
       organizationId: fixture.organizationId,
       run,
       status: 'completed',
     });
     const runsPart = monthPart('automation_runs', oldMonth);
-    const messagesPart = await weekPart('instagram_messages', runDay);
+    const messagesPart = await weekPart('instagram_outgoing_messages', runDay);
 
     // The runs part first: its message and run event still point into it, so it stays.
     const runsFirst = await manage({ table: 'app.automation_runs', keepDays: 98, drop: true });

@@ -147,7 +147,7 @@ beforeEach(() => {
     },
     automationService: { linkNextPostAutomations: vi.fn(async () => []) },
     automationRunService: engine,
-    instagramMessageService: messages,
+    instagramOutgoingMessageService: messages,
   } as unknown as InstagramWebhookIntakeServices;
 });
 

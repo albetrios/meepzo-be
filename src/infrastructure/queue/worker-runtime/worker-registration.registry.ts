@@ -441,7 +441,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
             instagramMediaService: appDomain.instagramMediaService,
             automationService: appDomain.automationService,
             automationRunService: appDomain.automationRunService,
-            instagramMessageService: appDomain.instagramMessageService,
+            instagramOutgoingMessageService: appDomain.instagramOutgoingMessageService,
           },
           tagIntake: {
             organizationService: tenancyDomain.organizationService,
@@ -686,7 +686,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         runInDatabaseSlot,
         sendRepairDuties: createInstagramSendRepairDutyServices({
           sendingGate: appDomain.sendingStateService,
-          messageService: appDomain.instagramMessageService,
+          messageService: appDomain.instagramOutgoingMessageService,
           gateService: appDomain.instagramSendGateService,
           recipientService: appDomain.broadcastRecipientService,
           sendingPorts: appDomain.channelSendingPorts,

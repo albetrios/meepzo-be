@@ -13,13 +13,13 @@ import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contac
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { resolveInstagramEffectiveLimits } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
-import { INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS } from './instagram-message/instagram-message.constants.js';
+import { INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS } from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
-  type InstagramMessagePickCandidate,
-  InstagramMessageRepository,
-} from './instagram-message/instagram-message.repository.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
-import { isInstagramChatWindowOpen } from './instagram-message/instagram-message.util.js';
+  type InstagramOutgoingMessagePickCandidate,
+  InstagramOutgoingMessageRepository,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { isInstagramChatWindowOpen } from './instagram-outgoing-message/instagram-outgoing-message.util.js';
 import type { InstagramSendComposeService } from './instagram-send-compose.service.js';
 import type { InstagramSendLaneRow } from './instagram-send-lane.repository.js';
 import {
@@ -116,7 +116,10 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
 
   constructor(
     private readonly dependencies: {
-      messageService: Pick<InstagramMessageService, 'endWaitingMessage' | 'moveMessageLane'>;
+      messageService: Pick<
+        InstagramOutgoingMessageService,
+        'endWaitingMessage' | 'moveMessageLane'
+      >;
       composeService: Pick<InstagramSendComposeService, 'composeDirectMessage'>;
       /** The fast ticket of a message moved to the fast lane (tests record it). */
       enqueueFastMessage?: typeof enqueueInstagramSendFastMessage | undefined;
@@ -164,7 +167,7 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
   }): Promise<InstagramSendPick> {
     const notYet = this.boxSecondNotReached({ lane, now });
     if (notYet !== null) return { key: null, nextRunAt: notYet, waitReason: 'box' };
-    const repository = () => new InstagramMessageRepository();
+    const repository = () => new InstagramOutgoingMessageRepository();
     const place = nextSlowPickPlace(lane.pick_count);
     for (let pick = 0; pick < SLOW_LANE_SETTINGS.picksPerTurn; pick += 1) {
       const candidates = await withAppDatabaseContext({
@@ -233,11 +236,11 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
     place,
     now,
   }: {
-    newest: InstagramMessagePickCandidate | null;
-    oldest: InstagramMessagePickCandidate | null;
+    newest: InstagramOutgoingMessagePickCandidate | null;
+    oldest: InstagramOutgoingMessagePickCandidate | null;
     place: number;
     now: Date;
-  }): InstagramMessagePickCandidate | null {
+  }): InstagramOutgoingMessagePickCandidate | null {
     const isUrgent =
       oldest?.triggerOccurredAt != null &&
       oldest.triggerOccurredAt.getTime() +
@@ -258,7 +261,7 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     target: InstagramSendLaneTarget;
-    candidate: InstagramMessagePickCandidate;
+    candidate: InstagramOutgoingMessagePickCandidate;
     key: { organizationId: number; publicId: string; automationRunStartedAt: Date };
     now: Date;
   }): Promise<CheckAgain> {
@@ -281,7 +284,7 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
     }
     const message = await withAppDatabaseContext({
       scope,
-      callback: () => new InstagramMessageRepository().findByKey(key),
+      callback: () => new InstagramOutgoingMessageRepository().findByKey(key),
     });
     if (message === null || message.status !== 'waiting') return 'passed_over';
     const contact = await withAppDatabaseContext({
@@ -312,7 +315,7 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
       await withAppDatabaseContext({
         scope,
         callback: () =>
-          new InstagramMessageRepository().delayWaiting({
+          new InstagramOutgoingMessageRepository().delayWaiting({
             key,
             notBefore: new Date(lastOpening.getTime() + personGap),
           }),
@@ -339,7 +342,7 @@ export class InstagramSlowLaneRules implements InstagramSendLaneRules {
     if (!isMoved) return;
     const message = await withAppDatabaseContext({
       scope,
-      callback: () => new InstagramMessageRepository().findByKey(key),
+      callback: () => new InstagramOutgoingMessageRepository().findByKey(key),
     });
     const access = await withAppDatabaseContext({
       scope,

@@ -6,14 +6,14 @@ import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encrypt
 import type { ChannelMessageResultInput } from '@/domains/app/app.channel-ports.js';
 import type { MetaUsageDecision } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-usage.util.js';
 import type { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { InstagramSendCoreService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-gate.service.js';
 import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 import { InstagramSendStopRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { SendingStateService } from '@/domains/app/sub-domains/instagram-sending/sending-state.service.js';
-import type { InstagramMessageRow } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.repository.js';
+import type { InstagramOutgoingMessageRow } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type {
   InstagramSendAccess,
@@ -40,12 +40,12 @@ export interface LaneHarness {
   enqueued: Array<{ lane: string; turnNumber: number; delayMilliseconds?: number | undefined }>;
   /** Meta's usage pace each send reads (tests change it). */
   pace: { value: MetaUsageDecision };
-  messageService: InstagramMessageService;
+  messageService: InstagramOutgoingMessageService;
   /**
    * Runs after the core claimed a message and before its lane composes it (`null` = nothing) — a
    * test erases her or stops the lanes there, as a commit landing mid-send would.
    */
-  beforeCompose: { value: ((message: InstagramMessageRow) => Promise<void>) | null };
+  beforeCompose: { value: ((message: InstagramOutgoingMessageRow) => Promise<void>) | null };
   /** Works one turn of the account's lane with its current turn number. */
   turn(lane: 'slow' | 'reply' | 'broadcast'): Promise<void>;
   /** The fast tickets the core added (a used try's next ticket). */
@@ -76,10 +76,10 @@ export function buildLaneHarness({
   organization: { id: number; public_id: string };
   account: LaneHarnessAccount;
   laneRules: (
-    messageService: InstagramMessageService,
+    messageService: InstagramOutgoingMessageService,
   ) => Partial<Record<InstagramSendLane, InstagramSendLaneRules>>;
   /** The message service's other ports (a broadcast test passes the real recipients, R45). */
-  messageServiceOptions?: Partial<ConstructorParameters<typeof InstagramMessageService>[0]>;
+  messageServiceOptions?: Partial<ConstructorParameters<typeof InstagramOutgoingMessageService>[0]>;
 }): LaneHarness {
   const recorded: ChannelMessageResultInput[] = [];
   const enqueued: LaneHarness['enqueued'] = [];
@@ -90,7 +90,7 @@ export function buildLaneHarness({
     new InstagramSendLaneRepository(),
     new InstagramSendStopRepository(),
   );
-  const messageService = new InstagramMessageService({
+  const messageService = new InstagramOutgoingMessageService({
     recordRunMessageResult: async (input) => {
       recorded.push(input);
     },

@@ -161,7 +161,7 @@ function broadcastChecks(table: BroadcastTableColumns) {
  *   (`ON DELETE SET NULL (segment_id)`) and the automation the button starts
  *   (`start_automation_id`, `ON DELETE SET NULL (start_automation_id)` — BC8, P213). `channel` is the
  *   account's, copied (P48, P99). The unique `(organization_id, id)` index is the parent key of the
- *   recipients (ROUTE row R23) and the messages (`app.instagram_messages.broadcast_id`, SN17).
+ *   recipients (ROUTE row R23) and the messages (`app.instagram_outgoing_messages.broadcast_id`, SN17).
  * - **Status by actions only (BC9):** the transitions are guarded `UPDATE … WHERE status IN (…)`
  *   statements in the repository; the CHECKs hold what each status implies — the messages (1–3) and
  *   the conditions once sent, `scheduled_at` exactly for `scheduled`, `ends_at` exactly for

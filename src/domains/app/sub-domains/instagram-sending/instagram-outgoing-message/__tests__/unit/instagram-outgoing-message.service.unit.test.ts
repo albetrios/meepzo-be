@@ -32,15 +32,15 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
 });
 vi.mock('@/core/events/event-bus.js', () => ({ runEnqueueAfterCommit: afterCommit }));
 vi.mock(
-  '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.repository.js',
+  '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.repository.js',
   () => ({
-    InstagramMessageRepository: vi.fn(function construct() {
+    InstagramOutgoingMessageRepository: vi.fn(function construct() {
       return messages;
     }),
   }),
 );
 vi.mock(
-  '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-send-attempt.repository.js',
+  '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-send-attempt.repository.js',
   () => ({
     InstagramSendAttemptRepository: vi.fn(function construct() {
       return attempts;
@@ -72,13 +72,13 @@ vi.mock('@/domains/app/sub-domains/instagram-sending/message-month-count.cache.j
   invalidateCachedMessageMonthCount: vi.fn(),
 }));
 
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import type {
-  InstagramMessageBroadcastResultPort,
-  InstagramMessageOpeningPort,
-  InstagramMessageRunResultPort,
+  InstagramOutgoingMessageBroadcastResultPort,
+  InstagramOutgoingMessageOpeningPort,
+  InstagramOutgoingMessageRunResultPort,
   InstagramSendResultInput,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.types.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.types.js';
 
 const ORGANIZATION_PUBLIC_ID = 'org_a1b2c3d4e5f6g7h8i9j0k';
 const scope: OrganizationPrincipalDatabaseScope = PRINCIPAL_SCOPE.JOB({
@@ -133,21 +133,25 @@ function resultInput(overrides: Partial<InstagramSendResultInput> = {}): Instagr
  * result save reports a run's message to the engine and a broadcast's to its recipients in the same
  * unit, a "back to waiting" reports nothing and gives the claim's counts back, a repeat save does
  * nothing, an opening DM moves the contact's bookkeeping, and cancel / skip refuse an unknown
- * reason. The database side is `instagram-message.service.db.unit.test.ts` and
- * `instagram-message.repository.db.unit.test.ts`.
+ * reason. The database side is `instagram-outgoing-message.service.db.unit.test.ts` and
+ * `instagram-outgoing-message.repository.db.unit.test.ts`.
  */
-describe('InstagramMessageService', () => {
-  let recordRunMessageResult: ReturnType<typeof vi.fn<InstagramMessageRunResultPort>>;
-  let recordBroadcastMessageResult: ReturnType<typeof vi.fn<InstagramMessageBroadcastResultPort>>;
-  let recordContactOpeningMessage: ReturnType<typeof vi.fn<InstagramMessageOpeningPort>>;
-  let service: InstagramMessageService;
+describe('InstagramOutgoingMessageService', () => {
+  let recordRunMessageResult: ReturnType<typeof vi.fn<InstagramOutgoingMessageRunResultPort>>;
+  let recordBroadcastMessageResult: ReturnType<
+    typeof vi.fn<InstagramOutgoingMessageBroadcastResultPort>
+  >;
+  let recordContactOpeningMessage: ReturnType<typeof vi.fn<InstagramOutgoingMessageOpeningPort>>;
+  let service: InstagramOutgoingMessageService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    recordRunMessageResult = vi.fn<InstagramMessageRunResultPort>(async () => {});
-    recordBroadcastMessageResult = vi.fn<InstagramMessageBroadcastResultPort>(async () => {});
-    recordContactOpeningMessage = vi.fn<InstagramMessageOpeningPort>(async () => {});
-    service = new InstagramMessageService({
+    recordRunMessageResult = vi.fn<InstagramOutgoingMessageRunResultPort>(async () => {});
+    recordBroadcastMessageResult = vi.fn<InstagramOutgoingMessageBroadcastResultPort>(
+      async () => {},
+    );
+    recordContactOpeningMessage = vi.fn<InstagramOutgoingMessageOpeningPort>(async () => {});
+    service = new InstagramOutgoingMessageService({
       recordRunMessageResult,
       recordBroadcastMessageResult,
       recordContactOpeningMessage,

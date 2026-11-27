@@ -29,9 +29,9 @@ import {
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { buildLaneHarness } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-lane-harness.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { InstagramSendComposeService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-compose.service.js';
 import { InstagramSendingRepairService } from '@/domains/app/sub-domains/instagram-sending/instagram-sending-repair.service.js';
 import { InstagramSlowLaneRules } from '@/domains/app/sub-domains/instagram-sending/instagram-slow-lane.service.js';
@@ -544,7 +544,7 @@ describe('Flow: a trial from start to its end (R59)', () => {
       waiting_for: null,
       waiting_since_at: null,
     });
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'opening_message',
@@ -576,7 +576,7 @@ describe('Flow: a trial from start to its end (R59)', () => {
   }
 
   async function messageStatus(publicId: string) {
-    const rows = await readInstagramMessages(team.organization.id);
+    const rows = await readInstagramOutgoingMessages(team.organization.id);
     const row = rows.find((candidate) => candidate.public_id === publicId)!;
     return { status: row.status, reason: row.reason };
   }
@@ -618,7 +618,7 @@ describe('Flow: a trial from start to its end (R59)', () => {
     // stop, `plan_downgrade` behind a move down's stop, else `expired`); its run ends as for any
     // expired DM — `cancelled` · `expired` (P266).
     const repair = new InstagramSendingRepairService({
-      messageService: app.appDomain.instagramMessageService,
+      messageService: app.appDomain.instagramOutgoingMessageService,
       gateService: app.appDomain.instagramSendGateService,
       addLaneTurns: async (tickets) => ({ added: tickets.length }),
       addFastMessages: async (tickets) => ({ added: tickets.length }),

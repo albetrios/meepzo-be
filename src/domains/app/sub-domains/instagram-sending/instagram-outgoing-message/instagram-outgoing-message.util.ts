@@ -7,22 +7,22 @@ import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-send
 import {
   INSTAGRAM_DIRECT_MESSAGE_TYPES,
   INSTAGRAM_MESSAGE_TYPE_OF_STEP,
-  type InstagramMessageChannel,
-  type InstagramMessageFinalStatus,
-  type InstagramMessageType,
-} from './instagram-message.constants.js';
+  type InstagramOutgoingMessageChannel,
+  type InstagramOutgoingMessageFinalStatus,
+  type InstagramOutgoingMessageType,
+} from './instagram-outgoing-message.constants.js';
 
 /** Where a waiting message goes (SN22): its type, lane, delivery channel and whether it counts. */
-export interface InstagramMessagePlace {
+export interface InstagramOutgoingMessagePlace {
   kind: 'place';
-  messageType: InstagramMessageType;
+  messageType: InstagramOutgoingMessageType;
   lane: InstagramSendLane;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   isCountedAsDirectMessage: boolean;
 }
 
 /** A message that can never go (AU35's `skipped` answer): her window is closed for a DM. */
-export interface InstagramMessageNoPlace {
+export interface InstagramOutgoingMessageNoPlace {
   kind: 'skip';
   reason: 'window_closed';
 }
@@ -54,7 +54,7 @@ export function isInstagramChatWindowOpen({
  * Pure — the service reads her window and the run's way to start; the type follows the step
  * ({@link INSTAGRAM_MESSAGE_TYPE_OF_STEP}), `is_counted_as_direct_message` the type (D34).
  */
-export function chooseInstagramMessagePlace({
+export function chooseInstagramOutgoingMessagePlace({
   step,
   triggerType,
   answersEventId,
@@ -64,7 +64,7 @@ export function chooseInstagramMessagePlace({
   triggerType: string | null;
   answersEventId: SaveWaitingMessageInput['answersEventId'];
   isWindowOpen: boolean;
-}): InstagramMessagePlace | InstagramMessageNoPlace {
+}): InstagramOutgoingMessagePlace | InstagramOutgoingMessageNoPlace {
   const messageType = INSTAGRAM_MESSAGE_TYPE_OF_STEP[step];
   const isCountedAsDirectMessage = INSTAGRAM_DIRECT_MESSAGE_TYPES.includes(messageType);
   const place = ({
@@ -72,8 +72,8 @@ export function chooseInstagramMessagePlace({
     channel,
   }: {
     lane: InstagramSendLane;
-    channel: InstagramMessageChannel | null;
-  }): InstagramMessagePlace => ({
+    channel: InstagramOutgoingMessageChannel | null;
+  }): InstagramOutgoingMessagePlace => ({
     kind: 'place',
     messageType,
     lane,
@@ -104,7 +104,9 @@ export function chooseInstagramMessagePlace({
 }
 
 /** The step a message type was saved for — the result goes back to the engine by step (AU35). */
-export function instagramMessageStepOf(messageType: InstagramMessageType): ChannelMessageStep {
+export function instagramOutgoingMessageStepOf(
+  messageType: InstagramOutgoingMessageType,
+): ChannelMessageStep {
   if (messageType === 'invalid_email') return 'email';
   const entry = Object.entries(INSTAGRAM_MESSAGE_TYPE_OF_STEP).find(
     ([, type]) => type === messageType,
@@ -113,7 +115,7 @@ export function instagramMessageStepOf(messageType: InstagramMessageType): Chann
 }
 
 /** A final status as the engine's result (AU35): `expired` arrives as `skipped` with its reason. */
-export function channelResultOf(status: InstagramMessageFinalStatus): ChannelMessageResult {
+export function channelResultOf(status: InstagramOutgoingMessageFinalStatus): ChannelMessageResult {
   return status === 'expired' ? 'skipped' : status;
 }
 

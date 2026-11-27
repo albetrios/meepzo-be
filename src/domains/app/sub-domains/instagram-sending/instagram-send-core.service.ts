@@ -21,21 +21,21 @@ import type { MetaUsagePace } from '@/domains/app/sub-domains/channel-connection
 import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramAttachmentService } from './instagram-attachment/instagram-attachment.service.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
 import {
-  InstagramMessageRepository,
-  type InstagramMessageRow,
-} from './instagram-message/instagram-message.repository.js';
+  InstagramOutgoingMessageRepository,
+  type InstagramOutgoingMessageRow,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import {
   type InstagramSendAttemptKey,
   InstagramSendAttemptRepository,
-} from './instagram-message/instagram-send-attempt.repository.js';
+} from './instagram-outgoing-message/instagram-send-attempt.repository.js';
 import type {
-  InstagramMessageChannel,
-  InstagramMessageReason,
+  InstagramOutgoingMessageChannel,
+  InstagramOutgoingMessageReason,
   InstagramSendAttemptCountGroup,
-} from './instagram-message/instagram-message.constants.js';
-import type { InstagramSendResultInput } from './instagram-message/instagram-message.types.js';
+} from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
+import type { InstagramSendResultInput } from './instagram-outgoing-message/instagram-outgoing-message.types.js';
 import type { InstagramSendAccessService } from './instagram-send-access.service.js';
 import {
   classifyInstagramSendError,
@@ -184,7 +184,7 @@ export interface InstagramSendCoreDependencies {
     InstagramSendLaneService,
     'claimLaneTurn' | 'releaseLaneTurn' | 'startLaneStop' | 'endLaneStops' | 'listLanes'
   >;
-  messageService: Pick<InstagramMessageService, 'saveSendResult'>;
+  messageService: Pick<InstagramOutgoingMessageService, 'saveSendResult'>;
   gateService: Pick<InstagramSendGateService, 'passGateOne' | 'recordGateOne' | 'claimSend'>;
   accessService: Pick<
     InstagramSendAccessService,
@@ -239,7 +239,7 @@ export interface InstagramSendCoreDependencies {
 }
 
 /** The count group of a message (SN3): `none` for follow checks and hides. */
-function countGroupOf(message: InstagramMessageRow): InstagramSendAttemptCountGroup {
+function countGroupOf(message: InstagramOutgoingMessageRow): InstagramSendAttemptCountGroup {
   if (message.channel === null || message.channel === 'comment_hide') return 'none';
   switch (message.lane) {
     case 'slow':
@@ -278,7 +278,7 @@ function defaultNextTurnAt({
 }
 
 /** A message's key from its row. */
-function keyOf(message: InstagramMessageRow): InstagramSendMessageKey {
+function keyOf(message: InstagramOutgoingMessageRow): InstagramSendMessageKey {
   return {
     organizationId: message.organization_id,
     publicId: message.public_id,
@@ -999,7 +999,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
   > {
     const message = await withAppDatabaseContext({
       scope: target.scope,
-      callback: () => new InstagramMessageRepository().findByKey(key),
+      callback: () => new InstagramOutgoingMessageRepository().findByKey(key),
     });
     if (message === null || message.status !== 'waiting' || message.lane !== 'fast') {
       return { kind: 'drop' };
@@ -1108,7 +1108,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     const message = await context.runInDatabaseSlot(() =>
       withAppDatabaseContext({
         scope,
-        callback: () => new InstagramMessageRepository().findByKey(key),
+        callback: () => new InstagramOutgoingMessageRepository().findByKey(key),
       }),
     );
     if (message === null || message.status !== 'waiting')
@@ -1129,7 +1129,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         scope,
         key,
         lane: message.lane as InstagramSendLane,
-        channel: message.channel as InstagramMessageChannel | null,
+        channel: message.channel as InstagramOutgoingMessageChannel | null,
         countGroup,
         hourLimit: limits.hourLimit,
         personHourLimit: limits.personHourLimit,
@@ -1166,14 +1166,14 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     target: InstagramSendLaneTarget;
     access: InstagramSendAccess;
     rules: InstagramSendLaneRules;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
     attempt: InstagramSendAttemptKey;
     countGroup: InstagramSendAttemptCountGroup;
     context: InstagramSendTicketContext;
   }): Promise<InstagramSendResult> {
     const { scope } = target;
     const lane = message.lane as InstagramSendLane;
-    const channel = message.channel as InstagramMessageChannel | null;
+    const channel = message.channel as InstagramOutgoingMessageChannel | null;
     const settle = ({
       reading,
       outcome = decideInstagramSendOutcome({
@@ -1243,7 +1243,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     const startedAt = Date.now();
     let reading = readingOf('sent');
     let instagramMessageId: string | null = null;
-    let answerReason: InstagramMessageReason | null = null;
+    let answerReason: InstagramOutgoingMessageReason | null = null;
     let callError: unknown = null;
     try {
       const answer = await composition.call({
@@ -1350,7 +1350,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     context: InstagramSendTicketContext;
     input: Omit<InstagramSendResultInput, 'isTryUsed' | 'notBefore'>;
     outcome: InstagramSendOutcome;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
   }): Promise<InstagramSendResult> {
     const retryAt =
       outcome.status === 'waiting'
@@ -1388,7 +1388,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     target: InstagramSendLaneTarget;
     access: InstagramSendAccess;
     uploadPublicId: string | null;
-    channel: InstagramMessageChannel | null;
+    channel: InstagramOutgoingMessageChannel | null;
   }): Promise<
     | { kind: 'ready'; attachmentId: string | null }
     | {
@@ -1458,7 +1458,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
   }: {
     context: InstagramSendTicketContext;
     input: InstagramSendResultInput;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     let lockRetries = 0;
     let connectionRetries = 0;
     for (;;) {

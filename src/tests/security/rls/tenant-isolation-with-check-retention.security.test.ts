@@ -59,7 +59,7 @@ const ORG_SCOPED_TABLES = [
   { schemaName: 'app', tableName: 'automation_comment_logs' },
   // Instagram's messages and send attempts (feat-instagram-dm-sending § 6.B.3, R19): the sweep arm
   // in USING only (the repair duties and the part upkeep read across organizations).
-  { schemaName: 'app', tableName: 'instagram_messages' },
+  { schemaName: 'app', tableName: 'instagram_outgoing_messages' },
   { schemaName: 'app', tableName: 'instagram_send_attempts' },
   // Instagram's message files (§ 6.C.3, R20): the sweep arm in USING only (the purge, WC-47).
   { schemaName: 'app', tableName: 'instagram_attachments' },

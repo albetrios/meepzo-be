@@ -13,7 +13,7 @@ import { AutomationCountService } from '@/domains/app/sub-domains/automation/aut
 import { AutomationReplyStateRepository } from '@/domains/app/sub-domains/automation/automation-reply-state.repository.js';
 import { AutomationReplyStateService } from '@/domains/app/sub-domains/automation/automation-reply-state.service.js';
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import {
   type ContactFixtureRow,
   insertContact,
@@ -27,10 +27,10 @@ import {
   readRunRow,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
   readInstagramSendAttempts,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -50,12 +50,12 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const HOUR = 60 * 60 * 1000;
 
-describe('InstagramMessageService (database)', () => {
+describe('InstagramOutgoingMessageService (database)', () => {
   let organization: { id: number; public_id: string };
   let account: { id: number; public_id: string; channel_account_id: number };
   let contact: ContactFixtureRow;
   let engine: AutomationRunService;
-  let messages: InstagramMessageService;
+  let messages: InstagramOutgoingMessageService;
 
   const scope = () => PRINCIPAL_SCOPE.JOB({ organizationPublicId: organization.public_id });
 
@@ -68,7 +68,7 @@ describe('InstagramMessageService (database)', () => {
       instagramAccountId: account.id,
       username: 'riya.k',
     });
-    messages = new InstagramMessageService({
+    messages = new InstagramOutgoingMessageService({
       recordRunMessageResult: (input) => engine.recordMessageResult(input),
       recordBroadcastMessageResult: async () => undefined,
     });
@@ -152,7 +152,7 @@ describe('InstagramMessageService (database)', () => {
     it("saves a comment's opening DM with her chat closed as a waiting private reply in the slow lane", async () => {
       await liveCommentAutomation();
       await commentOn(contact);
-      const [row] = await readInstagramMessages(organization.id);
+      const [row] = await readInstagramOutgoingMessages(organization.id);
       expect(row).toMatchObject({
         message_type: 'opening_message',
         lane: 'slow',
@@ -174,7 +174,7 @@ describe('InstagramMessageService (database)', () => {
         last_direct_message_received_at: new Date(Date.now() - HOUR),
       });
       await commentOn(chatting);
-      const [row] = await readInstagramMessages(organization.id);
+      const [row] = await readInstagramOutgoingMessages(organization.id);
       expect(row).toMatchObject({ lane: 'fast', channel: 'direct', status: 'waiting' });
     });
 
@@ -210,7 +210,7 @@ describe('InstagramMessageService (database)', () => {
           }),
       });
       expect(result).toEqual({ messagePublicId: null, status: 'skipped', reason: 'window_closed' });
-      expect(await readInstagramMessages(organization.id)).toEqual([]);
+      expect(await readInstagramOutgoingMessages(organization.id)).toEqual([]);
     });
   });
 
@@ -234,7 +234,7 @@ describe('InstagramMessageService (database)', () => {
       isWithoutScope?: boolean;
       isRolledBack?: boolean;
     }) {
-      const fastMessages = new InstagramMessageService({
+      const fastMessages = new InstagramOutgoingMessageService({
         recordRunMessageResult: async () => undefined,
         recordBroadcastMessageResult: async () => undefined,
         enqueueFastMessage: async (ticket) => {
@@ -292,7 +292,7 @@ describe('InstagramMessageService (database)', () => {
         return null;
       }
       const result = await save;
-      const row = (await readInstagramMessages(organization.id)).find(
+      const row = (await readInstagramOutgoingMessages(organization.id)).find(
         (candidate) => candidate.public_id === result.messagePublicId,
       )!;
       return { row, delay: row.not_before!.getTime() - savedAt };
@@ -350,7 +350,7 @@ describe('InstagramMessageService (database)', () => {
     it('claims a waiting row once, saves its result once and moves the run on (sent)', async () => {
       await liveCommentAutomation();
       await commentOn(contact);
-      const [waiting] = await readInstagramMessages(organization.id);
+      const [waiting] = await readInstagramOutgoingMessages(organization.id);
       const claimed = await messages.claimMessage({
         scope: scope(),
         key: keyOf(waiting!),
@@ -418,7 +418,7 @@ describe('InstagramMessageService (database)', () => {
     it('never sends an unknown again by itself; her next action reopens the same row once (D17, AC-7.13)', async () => {
       await liveCommentAutomation();
       await commentOn(contact);
-      const [waiting] = await readInstagramMessages(organization.id);
+      const [waiting] = await readInstagramOutgoingMessages(organization.id);
       const claimed = await messages.claimMessage({
         scope: scope(),
         key: keyOf(waiting!),
@@ -449,7 +449,7 @@ describe('InstagramMessageService (database)', () => {
           countGroup: 'open',
         }),
       ).toBeNull();
-      let [row] = await readInstagramMessages(organization.id);
+      let [row] = await readInstagramOutgoingMessages(organization.id);
       expect(row).toMatchObject({ status: 'unknown', reason: 'no_answer' });
       // The engine saves the step once more on her next message or tap: the same row waits again.
       const run = await readRunRow(waiting!.automation_run_id!);
@@ -478,7 +478,7 @@ describe('InstagramMessageService (database)', () => {
           }),
       });
       expect(again).toEqual({ messagePublicId: waiting!.public_id, status: 'waiting' });
-      const rows = await readInstagramMessages(organization.id);
+      const rows = await readInstagramOutgoingMessages(organization.id);
       expect(rows).toHaveLength(1);
       [row] = rows;
       expect(row).toMatchObject({ status: 'waiting', reason: null, asks: 0 });
@@ -491,7 +491,7 @@ describe('InstagramMessageService (database)', () => {
         automationId: automation.id,
         contactId: contact.id,
       });
-      const waiting = await insertInstagramMessage({
+      const waiting = await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         message_type: 'opening_message',
@@ -501,7 +501,7 @@ describe('InstagramMessageService (database)', () => {
         status: 'waiting',
         reason: null,
       });
-      const sent = await insertInstagramMessage({
+      const sent = await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         message_number: 1,
@@ -537,7 +537,7 @@ describe('InstagramMessageService (database)', () => {
           }),
       });
       expect(cancelled).toBe(1);
-      const rows = await readInstagramMessages(organization.id);
+      const rows = await readInstagramOutgoingMessages(organization.id);
       expect(rows.map((row) => [row.status, row.reason, row.lane])).toEqual([
         ['cancelled', 'automation_deleted', 'fast'],
         ['sent', null, 'fast'],
@@ -560,7 +560,7 @@ describe('InstagramMessageService (database)', () => {
         automationId: automation.id,
         contactId: contact.id,
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         status: 'sent',
@@ -622,8 +622,8 @@ describe('InstagramMessageService (database)', () => {
       const optedOutRun = await runOf(optedOut);
       const channelAccountId = account.channel_account_id;
       // Retryable: a DM to her open chat, and a fresh opening private reply.
-      await insertInstagramMessage({ run: openRun, channelAccountId, message_number: 1 });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({ run: openRun, channelAccountId, message_number: 1 });
+      await insertInstagramOutgoingMessage({
         run: closedRun,
         channelAccountId,
         message_type: 'opening_message',
@@ -633,9 +633,9 @@ describe('InstagramMessageService (database)', () => {
         trigger_occurred_at: new Date(Date.now() - HOUR),
       });
       // Cannot: chat closed, too old, final for her (opted out; a person error), already retried.
-      await insertInstagramMessage({ run: closedRun, channelAccountId, message_number: 1 });
+      await insertInstagramOutgoingMessage({ run: closedRun, channelAccountId, message_number: 1 });
       const oldRun = await runOf(contact);
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run: oldRun,
         channelAccountId,
         message_type: 'opening_message',
@@ -644,29 +644,33 @@ describe('InstagramMessageService (database)', () => {
         channel: 'private_reply',
         trigger_occurred_at: new Date(Date.now() - 8 * 24 * HOUR),
       });
-      await insertInstagramMessage({ run: optedOutRun, channelAccountId, message_number: 1 });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
+        run: optedOutRun,
+        channelAccountId,
+        message_number: 1,
+      });
+      await insertInstagramOutgoingMessage({
         run: openRun,
         channelAccountId,
         message_number: 2,
         error_code: 100,
         error_subcode: 2_534_014,
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run: openRun,
         channelAccountId,
         message_number: 3,
         owner_retry_at: new Date(Date.now() - HOUR),
       });
       // Never counted: an unknown and a skipped message.
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run: openRun,
         channelAccountId,
         message_number: 4,
         status: 'unknown',
         reason: 'no_answer',
       });
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run: openRun,
         channelAccountId,
         message_number: 5,
@@ -694,13 +698,13 @@ describe('InstagramMessageService (database)', () => {
         },
         horizonDays: 30,
       });
-      const before = await readInstagramMessages(organization.id);
+      const before = await readInstagramOutgoingMessages(organization.id);
       expect(await messages.summarizeFailedMessages(target)).toEqual(summary);
-      expect(await readInstagramMessages(organization.id)).toEqual(before);
+      expect(await readInstagramOutgoingMessages(organization.id)).toEqual(before);
 
       const retry = await messages.retryFailedMessages(target);
       expect(retry).toMatchObject({ expectedRetryCount: 2, isQueued: false });
-      const after = await readInstagramMessages(organization.id);
+      const after = await readInstagramOutgoingMessages(organization.id);
       const retried = after.filter((row) => row.status === 'waiting');
       expect(retried).toHaveLength(2);
       expect(retried.every((row) => row.owner_retry_at !== null && row.reason === null)).toBe(true);
@@ -747,7 +751,7 @@ describe('InstagramMessageService (database)', () => {
         waiting_for: null,
         waiting_since_at: null,
       });
-      await insertInstagramMessage({ run, channelAccountId: account.channel_account_id });
+      await insertInstagramOutgoingMessage({ run, channelAccountId: account.channel_account_id });
       const target = {
         scope: scope(),
         organizationId: organization.id,
@@ -757,7 +761,7 @@ describe('InstagramMessageService (database)', () => {
       };
       expect((await messages.summarizeFailedMessages(target)).notRetryable.text_refused).toBe(1);
       expect((await messages.retryFailedMessages(target)).expectedRetryCount).toBe(0);
-      expect((await readInstagramMessages(organization.id))[0]?.status).toBe('failed');
+      expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('failed');
 
       // Fixed text: it goes once; when it fails again it stays failed and is never retried again.
       const contactTarget = {
@@ -766,7 +770,7 @@ describe('InstagramMessageService (database)', () => {
         id: open.id,
         ownerPublicId: open.public_id,
       };
-      await insertInstagramMessage({
+      await insertInstagramOutgoingMessage({
         run,
         channelAccountId: account.channel_account_id,
         message_number: 2,
@@ -778,7 +782,7 @@ describe('InstagramMessageService (database)', () => {
     });
 
     it("reopens a retried message's failed run with its open key, and leaves one whose automation and person hold another open run (plan §33.10 rules 2 and 4, R46)", async () => {
-      const retrying = new InstagramMessageService({
+      const retrying = new InstagramOutgoingMessageService({
         recordRunMessageResult: (input) => engine.recordMessageResult(input),
         recordBroadcastMessageResult: async () => undefined,
         reopenRetriedRuns: (input) => engine.reopenRetriedRuns(input),
@@ -813,9 +817,15 @@ describe('InstagramMessageService (database)', () => {
         last_direct_message_received_at: new Date(Date.now() - HOUR),
       });
       const reopened = await failedRun(open);
-      await insertInstagramMessage({ run: reopened, channelAccountId: account.channel_account_id });
+      await insertInstagramOutgoingMessage({
+        run: reopened,
+        channelAccountId: account.channel_account_id,
+      });
       const blocked = await failedRun(busy);
-      await insertInstagramMessage({ run: blocked, channelAccountId: account.channel_account_id });
+      await insertInstagramOutgoingMessage({
+        run: blocked,
+        channelAccountId: account.channel_account_id,
+      });
       // Her newer run of the same automation is open: it holds the automation-and-person key.
       const newer = await insertAutomationRun({
         organizationId: organization.id,
@@ -834,7 +844,7 @@ describe('InstagramMessageService (database)', () => {
       });
 
       expect(retried).toBe(1);
-      const rows = await readInstagramMessages(organization.id);
+      const rows = await readInstagramOutgoingMessages(organization.id);
       expect(rows.find((row) => row.automation_run_id === reopened.id)).toMatchObject({
         status: 'waiting',
       });

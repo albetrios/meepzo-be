@@ -560,7 +560,7 @@ export class BroadcastRepository {
             EXISTS (SELECT 1 FROM app.broadcast_recipients r
               WHERE r.organization_id = b.organization_id AND r.broadcast_id = b.id
                 AND r.status = 'waiting')
-            OR EXISTS (SELECT 1 FROM app.instagram_messages m
+            OR EXISTS (SELECT 1 FROM app.instagram_outgoing_messages m
               WHERE m.organization_id = b.organization_id AND m.broadcast_id = b.id
                 AND m.status = 'waiting')))
           OR (b.status = 'waiting_for_chats' AND b.ends_at <= ${now.toISOString()}::timestamptz

@@ -29,6 +29,7 @@ TableGroup app {
   app.instagram_account_settings
   app.instagram_accounts
   app.instagram_attachments
+  app.instagram_conversations
   app.instagram_media
   app.instagram_messages
   app.instagram_send_attempts
@@ -644,6 +645,35 @@ Table app.instagram_attachments {
 
 Note app.instagram_attachments {
   'RLS: enabled\nPolicies: instagram_attachments_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_conversations {
+  AND 
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  first_response_at timestamptz
+  id bigint [pk, increment]
+  last_message_at timestamptz [not null]
+  last_message_preview varchar(200)
+  last_message_sender_type varchar(20) [not null]
+  last_read_at timestamptz
+  last_response_at timestamptz
+  last_team_message_at timestamptz
+  meta_conversation_id varchar(1024)
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  snoozed_until timestamptz
+  state varchar(20) [not null]
+  taken_at timestamptz
+  taken_by varchar(20)
+  taken_by_membership_id bigint
+  unread_count int [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.instagram_conversations {
+  'RLS: enabled\nPolicies: instagram_conversations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_media {

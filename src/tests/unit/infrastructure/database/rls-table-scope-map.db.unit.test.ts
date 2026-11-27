@@ -117,7 +117,10 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   ],
   // Instagram's messages and send attempts (feat-instagram-dm-sending § 6.B.3, R19): organization-
   // scoped, plus the repair duties' and the upkeep's cross-organization reads (USING only).
-  'app.instagram_messages': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  'app.instagram_outgoing_messages': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   'app.instagram_send_attempts': [
     'app.current_organization_public_id',
     'app.global_retention_cleanup',

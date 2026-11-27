@@ -15,16 +15,16 @@ import {
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
   readInstagramSendAttempts,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   insertLanes,
   readStopRows,
   setMonthCount,
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import {
   type InstagramSendBreakPort,
   InstagramSendCoreService,
@@ -114,7 +114,7 @@ describe('InstagramSendCoreService (database)', () => {
         const [next] = await operatorQuery<
           { public_id: string; automation_run_started_at: Date }[]
         >`
-          SELECT public_id, automation_run_started_at FROM app.instagram_messages
+          SELECT public_id, automation_run_started_at FROM app.instagram_outgoing_messages
           WHERE channel_account_id = ${target.channelAccountId} AND lane = ${lane} AND status = 'waiting'
           ORDER BY id LIMIT 1`;
         return next === undefined
@@ -151,7 +151,7 @@ describe('InstagramSendCoreService (database)', () => {
   function buildCore(
     overrides: Partial<ConstructorParameters<typeof InstagramSendCoreService>[0]> = {},
   ): InstagramSendCoreService {
-    const messageService = new InstagramMessageService({
+    const messageService = new InstagramOutgoingMessageService({
       recordRunMessageResult: async (input) => {
         recorded.push(input);
       },
@@ -197,7 +197,7 @@ describe('InstagramSendCoreService (database)', () => {
   }
 
   async function waitingOpeningMessage(target: TestAccount = account, targetRun: TestRun = run) {
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run: targetRun,
       channelAccountId: target.channel_account_id,
       message_type: 'opening_message',
@@ -306,7 +306,7 @@ describe('InstagramSendCoreService (database)', () => {
     const meta = metaAnswers(200, { recipient_id: '9001', message_id: 'mid.sent.1' });
     await turn('slow');
     expect(meta.isDone()).toBe(true);
-    const [saved] = await readInstagramMessages(organization.id);
+    const [saved] = await readInstagramOutgoingMessages(organization.id);
     expect(saved).toMatchObject({
       public_id: message.public_id,
       status: 'sent',
@@ -323,7 +323,7 @@ describe('InstagramSendCoreService (database)', () => {
   });
 
   it('counts a public reply in no month (AC-17.17)', async () => {
-    await insertInstagramMessage({
+    await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'public_reply',
@@ -344,7 +344,7 @@ describe('InstagramSendCoreService (database)', () => {
   });
 
   it('counts a hide and a follow check in no month, as count group none (AC-17.17)', async () => {
-    await insertInstagramMessage({
+    await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'hide_comment',
@@ -360,7 +360,7 @@ describe('InstagramSendCoreService (database)', () => {
       .query(true)
       .reply(200, { message_id: 'mid.hide' });
     await turn('reply');
-    const followCheck = await insertInstagramMessage({
+    const followCheck = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'follow_check',
@@ -407,7 +407,7 @@ describe('InstagramSendCoreService (database)', () => {
     });
     const [first, second] = await Promise.all(
       [run, otherRun].map((messageRun) =>
-        insertInstagramMessage({
+        insertInstagramOutgoingMessage({
           run: messageRun,
           channelAccountId: account.channel_account_id,
           message_number: 1,
@@ -449,7 +449,7 @@ describe('InstagramSendCoreService (database)', () => {
     const meta = metaAnswers(200, { message_id: 'mid.never' });
     await turn('slow');
     expect(meta.isDone()).toBe(false);
-    const [kept] = await readInstagramMessages(organization.id);
+    const [kept] = await readInstagramOutgoingMessages(organization.id);
     expect(kept?.status).toBe('waiting');
     const accounts = await operatorQuery<{ plan_stop_reason: string | null }[]>`
       SELECT plan_stop_reason FROM app.channel_accounts WHERE organization_id = ${organization.id}`;
@@ -459,7 +459,7 @@ describe('InstagramSendCoreService (database)', () => {
       'plan_limit',
     );
     // The reply lane is not held by plan_limit (D62): its public reply still goes.
-    await insertInstagramMessage({
+    await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       message_type: 'public_reply',
@@ -475,7 +475,9 @@ describe('InstagramSendCoreService (database)', () => {
       .query(true)
       .reply(200, { message_id: 'mid.reply' });
     await turn('reply');
-    const statuses = (await readInstagramMessages(organization.id)).map((row) => row.status);
+    const statuses = (await readInstagramOutgoingMessages(organization.id)).map(
+      (row) => row.status,
+    );
     expect(statuses).toEqual(['waiting', 'sent']);
   });
 
@@ -484,7 +486,7 @@ describe('InstagramSendCoreService (database)', () => {
     await waitingOpeningMessage();
     metaAnswers(200, { message_id: 'mid.last' });
     await turn('slow');
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('sent');
     const [row] = await operatorQuery<{ plan_stop_reason: string | null }[]>`
       SELECT plan_stop_reason FROM app.channel_accounts WHERE id = ${account.channel_account_id}`;
     expect(row?.plan_stop_reason).toBe('plan_limit');
@@ -497,14 +499,14 @@ describe('InstagramSendCoreService (database)', () => {
       .query(true)
       .replyWithError(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
     await turn('slow');
-    const [saved] = await readInstagramMessages(organization.id);
+    const [saved] = await readInstagramOutgoingMessages(organization.id);
     expect(saved?.status).toBe('unknown');
     expect(await monthUsed()).toBe(1);
     const second = metaAnswers(200, { message_id: 'mid.twice' });
     await turn('slow');
     await turn('slow');
     expect(second.isDone()).toBe(false);
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('unknown');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('unknown');
   });
 
   it('retries a failed result save inside the send and, when it keeps failing, leaves the message sending (SN4, AC-17.9)', async () => {
@@ -522,7 +524,7 @@ describe('InstagramSendCoreService (database)', () => {
     });
     await turn('slow');
     expect(saves).toBe(4);
-    const [stuck] = await readInstagramMessages(organization.id);
+    const [stuck] = await readInstagramOutgoingMessages(organization.id);
     expect(stuck?.status).toBe('sending');
     // A later ticket finds it not waiting: never sent again by itself.
     const again = metaAnswers(200, { message_id: 'mid.again' });
@@ -534,7 +536,7 @@ describe('InstagramSendCoreService (database)', () => {
     await waitingOpeningMessage();
     metaAnswers(400, { error: { code: 368 } });
     await turn('slow');
-    const [back] = await readInstagramMessages(organization.id);
+    const [back] = await readInstagramOutgoingMessages(organization.id);
     expect(back).toMatchObject({ status: 'waiting', tries: 0 });
     expect(await monthUsed()).toBe(0);
     expect(await minuteCount()).toBe(0);
@@ -554,7 +556,7 @@ describe('InstagramSendCoreService (database)', () => {
       WHERE channel_account_id = ${account.channel_account_id}`;
     metaAnswers(200, { message_id: 'mid.test' });
     await turn('slow');
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('sent');
     const freed = await laneRow(account, 'slow');
     expect(freed.stop_reason).toBeNull();
     expect(freed.half_speed_until!.getTime() - Date.now()).toBeGreaterThan(23 * 3_600_000);
@@ -679,7 +681,7 @@ describe('InstagramSendCoreService (database)', () => {
     // No Meta send is mocked: a DM call here would fail the test (nock refuses it).
     await turn('slow');
     expect(probes).toEqual([account.public_id]);
-    expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[0]).toMatchObject({
       status: 'waiting',
       tries: 0,
     });
@@ -696,7 +698,7 @@ describe('InstagramSendCoreService (database)', () => {
     metaAnswers(200, { message_id: 'mid.after-down' });
     await turn('slow');
     expect(probes).toHaveLength(2);
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('sent');
     expect((await laneRow(account, 'slow')).stop_reason).toBeNull();
   });
 
@@ -709,7 +711,7 @@ describe('InstagramSendCoreService (database)', () => {
       kind: 'connection',
       input: { channelConnection: { organizationId: organization.id, channelConnectionId: 7 } },
     });
-    expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+    expect((await readInstagramOutgoingMessages(organization.id))[0]).toMatchObject({
       status: 'waiting',
       tries: 0,
     });
@@ -739,7 +741,7 @@ describe('InstagramSendCoreService (database)', () => {
   });
 
   it('sends a fast message under its own ticket and finishes a gone one', async () => {
-    const message = await insertInstagramMessage({
+    const message = await insertInstagramOutgoingMessage({
       run,
       channelAccountId: account.channel_account_id,
       status: 'waiting',
@@ -754,7 +756,7 @@ describe('InstagramSendCoreService (database)', () => {
       tries: 0,
     };
     await core.sendFastMessage({ ticket, scope: scope(), context });
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('sent');
     await core.sendFastMessage({ ticket, scope: scope(), context });
     expect(await readInstagramSendAttempts(organization.id)).toHaveLength(1);
   });
@@ -764,6 +766,6 @@ describe('InstagramSendCoreService (database)', () => {
     core = buildCore({ laneRules: {} });
     await turn('slow');
     expect(await laneRow(account, 'slow')).toMatchObject({ state: 'ready', turn_number: 0 });
-    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('waiting');
+    expect((await readInstagramOutgoingMessages(organization.id))[0]?.status).toBe('waiting');
   });
 });

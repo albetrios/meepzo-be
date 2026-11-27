@@ -38,6 +38,7 @@ import { instagram_media } from '@/domains/app/sub-domains/instagram-account/ins
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
+import { instagram_conversations } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation.schema.js';
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -46,8 +47,8 @@ import { automation_reply_states } from '@/domains/app/sub-domains/automation/au
 import { automation_backfills } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
-import { instagram_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.schema.js';
-import { instagram_send_attempts } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-send-attempt.schema.js';
+import { instagram_outgoing_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.schema.js';
+import { instagram_send_attempts } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-send-attempt.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
@@ -862,6 +863,30 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     contactTagEventIds,
   );
 
+  // The team inbox (feat-instagram-inbox R2): one conversation per organization's contact.
+  const conversationIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [conversation] = await database
+      .insert(instagram_conversations)
+      .values({
+        public_id: generatePublicId('instagramConversation'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        contact_id: contactIds[side],
+        last_message_at: new Date(),
+        last_message_sender_type: 'contact',
+      })
+      .returning();
+    conversationIds[side] = conversation!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_conversations' }),
+    conversationIds,
+  );
+
   // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.
   const segmentIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
@@ -1031,7 +1056,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .returning();
     // The run's opening private reply, waiting, and one call to Meta for it (§ 6.B.3, R19).
     const [message] = await database
-      .insert(instagram_messages)
+      .insert(instagram_outgoing_messages)
       .values({
         public_id: generatePublicId('instagramMessage'),
         organization_id: organization.id,
@@ -1067,7 +1092,10 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     messageIds[side] = message!.id;
     attemptIds[side] = attempt!.id;
   }
-  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'instagram_messages' }), messageIds);
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_outgoing_messages' }),
+    messageIds,
+  );
 
   // Broadcast recipients (feat-instagram-dm-sending R23): each organization's contact on its draft.
   const broadcastRecipientIds = { organizationA: 0, organizationB: 0 };

@@ -20,7 +20,7 @@ import type { BroadcastSendQueuePort } from '@/domains/app/sub-domains/broadcast
 import { INSTAGRAM_SENDING_REPAIR_SETTINGS } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { InstagramSendingRepairService } from '@/domains/app/sub-domains/instagram-sending/instagram-sending-repair.service.js';
 import type { InstagramSendGateService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-gate.service.js';
-import type { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import type { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { addMissingInstagramSendFastMessages } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { addMissingInstagramSendLaneTurns } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import type { ChannelSendingPorts } from '@/domains/app/app.channel-ports.js';
@@ -221,7 +221,7 @@ export function createInstagramSendRepairDutyServices({
   runInDatabaseSlot,
 }: {
   sendingGate: RepairDutyGate;
-  messageService: Pick<InstagramMessageService, 'saveSendResult' | 'settleWaitingMessages'>;
+  messageService: Pick<InstagramOutgoingMessageService, 'saveSendResult' | 'settleWaitingMessages'>;
   /** The container's gate service (gate 1's count read, WC-20). */
   gateService: Pick<InstagramSendGateService, 'readGateOneCount'>;
   recipientService: Pick<BroadcastRecipientService, 'skipBroadcastWaitingRecipients'>;

@@ -744,7 +744,7 @@ sequenceDiagram
   participant Account as InstagramAccountService
   participant Contact as ContactService (recordInboundContactEvent)
   participant Engine as AutomationRunService
-  participant Messages as InstagramMessageService (6)
+  participant Messages as InstagramOutgoingMessageService (6)
   participant Tasks as instagram-tasks
 
   Queue->>Worker: intake-<kind> {organizationPublicId, channelAccountPublicId, intakeKind}

@@ -129,11 +129,11 @@ const CONVERSIONS: readonly Conversion[] = [
     'broadcasts_start_automation_fk',
   ),
   link(
-    'app.instagram_messages',
+    'app.instagram_outgoing_messages',
     'broadcast_id',
     'app.broadcasts',
     'cascade',
-    'instagram_messages_broadcast_fk',
+    'instagram_outgoing_messages_broadcast_fk',
   ),
   // feat-instagram-dm-sending R23 (7.C.3): a recipient names its broadcast (CASCADE) and its
   // contact (RESTRICT — contacts are erased in place).
@@ -481,7 +481,7 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     ),
   );
   await operatorQuery.unsafe(
-    `INSERT INTO app.instagram_messages (public_id, organization_id, channel_account_id, broadcast_id, automation_run_started_at, contact_id, message_type, message_number, message_kind, lane, channel, is_counted_as_direct_message)
+    `INSERT INTO app.instagram_outgoing_messages (public_id, organization_id, channel_account_id, broadcast_id, automation_run_started_at, contact_id, message_type, message_number, message_kind, lane, channel, is_counted_as_direct_message)
      VALUES ($1, $2, $3, $4, now(), $5, 'broadcast', 1, 'text', 'broadcast', 'direct', true)`,
     [
       `igm_${String(organization.id).padStart(21, '0')}`,
@@ -647,7 +647,7 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
           [
             'automation_run_events_automation_run_fk',
             'automation_run_open_keys_automation_run_fk',
-            'instagram_messages_automation_run_fk',
+            'instagram_outgoing_messages_automation_run_fk',
           ],
         ],
       ),
@@ -664,7 +664,7 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
         parent_columns: 'organization_id,id,started_at',
       },
       {
-        constraint_name: 'instagram_messages_automation_run_fk',
+        constraint_name: 'instagram_outgoing_messages_automation_run_fk',
         child_columns: 'organization_id,automation_run_id,automation_run_started_at',
         parent_columns: 'organization_id,id,started_at',
       },

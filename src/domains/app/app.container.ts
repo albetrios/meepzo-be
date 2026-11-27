@@ -110,7 +110,7 @@ import { MessageMonthNoticeService } from './sub-domains/instagram-sending/messa
 import { MessageMonthCountService } from './sub-domains/instagram-sending/message-month-count.service.js';
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
-import { InstagramMessageService } from './sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramOutgoingMessageService } from './sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { InstagramSendAccessService } from './sub-domains/instagram-sending/instagram-send-access.service.js';
 import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
@@ -128,7 +128,7 @@ import {
   contactBulkActionQueue,
   createAppTaskHandlers,
   instagramAttachmentUploadQueue,
-  instagramMessageRetryQueue,
+  instagramOutgoingMessageRetryQueue,
   segmentBackgroundCountPort,
 } from './app.tasks.js';
 import { registerInstagramPlanChangeEventHandlers } from './sub-domains/instagram-sending/events/instagram-plan-change.event-handlers.js';
@@ -224,7 +224,7 @@ export type AppContainer = {
    * `channelSendingPorts.instagram`), the claim and the one result save the lanes call (R42), the
    * webhook's own-echo lookup and route 63's waiting counts.
    */
-  instagramMessageService: InstagramMessageService;
+  instagramOutgoingMessageService: InstagramOutgoingMessageService;
   /**
    * The one read before every Instagram Meta call (§ 6, SN22, SN23; ROUTE row R20): the account's
    * send access, the pace from the connection's Meta usage and the usage recorder — the attachment
@@ -477,13 +477,13 @@ function createInstagramSendingStatusService({
   channelAccountService,
   planAccessService,
   sending,
-  instagramMessageService,
+  instagramOutgoingMessageService,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
   planAccessService: ChannelConnectionPlanAccessService;
   sending: ReturnType<typeof createInstagramSendingServices>;
-  instagramMessageService: InstagramMessageService;
+  instagramOutgoingMessageService: InstagramOutgoingMessageService;
 }): InstagramSendingService {
   return new InstagramSendingService({
     organizationService,
@@ -492,10 +492,10 @@ function createInstagramSendingStatusService({
     ...sending,
     dayCountRepository: new InstagramSendDayCountRepository(),
     sources: {
-      countWaitingByLane: (target) => instagramMessageService.countWaitingByLane(target),
+      countWaitingByLane: (target) => instagramOutgoingMessageService.countWaitingByLane(target),
       listWindowClosedByAutomation: (target) =>
-        instagramMessageService.listWindowClosedByAutomation(target),
-      findLastRetry: (target) => instagramMessageService.findLastRetry(target),
+        instagramOutgoingMessageService.listWindowClosedByAutomation(target),
+      findLastRetry: (target) => instagramOutgoingMessageService.findLastRetry(target),
     },
   });
 }
@@ -557,12 +557,12 @@ function createInstagramMediaAndErasureServices(options: {
 function createInstagramWebhookServices({
   instagramAccountService,
   organizationService,
-  instagramMessageService,
+  instagramOutgoingMessageService,
 }: {
   instagramAccountService: InstagramAccountService;
   organizationService: OrganizationService;
   /** The own-echo lookup (WHQ1, P62) — sub-domain 6's message service (R19). */
-  instagramMessageService: InstagramMessageService;
+  instagramOutgoingMessageService: InstagramOutgoingMessageService;
 }) {
   const instagramWebhookEventService = new InstagramWebhookEventService(
     new InstagramWebhookEventRepository(),
@@ -575,7 +575,7 @@ function createInstagramWebhookServices({
     instagramAccountService,
     instagramWebhookEventService,
     enqueueInstagramWebhookIntake,
-    instagramMessageService.findOwnSentMessageIds,
+    instagramOutgoingMessageService.findOwnSentMessageIds,
   );
   return { instagramWebhookEventService, instagramWebhookService };
 }
@@ -844,11 +844,11 @@ function createChannelSendingServices(late: {
     'automationRunService' | 'contactService'
   >;
 }): {
-  instagramMessageService: InstagramMessageService;
+  instagramOutgoingMessageService: InstagramOutgoingMessageService;
   channelSendingPorts: ChannelSendingPorts;
   broadcastRecipientService: BroadcastRecipientService;
 } {
-  const instagramMessageService = new InstagramMessageService({
+  const instagramOutgoingMessageService = new InstagramOutgoingMessageService({
     recordRunMessageResult: (input) =>
       late.automation().automationRunService.recordMessageResult(input),
     recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
@@ -858,14 +858,14 @@ function createChannelSendingServices(late: {
       late.automation().contactService.recordContactBroadcastSent(input),
     enqueueFastMessage: enqueueInstagramSendFastMessage,
     // WC-42's `retry-failed` task (R46) and the retried runs reopened in its commit.
-    retryQueue: instagramMessageRetryQueue,
+    retryQueue: instagramOutgoingMessageRetryQueue,
     reopenRetriedRuns: (input) => late.automation().automationRunService.reopenRetriedRuns(input),
   });
-  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
+  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramOutgoingMessageService };
   const broadcastRecipientService = new BroadcastRecipientService({
     sendingPorts: channelSendingPorts,
   });
-  return { instagramMessageService, channelSendingPorts, broadcastRecipientService };
+  return { instagramOutgoingMessageService, channelSendingPorts, broadcastRecipientService };
 }
 
 /**
@@ -885,10 +885,10 @@ function createInstagramSendWork(
   },
 ): InstagramSendWork {
   const lanes = container.instagramSendLaneService;
-  const messageService = container.instagramMessageService;
+  const messageService = container.instagramOutgoingMessageService;
   const sendCore = new InstagramSendCoreService({
     laneService: lanes,
-    messageService: container.instagramMessageService,
+    messageService: container.instagramOutgoingMessageService,
     gateService: container.instagramSendGateService,
     accessService: container.instagramSendAccessService,
     attachmentService: container.instagramAttachmentService,
@@ -1020,7 +1020,7 @@ function withSendWorkAndWatches(
     instagramSendingWatchService: new InstagramSendingWatchService({
       sendingStateService: container.sendingStateService,
       accessService: container.instagramSendAccessService,
-      messageService: container.instagramMessageService,
+      messageService: container.instagramOutgoingMessageService,
       mediaService: container.instagramMediaService,
     }),
   };
@@ -1130,7 +1130,7 @@ export function createAppContainer({
   trialPort,
   messageFilePort,
 }: AppContainerDependencies): AppContainer {
-  const { instagramMessageService, channelSendingPorts, broadcastRecipientService } =
+  const { instagramOutgoingMessageService, channelSendingPorts, broadcastRecipientService } =
     createChannelSendingServices({ automation: () => automation });
   const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
@@ -1179,7 +1179,7 @@ export function createAppContainer({
     channelAccountService,
     planAccessService,
     sending,
-    instagramMessageService,
+    instagramOutgoingMessageService,
   });
   const mediaAndErasure = createInstagramMediaAndErasureServices({
     instagramAccountService,
@@ -1208,7 +1208,7 @@ export function createAppContainer({
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
     organizationService,
-    instagramMessageService,
+    instagramOutgoingMessageService,
   });
   const container = {
     ...sending,
@@ -1243,7 +1243,7 @@ export function createAppContainer({
       messageFilePort,
     }),
     broadcastRecipientService,
-    instagramMessageService,
+    instagramOutgoingMessageService,
     ...sendAccess,
   };
   // WC-38 (ROUTE row R52): billing's plan-state change → the plan-change task, in both processes.

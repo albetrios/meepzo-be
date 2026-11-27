@@ -85,7 +85,7 @@ describe('runAppPartitionUpkeepJob', () => {
       ['app.instagram_webhook_events', 8, true],
       ['app.instagram_webhook_event_keys', 8, true],
       ['app.instagram_send_attempts', 8, true],
-      ['app.instagram_messages', 30, true],
+      ['app.instagram_outgoing_messages', 30, true],
       ['app.automation_comment_logs', 90, true],
       ['app.automation_run_events', 98, true],
       ['app.automation_runs', 98, true],
@@ -103,8 +103,8 @@ describe('runAppPartitionUpkeepJob', () => {
   });
 
   it('sets the three gauges per table', async () => {
-    state.reports.set('app.instagram_messages', {
-      ...baseReport('app.instagram_messages'),
+    state.reports.set('app.instagram_outgoing_messages', {
+      ...baseReport('app.instagram_outgoing_messages'),
       ready_days: 26,
       default_rows: 2,
       oldest_overdue_seconds: 40,
@@ -114,7 +114,7 @@ describe('runAppPartitionUpkeepJob', () => {
 
     expect(setGaugesMock).toHaveBeenCalledTimes(7);
     expect(setGaugesMock).toHaveBeenCalledWith({
-      table: 'app.instagram_messages',
+      table: 'app.instagram_outgoing_messages',
       readyDays: 26,
       defaultRows: 2,
       oldestOverdueSeconds: 40,
@@ -167,10 +167,10 @@ describe('runAppPartitionUpkeepJob', () => {
   });
 
   it('runs the other tables when one fails, then throws naming it', async () => {
-    state.failingTable = 'app.instagram_messages';
+    state.failingTable = 'app.instagram_outgoing_messages';
 
     await expect(runAppPartitionUpkeepJob({ mode: 'drop' })).rejects.toThrow(
-      'app partition upkeep failed for app.instagram_messages',
+      'app partition upkeep failed for app.instagram_outgoing_messages',
     );
     expect(state.calls).toHaveLength(7);
   });

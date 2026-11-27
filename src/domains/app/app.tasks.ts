@@ -29,8 +29,8 @@ import {
   broadcastAudienceTaskInputSchema,
 } from './sub-domains/broadcast/broadcast-recipient/queues/broadcast-audience.job.schema.js';
 import { runBroadcastAudiencePiece } from './sub-domains/broadcast/broadcast-recipient/workers/broadcast-audience.processor.js';
-import type { InstagramMessageRetryQueue } from './sub-domains/instagram-sending/instagram-message/instagram-message.types.js';
-import type { InstagramMessageService } from './sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import type { InstagramOutgoingMessageRetryQueue } from './sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.types.js';
+import type { InstagramOutgoingMessageService } from './sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import type { InstagramAttachmentUploadQueue } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
 import type { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
@@ -222,7 +222,7 @@ export const broadcastSendQueue: BroadcastSendQueuePort = {
  * @remarks
  * Notes: an add error propagates into the route (nothing retried yet — the owner presses again).
  */
-export const instagramMessageRetryQueue: InstagramMessageRetryQueue = {
+export const instagramOutgoingMessageRetryQueue: InstagramOutgoingMessageRetryQueue = {
   enqueueRetryFailed: ({ organizationPublicId, by, ownerPublicId }) =>
     enqueueInstagramDatabaseTask({
       jobName: INSTAGRAM_RETRY_FAILED_JOB_NAME,
@@ -266,8 +266,8 @@ export interface AppTaskServices {
     'countWaitingBroadcastMatched' | 'cancelBroadcastsForPlanFeatureOff'
   >;
   broadcastRecipientService: Pick<BroadcastRecipientService, 'buildAudiencePiece'>;
-  instagramMessageService: Pick<
-    InstagramMessageService,
+  instagramOutgoingMessageService: Pick<
+    InstagramOutgoingMessageService,
     'resolveFailedMessagesTarget' | 'retryAllowedFailedMessages'
   >;
   instagramAttachmentService: Pick<InstagramAttachmentService, 'uploadAttachments'>;
@@ -357,7 +357,7 @@ export function createAppTaskHandlers(
         }),
     },
     [INSTAGRAM_RETRY_FAILED_JOB_NAME]: createInstagramRetryFailedTaskHandler({
-      messageService: services.instagramMessageService,
+      messageService: services.instagramOutgoingMessageService,
       laneService: services.instagramSendLaneService,
     }),
     [INSTAGRAM_ATTACHMENT_UPLOAD_JOB_NAME]: createInstagramAttachmentUploadTaskHandler({

@@ -15,8 +15,8 @@ import {
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { InstagramSendAccess } from './instagram-sending.types.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
-import { InstagramMessageRepository } from './instagram-message/instagram-message.repository.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { InstagramOutgoingMessageRepository } from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import { InstagramSendLaneRepository } from './instagram-send-lane.repository.js';
 import type { InstagramSendAccessService } from './instagram-send-access.service.js';
 import type { SendingStateService } from './sending-state.service.js';
@@ -145,7 +145,7 @@ export class InstagramSendingWatchService {
         'startAllAccountsDownStop' | 'resetQuietAllStop' | 'readAllAccountsStop' | 'mayTakeTickets'
       >;
       accessService: Pick<InstagramSendAccessService, 'readSendAccess' | 'buildUsageRecorder'>;
-      messageService: Pick<InstagramMessageService, 'expireWaitingLiveReplies'>;
+      messageService: Pick<InstagramOutgoingMessageService, 'expireWaitingLiveReplies'>;
       mediaService: Pick<InstagramMediaService, 'recordLiveEnded'>;
       /** The Graph read of the Lives on air (tests pass a fake). */
       listLiveMedia?: typeof listInstagramLiveMedia | undefined;
@@ -345,7 +345,7 @@ export class InstagramSendingWatchService {
         const settings = await new InstagramAccountSettingsRepository(
           databaseHandle,
         ).findByChannelAccount(key);
-        const summary = await new InstagramMessageRepository(
+        const summary = await new InstagramOutgoingMessageRepository(
           databaseHandle,
         ).summarizeWaitingOpeningMessages({ ...key, now });
         const isNewAccount =

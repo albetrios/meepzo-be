@@ -12,8 +12,8 @@ import { BroadcastRecipientService } from '@/domains/app/sub-domains/broadcast/b
 import { runBroadcastEndDuty } from '@/domains/app/sub-domains/broadcast/workers/broadcast-end.processor.js';
 import { runBroadcastStartDuty } from '@/domains/app/sub-domains/broadcast/workers/broadcast-start.processor.js';
 import type { BroadcastSentKey } from '@/domains/app/sub-domains/broadcast/broadcast.types.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
-import { readInstagramMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { readInstagramOutgoingMessages } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   type ContactFixtureRow,
   insertContact,
@@ -42,7 +42,7 @@ const HOUR = 60 * 60 * 1000;
 describe('broadcast duties (database)', () => {
   let organization: { id: number; public_id: string };
   let account: { id: number; public_id: string; channel_account_id: number };
-  let messageService: InstagramMessageService;
+  let messageService: InstagramOutgoingMessageService;
   let recipientService: BroadcastRecipientService;
   let notices: string[];
 
@@ -109,7 +109,7 @@ describe('broadcast duties (database)', () => {
     await cleanupDatabase();
     organization = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
     account = await insertInstagramAccount({ organizationId: organization.id });
-    messageService = new InstagramMessageService({
+    messageService = new InstagramOutgoingMessageService({
       recordRunMessageResult: async () => undefined,
       recordBroadcastMessageResult: async () => undefined,
     });
@@ -193,7 +193,7 @@ describe('broadcast duties (database)', () => {
       ['skipped', 'broadcast_cancelled'],
       ['skipped', 'broadcast_cancelled'],
     ]);
-    const messages = (await readInstagramMessages(organization.id)).filter(
+    const messages = (await readInstagramOutgoingMessages(organization.id)).filter(
       (row) => row.broadcast_id === broadcast.id,
     );
     expect(messages.map((row) => [row.status, row.reason])).toEqual([

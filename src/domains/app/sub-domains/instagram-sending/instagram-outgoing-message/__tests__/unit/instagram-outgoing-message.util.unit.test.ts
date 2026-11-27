@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { INSTAGRAM_MESSAGE_TYPE_OF_STEP } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.constants.js';
+import { INSTAGRAM_MESSAGE_TYPE_OF_STEP } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
   channelResultOf,
-  chooseInstagramMessagePlace,
+  chooseInstagramOutgoingMessagePlace,
   drawInstagramExtraDelayMilliseconds,
-  instagramMessageStepOf,
+  instagramOutgoingMessageStepOf,
   isInstagramChatWindowOpen,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.util.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.util.js';
 import type { ChannelMessageStep } from '@/domains/app/app.channel-ports.js';
 
 /**
@@ -14,12 +14,12 @@ import type { ChannelMessageStep } from '@/domains/app/app.channel-ports.js';
  * §19.1 checks 1–3): which lane and delivery channel each step waits in, whether it counts in the
  * month, and when a DM can never go.
  */
-describe('chooseInstagramMessagePlace (SN22)', () => {
+describe('chooseInstagramOutgoingMessagePlace (SN22)', () => {
   const choose = (
     step: ChannelMessageStep,
     options: { triggerType?: string; answersEventId?: string | null; isWindowOpen?: boolean } = {},
   ) =>
-    chooseInstagramMessagePlace({
+    chooseInstagramOutgoingMessagePlace({
       step,
       triggerType: options.triggerType ?? 'comment',
       answersEventId: options.answersEventId ?? null,
@@ -95,9 +95,9 @@ describe('chooseInstagramMessagePlace (SN22)', () => {
 
   it('maps each type back to its step, and an expired result to skipped (AU35)', () => {
     for (const [step, type] of Object.entries(INSTAGRAM_MESSAGE_TYPE_OF_STEP)) {
-      expect(instagramMessageStepOf(type)).toBe(step);
+      expect(instagramOutgoingMessageStepOf(type)).toBe(step);
     }
-    expect(instagramMessageStepOf('invalid_email')).toBe('email');
+    expect(instagramOutgoingMessageStepOf('invalid_email')).toBe('email');
     expect(channelResultOf('expired')).toBe('skipped');
     expect(channelResultOf('unknown')).toBe('unknown');
   });

@@ -5,7 +5,7 @@ import {
 import {
   INSTAGRAM_MESSAGE_KEEP_DAYS,
   INSTAGRAM_SEND_ATTEMPT_KEEP_DAYS,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.constants.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import { INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS } from '@/shared/constants/instagram.constants.js';
 
 /**
@@ -58,7 +58,7 @@ export const APP_PARTITION_UPKEEP_SPECS: readonly AppPartitionUpkeepSpec[] = [
   { table: 'app.instagram_webhook_events', keepDays: INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS },
   { table: 'app.instagram_webhook_event_keys', keepDays: INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS },
   { table: 'app.instagram_send_attempts', keepDays: INSTAGRAM_SEND_ATTEMPT_KEEP_DAYS },
-  { table: 'app.instagram_messages', keepDays: INSTAGRAM_MESSAGE_KEEP_DAYS },
+  { table: 'app.instagram_outgoing_messages', keepDays: INSTAGRAM_MESSAGE_KEEP_DAYS },
   { table: 'app.automation_comment_logs', keepDays: AUTOMATION_RUN_KEEP_DAYS },
   { table: 'app.automation_run_events', keepDays: AUTOMATION_RUN_PART_DROP_AFTER_DAYS },
   { table: 'app.automation_runs', keepDays: AUTOMATION_RUN_PART_DROP_AFTER_DAYS },

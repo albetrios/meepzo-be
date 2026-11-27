@@ -31,10 +31,10 @@ import {
   setMonthCount,
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import {
-  insertInstagramMessage,
-  readInstagramMessages,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
-import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+  insertInstagramOutgoingMessage,
+  readInstagramOutgoingMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
+import { InstagramOutgoingMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.service.js';
 import { InstagramSendCoreService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-core.service.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { planStopHoldsLane } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.util.js';
@@ -133,7 +133,7 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
         const [next] = await operatorQuery<
           { public_id: string; automation_run_started_at: Date }[]
         >`
-          SELECT public_id, automation_run_started_at FROM app.instagram_messages
+          SELECT public_id, automation_run_started_at FROM app.instagram_outgoing_messages
           WHERE channel_account_id = ${target.channelAccountId} AND lane = ${lane} AND status = 'waiting'
           ORDER BY id LIMIT 1`;
         return next === undefined
@@ -171,7 +171,7 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
     const domain = app.appDomain;
     return new InstagramSendCoreService({
       laneService: domain.instagramSendLaneService,
-      messageService: new InstagramMessageService({
+      messageService: new InstagramOutgoingMessageService({
         recordRunMessageResult: async () => undefined,
         recordBroadcastMessageResult: async () => undefined,
       }),
@@ -241,9 +241,9 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
   async function waitingMessage(
     target: TestAccount,
     targetRun: TestRun | null = null,
-    values: Partial<Parameters<typeof insertInstagramMessage>[0]> = {},
+    values: Partial<Parameters<typeof insertInstagramOutgoingMessage>[0]> = {},
   ) {
-    return insertInstagramMessage({
+    return insertInstagramOutgoingMessage({
       run: targetRun ?? (await newRun(target)),
       channelAccountId: target.channel_account_id,
       message_type: 'opening_message',
@@ -281,7 +281,7 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
   }
 
   async function statusOf(publicId: string): Promise<string | undefined> {
-    const rows = await readInstagramMessages(team.organization.id);
+    const rows = await readInstagramOutgoingMessages(team.organization.id);
     return rows.find((row) => row.public_id === publicId)?.status;
   }
 
@@ -487,7 +487,7 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
     // limit the claims take the organization's month lock, so the month ends exactly at it.
     expect(used).toBe(1000);
     expect(await planStops()).toEqual(['plan_limit', 'plan_limit']);
-    const sent = (await readInstagramMessages(team.organization.id)).filter(
+    const sent = (await readInstagramOutgoingMessages(team.organization.id)).filter(
       (row) => row.status === 'sent',
     );
     expect(sent).toHaveLength(used - 998);

@@ -12,7 +12,7 @@ fast, broadcast), two gates and the month count in the claim's commit, one share
 groups and stops, and repair duties that never send. ROUTE row R18 built the **folder root** (§ 6.A): the lane, stop,
 minute, month and day count tables, the global sending row, routes 63–64, the sending switch and environment id, the
 month meter's Redis copy and the lane steps of the connection, the channel account and route 12. ROUTE row R19 built
-the nested [Instagram messages](instagram-message/instagram-message.overview.md) (6.B — the messages and attempts,
+the nested [Instagram messages](instagram-outgoing-message/instagram-outgoing-message.overview.md) (6.B — the messages and attempts,
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
@@ -41,7 +41,7 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   `runRepairDutyRound` (`src/infrastructure/queue/worker-runtime/repair-duty.util.ts`: the `mayTakeTickets` gate, the 40 s
   budget, pieces of 500, `repair_duty_round_seconds` / `repair_duty_backlog`). Lost tickets are re-added in one `addBulk`
   per piece by `addMissingInstagramSendLaneTurns` / `addMissingInstagramSendFastMessages` (a ticket still on its way is
-  only counted). Waiting messages end through `InstagramMessageService.settleWaitingMessages` (the result save's
+  only counted). Waiting messages end through `InstagramOutgoingMessageService.settleWaitingMessages` (the result save's
   bookkeeping, the engine told); a stuck send through `saveSendResult`.
 
 - `instagram-sending.constants.ts` — the **sending settings file** (P4): the settings-file limits an empty owner value
@@ -140,7 +140,7 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   claim takes her contact `NO KEY UPDATE SKIP LOCKED` and one of hers `sending` at a time (else back in 1 s), the
   account's 20 `sending` (`sending_count`, − 1 in the result save), 5 audio and the organization's 25 (S21; else back
   in 500 ms). The follow check reads `is_user_follow_business` (2 tries, the second after 2–5 s, then "following").
-  Buttons carry `<aut_…>::<run_…>::<igm_…>`; `InstagramMessageService.markTappedMessageSent` proves an `unknown`
+  Buttons carry `<aut_…>::<run_…>::<igm_…>`; `InstagramOutgoingMessageService.markTappedMessageSent` proves an `unknown`
   message `sent` (the intake calls it, R38). "Seen" after a reply is not sent (P36 keeps `mark_seen` off, P412).
 - `instagram-broadcast-lane.service.ts` — `InstagramBroadcastLaneRules` (R45, WC-8): broadcast messages (PRO) one per
   box of the broadcast hour limit (600, ≤ 2,000; 3600 ÷ limit, a random second, ≥ 1.5 s apart, ×2 at half speed or
@@ -153,7 +153,7 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   this lane for twice the time (Meta's too); the slow or fast lane's too fast holds it too. Buttons carry
   `<brc_…>::<igm_…>` (`broadcast-recipient-button-payload.util.ts`, read by intake R38).
 - `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
-  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions as plain text
+  (`instagram-outgoing-message/instagram-outgoing-message-compose.util.ts`: the hello, follow ask, email / phone questions as plain text
   (Meta disabled its email / phone buttons on 5 Oct 2026 — fix-meta-unified-login F2) and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
   once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too; `composeBroadcastMessage` the
   broadcast lane's (R45: the broadcast's message N as a list message, a normal DM to her id, no tag).

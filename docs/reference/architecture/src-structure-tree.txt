@@ -497,6 +497,13 @@ src/
     │   │   │   ├── instagram-account.service.ts
     │   │   │   ├── instagram-account.types.ts
     │   │   │   └── instagram-messages-webhook-watch.util.ts
+    │   │   ├── instagram-conversation/
+    │   │   │   ├── __tests__/
+    │   │   │   │   └── unit/
+    │   │   │   │   │   └── instagram-conversation.schema.db.unit.test.ts
+    │   │   │   ├── instagram-conversation.constants.ts
+    │   │   │   ├── instagram-conversation.overview.md
+    │   │   │   └── instagram-conversation.schema.ts
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── e2e/
@@ -556,27 +563,27 @@ src/
     │   │   │   │   ├── instagram-attachment.schema.ts
     │   │   │   │   ├── instagram-attachment.service.ts
     │   │   │   │   └── instagram-attachment.types.ts
-    │   │   │   ├── instagram-message/
+    │   │   │   ├── instagram-outgoing-message/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/
-    │   │   │   │   │   │   └── instagram-message.factory.ts
+    │   │   │   │   │   │   └── instagram-outgoing-message.factory.ts
     │   │   │   │   │   ├── integration/
-    │   │   │   │   │   │   └── instagram-message.integration.test.ts
+    │   │   │   │   │   │   └── instagram-outgoing-message.integration.test.ts
     │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   ├── instagram-message-compose.util.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-message.repository.db.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-message.service.unit.test.ts
-    │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
-    │   │   │   │   ├── instagram-message-compose.util.ts
-    │   │   │   │   ├── instagram-message.constants.ts
-    │   │   │   │   ├── instagram-message.overview.md
-    │   │   │   │   ├── instagram-message.repository.ts
-    │   │   │   │   ├── instagram-message.schema.ts
-    │   │   │   │   ├── instagram-message.service.ts
-    │   │   │   │   ├── instagram-message.types.ts
-    │   │   │   │   ├── instagram-message.util.ts
+    │   │   │   │   │   │   ├── instagram-outgoing-message-compose.util.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-outgoing-message.port-contract.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-outgoing-message.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-outgoing-message.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-outgoing-message.service.unit.test.ts
+    │   │   │   │   │   │   └── instagram-outgoing-message.util.unit.test.ts
+    │   │   │   │   ├── instagram-outgoing-message-compose.util.ts
+    │   │   │   │   ├── instagram-outgoing-message.constants.ts
+    │   │   │   │   ├── instagram-outgoing-message.overview.md
+    │   │   │   │   ├── instagram-outgoing-message.repository.ts
+    │   │   │   │   ├── instagram-outgoing-message.schema.ts
+    │   │   │   │   ├── instagram-outgoing-message.service.ts
+    │   │   │   │   ├── instagram-outgoing-message.types.ts
+    │   │   │   │   ├── instagram-outgoing-message.util.ts
     │   │   │   │   ├── instagram-send-attempt.repository.ts
     │   │   │   │   └── instagram-send-attempt.schema.ts
     │   │   │   ├── queues/

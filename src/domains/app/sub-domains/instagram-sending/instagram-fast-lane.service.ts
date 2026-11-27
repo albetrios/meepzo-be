@@ -9,15 +9,15 @@ import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contac
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import {
   INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS,
-  type InstagramMessageReason,
-} from './instagram-message/instagram-message.constants.js';
+  type InstagramOutgoingMessageReason,
+} from './instagram-outgoing-message/instagram-outgoing-message.constants.js';
 import {
-  type InstagramMessageKey,
-  InstagramMessageRepository,
-  type InstagramMessageRow,
-} from './instagram-message/instagram-message.repository.js';
-import type { InstagramMessageService } from './instagram-message/instagram-message.service.js';
-import { isInstagramChatWindowOpen } from './instagram-message/instagram-message.util.js';
+  type InstagramOutgoingMessageKey,
+  InstagramOutgoingMessageRepository,
+  type InstagramOutgoingMessageRow,
+} from './instagram-outgoing-message/instagram-outgoing-message.repository.js';
+import type { InstagramOutgoingMessageService } from './instagram-outgoing-message/instagram-outgoing-message.service.js';
+import { isInstagramChatWindowOpen } from './instagram-outgoing-message/instagram-outgoing-message.util.js';
 import type { InstagramSendComposeService } from './instagram-send-compose.service.js';
 import { FAST_LANE_SETTINGS } from './instagram-sending.constants.js';
 import type {
@@ -38,7 +38,7 @@ const SLOW_LANE_COMMENT_TRIGGERS: ReadonlySet<string> = new Set(['comment', 'ad_
 
 /** What one check read: the message, her, and the run's way to start (one unit). */
 interface FastCheckRead {
-  message: InstagramMessageRow | null;
+  message: InstagramOutgoingMessageRow | null;
   contact: Awaited<ReturnType<ContactRepository['findLiveById']>>;
   triggerType: string | null;
 }
@@ -73,7 +73,10 @@ interface FastCheckRead {
 export class InstagramFastLaneRules implements InstagramSendLaneRules {
   constructor(
     private readonly dependencies: {
-      messageService: Pick<InstagramMessageService, 'endWaitingMessage' | 'moveMessageLane'>;
+      messageService: Pick<
+        InstagramOutgoingMessageService,
+        'endWaitingMessage' | 'moveMessageLane'
+      >;
       composeService: Pick<InstagramSendComposeService, 'composeDirectMessage'>;
     },
   ) {}
@@ -108,7 +111,7 @@ export class InstagramFastLaneRules implements InstagramSendLaneRules {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     target: InstagramSendLaneTarget;
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     now: Date;
   }): Promise<InstagramFastMessageCheck> {
     const { message, contact, triggerType } = await this.readCheck({ scope, target, key });
@@ -120,7 +123,7 @@ export class InstagramFastLaneRules implements InstagramSendLaneRules {
       reason,
     }: {
       status: 'skipped' | 'expired' | 'cancelled';
-      reason: InstagramMessageReason;
+      reason: InstagramOutgoingMessageReason;
     }) => {
       await this.dependencies.messageService.endWaitingMessage({ scope, key, status, reason });
       return { kind: 'ended' } as const;
@@ -166,13 +169,13 @@ export class InstagramFastLaneRules implements InstagramSendLaneRules {
     end,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    key: InstagramMessageKey;
-    message: InstagramMessageRow;
+    key: InstagramOutgoingMessageKey;
+    message: InstagramOutgoingMessageRow;
     triggerType: string | null;
     now: Date;
     end: (input: {
       status: 'skipped';
-      reason: InstagramMessageReason;
+      reason: InstagramOutgoingMessageReason;
     }) => Promise<InstagramFastMessageCheck>;
   }): Promise<InstagramFastMessageCheck> {
     if (message.message_type === 'opening_message' && triggerType === 'live_comment') {
@@ -213,12 +216,12 @@ export class InstagramFastLaneRules implements InstagramSendLaneRules {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     target: InstagramSendLaneTarget;
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
   }): Promise<FastCheckRead> {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
-        const message = await new InstagramMessageRepository().findByKey(key);
+        const message = await new InstagramOutgoingMessageRepository().findByKey(key);
         if (message === null) return { message, contact: null, triggerType: null };
         const contact = await new ContactRepository().findLiveById({
           organizationId: target.organizationId,

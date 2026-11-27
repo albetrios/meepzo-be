@@ -10,7 +10,7 @@ import {
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { insertInstagramOutgoingMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
   insertLanes,
   setMonthCount,
@@ -107,7 +107,7 @@ describe('InstagramSendGateService — the hard month cap (database)', () => {
         contactId: contact.id,
       });
       messages.push(
-        await insertInstagramMessage({
+        await insertInstagramOutgoingMessage({
           run,
           channelAccountId: account.channel_account_id,
           message_type: 'opening_message',

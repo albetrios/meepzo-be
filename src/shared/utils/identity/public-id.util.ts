@@ -54,6 +54,8 @@ export const PUBLIC_ID_PREFIXES = {
   automationRun: 'run',
   /** One comment × automation log (`app.automation_comment_logs`, AU1) — unused until a read route (D13). */
   automationCommentLog: 'acl',
+  /** One conversation with one contact (`app.instagram_conversations`, feat-instagram-inbox CV1). */
+  instagramConversation: 'igcv',
   /**
    * One past-comments read of an automation (`app.automation_backfills`, feat-instagram-dm-sending
    * AU1; prefix chosen at kickoff, P22).
@@ -70,7 +72,7 @@ export const PUBLIC_ID_PREFIXES = {
    */
   segment: 'seg',
   /**
-   * One message the sending engine sends or plans to send to a person (`app.instagram_messages`,
+   * One message the sending engine sends or plans to send to a person (`app.instagram_outgoing_messages`,
    * feat-instagram-dm-sending SN1; prefix chosen at kickoff, P22) — carried in fast tickets.
    */
   instagramMessage: 'igm',

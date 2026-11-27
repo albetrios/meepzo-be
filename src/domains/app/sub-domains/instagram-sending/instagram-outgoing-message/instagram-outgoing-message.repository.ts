@@ -22,26 +22,26 @@ import {
   INSTAGRAM_MESSAGE_KEEP_DAYS,
   INSTAGRAM_PERSON_FINAL_ERRORS,
   INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS,
-  type InstagramMessageChannel,
-  type InstagramMessageFinalStatus,
-  type InstagramMessageNotRetryableReason,
-  type InstagramMessageReason,
-  type InstagramMessageType,
-} from './instagram-message.constants.js';
-import { instagram_messages } from './instagram-message.schema.js';
+  type InstagramOutgoingMessageChannel,
+  type InstagramOutgoingMessageFinalStatus,
+  type InstagramOutgoingMessageNotRetryableReason,
+  type InstagramOutgoingMessageReason,
+  type InstagramOutgoingMessageType,
+} from './instagram-outgoing-message.constants.js';
+import { instagram_outgoing_messages } from './instagram-outgoing-message.schema.js';
 
-/** One `app.instagram_messages` row as Drizzle reads it. */
-export type InstagramMessageRow = typeof instagram_messages.$inferSelect;
+/** One `app.instagram_outgoing_messages` row as Drizzle reads it. */
+export type InstagramOutgoingMessageRow = typeof instagram_outgoing_messages.$inferSelect;
 
 /** A message's key: its public id and its split key (tickets carry both, SN17). */
-export interface InstagramMessageKey {
+export interface InstagramOutgoingMessageKey {
   organizationId: number;
   publicId: string;
   automationRunStartedAt: Date;
 }
 
 /** One waiting row to write (SN22): the lane, channel and count decided by the service. */
-export interface InstagramMessageWaitingValues {
+export interface InstagramOutgoingMessageWaitingValues {
   organizationId: number;
   channelAccountId: number;
   automationId: number | null;
@@ -49,30 +49,30 @@ export interface InstagramMessageWaitingValues {
   broadcastId: number | null;
   automationRunStartedAt: Date;
   contactId: number;
-  messageType: InstagramMessageType;
+  messageType: InstagramOutgoingMessageType;
   messageNumber: number | null;
   messageKind: string;
   versionNumber: number | null;
   wordingNumber: number | null;
   lane: InstagramSendLane;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   isCountedAsDirectMessage: boolean;
   notBefore: Date;
   triggerOccurredAt: Date | null;
 }
 
-/** A row's run place (plan §19.1 `uq_instagram_messages_run_type`). */
-export interface InstagramMessageRunPlace {
+/** A row's run place (plan §19.1 `uq_instagram_outgoing_messages_run_type`). */
+export interface InstagramOutgoingMessageRunPlace {
   organizationId: number;
   automationRunId: number;
   automationRunStartedAt: Date;
-  messageType: InstagramMessageType;
+  messageType: InstagramOutgoingMessageType;
   messageNumber: number | null;
   messageKind: string;
 }
 
 /** Which waiting rows a cancel or skip ends (AU35's selection, by internal id). */
-export interface InstagramMessageWaitingSelection {
+export interface InstagramOutgoingMessageWaitingSelection {
   organizationId: number;
   by: 'run' | 'automation' | 'contact' | 'broadcast';
   id: number;
@@ -81,7 +81,9 @@ export interface InstagramMessageWaitingSelection {
 }
 
 /** A failed message's verdict now: one of the blocks, or `retryable` (SN18). */
-export type InstagramFailedMessageVerdict = InstagramMessageNotRetryableReason | 'retryable';
+export type InstagramFailedMessageVerdict =
+  | InstagramOutgoingMessageNotRetryableReason
+  | 'retryable';
 
 /** Whose failed messages (by internal id). */
 export interface InstagramFailedMessagesOwner {
@@ -114,16 +116,23 @@ function rowsOf<Row>(result: unknown): Row[] {
 
 /** The message column each kind of cancel or skip selection matches on. */
 const SELECTION_COLUMNS = {
-  run: instagram_messages.automation_run_id,
-  automation: instagram_messages.automation_id,
-  contact: instagram_messages.contact_id,
-  broadcast: instagram_messages.broadcast_id,
-} satisfies Record<InstagramMessageWaitingSelection['by'], unknown>;
+  run: instagram_outgoing_messages.automation_run_id,
+  automation: instagram_outgoing_messages.automation_id,
+  contact: instagram_outgoing_messages.contact_id,
+  broadcast: instagram_outgoing_messages.broadcast_id,
+} satisfies Record<InstagramOutgoingMessageWaitingSelection['by'], unknown>;
 
 /** The selection's column of a cancel or skip. */
-function selectionCondition({ organizationId, by, id }: InstagramMessageWaitingSelection): SQL {
+function selectionCondition({
+  organizationId,
+  by,
+  id,
+}: InstagramOutgoingMessageWaitingSelection): SQL {
   const column = SELECTION_COLUMNS[by];
-  return and(eq(instagram_messages.organization_id, organizationId), eq(column, id)) as SQL;
+  return and(
+    eq(instagram_outgoing_messages.organization_id, organizationId),
+    eq(column, id),
+  ) as SQL;
 }
 
 /** The keyset condition of the contact's merged message list after `after` (none on the first page). */
@@ -151,7 +160,7 @@ function personFinalErrorCondition(): SQL {
 }
 
 /** One candidate of a lane turn's pick (plan §28.2, §29.5): its key, automation and comment time. */
-export interface InstagramMessagePickCandidate {
+export interface InstagramOutgoingMessagePickCandidate {
   publicId: string;
   automationRunStartedAt: Date;
   automationId: number;
@@ -159,7 +168,7 @@ export interface InstagramMessagePickCandidate {
 }
 
 /** An ON automation's best waiting public reply and its pacing (plan §29.3, §29.5 rule 2). */
-export interface InstagramReplyPacedCandidate extends InstagramMessagePickCandidate {
+export interface InstagramReplyPacedCandidate extends InstagramOutgoingMessagePickCandidate {
   /** `app.automations.public_reply_hour_limit` (empty = the default 60). */
   publicReplyHourLimit: number | null;
   /** Its reply state's `box_start`, or `null` before its first box. */
@@ -178,7 +187,7 @@ export interface InstagramBroadcastPickCandidate {
 }
 
 /** A pick candidate from a raw row. */
-function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidate {
+function candidateOf(row: Record<string, unknown>): InstagramOutgoingMessagePickCandidate {
   return {
     publicId: String(row.public_id),
     automationRunStartedAt: new Date(String(row.automation_run_started_at)),
@@ -189,7 +198,7 @@ function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidat
 }
 
 /**
- * Drizzle access to `app.instagram_messages` (feat-instagram-dm-sending routes-final § 6.B.3, SN16):
+ * Drizzle access to `app.instagram_outgoing_messages` (feat-instagram-dm-sending routes-final § 6.B.3, SN16):
  * the waiting rows the run engine and broadcasts write through the sending port, the guarded moves
  * of waiting rows (cancel, skip, lane move, the owner's retry), the claim and the result save, and
  * the reads of route 24, routes 25–26 / 36–37, route 63 and the webhook's own-echo lookup.
@@ -199,11 +208,11 @@ function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidat
  *   update — 6.B.10); every query names `organization_id` (and, for a single row, the split key, so
  *   it reads one part).
  * - **Failure modes:** the table's CHECKs refuse an impossible row (23514); a second row for one
- *   run place breaks `idx_instagram_messages_run_type` (23505).
- * - **Side effects:** writes `app.instagram_messages` only; reads the run, the automation, the contact
+ *   run place breaks `idx_instagram_outgoing_messages_run_type` (23505).
+ * - **Side effects:** writes `app.instagram_outgoing_messages` only; reads the run, the automation, the contact
  *   and her activity for joins (same bounded context).
  */
-export class InstagramMessageRepository {
+export class InstagramOutgoingMessageRepository {
   constructor(private readonly databaseHandle?: RequestScopedPostgresDatabase) {}
 
   private db(): RequestScopedPostgresDatabase {
@@ -256,20 +265,22 @@ export class InstagramMessageRepository {
   }
 
   /** The row of one run place, locked `FOR UPDATE`, or `null`. */
-  async lockRunPlace(place: InstagramMessageRunPlace): Promise<InstagramMessageRow | null> {
+  async lockRunPlace(
+    place: InstagramOutgoingMessageRunPlace,
+  ): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
       .select()
-      .from(instagram_messages)
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, place.organizationId),
-          eq(instagram_messages.automation_run_id, place.automationRunId),
-          eq(instagram_messages.automation_run_started_at, place.automationRunStartedAt),
-          eq(instagram_messages.message_type, place.messageType),
+          eq(instagram_outgoing_messages.organization_id, place.organizationId),
+          eq(instagram_outgoing_messages.automation_run_id, place.automationRunId),
+          eq(instagram_outgoing_messages.automation_run_started_at, place.automationRunStartedAt),
+          eq(instagram_outgoing_messages.message_type, place.messageType),
           place.messageNumber === null
-            ? sql`${instagram_messages.message_number} IS NULL`
-            : eq(instagram_messages.message_number, place.messageNumber),
-          eq(instagram_messages.message_kind, place.messageKind),
+            ? sql`${instagram_outgoing_messages.message_number} IS NULL`
+            : eq(instagram_outgoing_messages.message_number, place.messageNumber),
+          eq(instagram_outgoing_messages.message_kind, place.messageKind),
         ),
       )
       .limit(1)
@@ -278,9 +289,11 @@ export class InstagramMessageRepository {
   }
 
   /** Writes one `waiting` row; answers it. */
-  async insertWaiting(values: InstagramMessageWaitingValues): Promise<InstagramMessageRow> {
+  async insertWaiting(
+    values: InstagramOutgoingMessageWaitingValues,
+  ): Promise<InstagramOutgoingMessageRow> {
     const [row] = await this.db()
-      .insert(instagram_messages)
+      .insert(instagram_outgoing_messages)
       .values({
         public_id: generatePublicId('instagramMessage'),
         organization_id: values.organizationId,
@@ -314,15 +327,15 @@ export class InstagramMessageRepository {
     values,
     isAskedAgain,
   }: {
-    row: InstagramMessageRow;
+    row: InstagramOutgoingMessageRow;
     values: Pick<
-      InstagramMessageWaitingValues,
+      InstagramOutgoingMessageWaitingValues,
       'lane' | 'channel' | 'notBefore' | 'versionNumber' | 'wordingNumber'
     >;
     isAskedAgain: boolean;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [updated] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
         status: 'waiting',
         reason: null,
@@ -333,15 +346,17 @@ export class InstagramMessageRepository {
         wording_number: values.wordingNumber,
         sent_at: null,
         tries: 0,
-        asks: isAskedAgain ? sql`${instagram_messages.asks} + 1` : instagram_messages.asks,
+        asks: isAskedAgain
+          ? sql`${instagram_outgoing_messages.asks} + 1`
+          : instagram_outgoing_messages.asks,
         updated_at: sql`now()`,
       })
       .where(
         and(
-          eq(instagram_messages.organization_id, row.organization_id),
-          eq(instagram_messages.id, row.id),
-          eq(instagram_messages.automation_run_started_at, row.automation_run_started_at),
-          inArray(instagram_messages.status, ['sent', 'unknown']),
+          eq(instagram_outgoing_messages.organization_id, row.organization_id),
+          eq(instagram_outgoing_messages.id, row.id),
+          eq(instagram_outgoing_messages.automation_run_started_at, row.automation_run_started_at),
+          inArray(instagram_outgoing_messages.status, ['sent', 'unknown']),
         ),
       )
       .returning();
@@ -354,33 +369,36 @@ export class InstagramMessageRepository {
     status,
     reason,
   }: {
-    selection: InstagramMessageWaitingSelection;
+    selection: InstagramOutgoingMessageWaitingSelection;
     status: 'cancelled' | 'skipped' | 'expired';
-    reason: InstagramMessageReason;
+    reason: InstagramOutgoingMessageReason;
   }): Promise<number> {
     const ended = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ status, reason, updated_at: sql`now()` })
       .where(
         and(
           selectionCondition(selection),
-          eq(instagram_messages.status, 'waiting'),
+          eq(instagram_outgoing_messages.status, 'waiting'),
           selection.limit === undefined
             ? undefined
             : inArray(
-                instagram_messages.id,
+                instagram_outgoing_messages.id,
                 this.db()
-                  .select({ id: instagram_messages.id })
-                  .from(instagram_messages)
+                  .select({ id: instagram_outgoing_messages.id })
+                  .from(instagram_outgoing_messages)
                   .where(
-                    and(selectionCondition(selection), eq(instagram_messages.status, 'waiting')),
+                    and(
+                      selectionCondition(selection),
+                      eq(instagram_outgoing_messages.status, 'waiting'),
+                    ),
                   )
-                  .orderBy(instagram_messages.id)
+                  .orderBy(instagram_outgoing_messages.id)
                   .limit(selection.limit),
               ),
         ),
       )
-      .returning({ id: instagram_messages.id });
+      .returning({ id: instagram_outgoing_messages.id });
     return ended.length;
   }
 
@@ -393,22 +411,22 @@ export class InstagramMessageRepository {
     lane,
     channel,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     lane: InstagramSendLane;
-    channel: InstagramMessageChannel;
+    channel: InstagramOutgoingMessageChannel;
   }): Promise<boolean> {
     const moved = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ lane, channel, updated_at: sql`now()` })
       .where(
         and(
-          eq(instagram_messages.organization_id, key.organizationId),
-          eq(instagram_messages.public_id, key.publicId),
-          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
-          eq(instagram_messages.status, 'waiting'),
+          eq(instagram_outgoing_messages.organization_id, key.organizationId),
+          eq(instagram_outgoing_messages.public_id, key.publicId),
+          eq(instagram_outgoing_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_outgoing_messages.status, 'waiting'),
         ),
       )
-      .returning({ id: instagram_messages.id });
+      .returning({ id: instagram_outgoing_messages.id });
     return moved.length > 0;
   }
 
@@ -422,23 +440,23 @@ export class InstagramMessageRepository {
     lane,
     channel,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     lane: InstagramSendLane;
-    channel: InstagramMessageChannel | null;
-  }): Promise<InstagramMessageRow | null> {
+    channel: InstagramOutgoingMessageChannel | null;
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ status: 'sending', sending_at: sql`now()`, updated_at: sql`now()` })
       .where(
         and(
-          eq(instagram_messages.organization_id, key.organizationId),
-          eq(instagram_messages.public_id, key.publicId),
-          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
-          eq(instagram_messages.status, 'waiting'),
-          eq(instagram_messages.lane, lane),
+          eq(instagram_outgoing_messages.organization_id, key.organizationId),
+          eq(instagram_outgoing_messages.public_id, key.publicId),
+          eq(instagram_outgoing_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_outgoing_messages.status, 'waiting'),
+          eq(instagram_outgoing_messages.lane, lane),
           channel === null
-            ? sql`${instagram_messages.channel} IS NULL`
-            : eq(instagram_messages.channel, channel),
+            ? sql`${instagram_outgoing_messages.channel} IS NULL`
+            : eq(instagram_outgoing_messages.channel, channel),
         ),
       )
       .returning();
@@ -458,15 +476,15 @@ export class InstagramMessageRepository {
     errorCode,
     errorSubcode,
   }: {
-    key: InstagramMessageKey;
-    status: InstagramMessageFinalStatus;
-    reason: InstagramMessageReason | null;
+    key: InstagramOutgoingMessageKey;
+    status: InstagramOutgoingMessageFinalStatus;
+    reason: InstagramOutgoingMessageReason | null;
     instagramMessageId: string | null;
     errorCode: number | null;
     errorSubcode: number | null;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
         status,
         reason,
@@ -479,10 +497,10 @@ export class InstagramMessageRepository {
       })
       .where(
         and(
-          eq(instagram_messages.organization_id, key.organizationId),
-          eq(instagram_messages.public_id, key.publicId),
-          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
-          eq(instagram_messages.status, 'sending'),
+          eq(instagram_outgoing_messages.organization_id, key.organizationId),
+          eq(instagram_outgoing_messages.public_id, key.publicId),
+          eq(instagram_outgoing_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_outgoing_messages.status, 'sending'),
         ),
       )
       .returning();
@@ -490,10 +508,10 @@ export class InstagramMessageRepository {
   }
 
   /** One message by its key, or `null`. */
-  async findByKey(key: InstagramMessageKey): Promise<InstagramMessageRow | null> {
+  async findByKey(key: InstagramOutgoingMessageKey): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
       .select()
-      .from(instagram_messages)
+      .from(instagram_outgoing_messages)
       .where(this.whereKey(key))
       .limit(1);
     return row ?? null;
@@ -511,30 +529,32 @@ export class InstagramMessageRepository {
     errorCode,
     errorSubcode,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     isTryUsed: boolean;
     notBefore: Date;
     errorCode: number | null;
     errorSubcode: number | null;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
         status: 'waiting',
         reason: null,
         sending_at: null,
         not_before: notBefore,
-        tries: isTryUsed ? sql`${instagram_messages.tries} + 1` : instagram_messages.tries,
+        tries: isTryUsed
+          ? sql`${instagram_outgoing_messages.tries} + 1`
+          : instagram_outgoing_messages.tries,
         error_code: errorCode,
         error_subcode: errorSubcode,
         updated_at: sql`now()`,
       })
-      .where(and(this.whereKey(key), eq(instagram_messages.status, 'sending')))
+      .where(and(this.whereKey(key), eq(instagram_outgoing_messages.status, 'sending')))
       .returning();
     return row ?? null;
   }
 
-  /** Her messages sent in the last hour (the person limit, SN3 — `idx_instagram_messages_person_sent`). */
+  /** Her messages sent in the last hour (the person limit, SN3 — `idx_instagram_outgoing_messages_person_sent`). */
   async countSentToContactInLastHour({
     organizationId,
     contactId,
@@ -544,13 +564,13 @@ export class InstagramMessageRepository {
   }): Promise<number> {
     const rows = await this.db()
       .select({ total: sql<number>`count(*)::int` })
-      .from(instagram_messages)
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.contact_id, contactId),
-          eq(instagram_messages.status, 'sent'),
-          sql`${instagram_messages.sent_at} > now() - interval '1 hour'`,
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.contact_id, contactId),
+          eq(instagram_outgoing_messages.status, 'sent'),
+          sql`${instagram_outgoing_messages.sent_at} > now() - interval '1 hour'`,
         ),
       );
     return Number(rows[0]?.total ?? 0);
@@ -575,17 +595,21 @@ export class InstagramMessageRepository {
       }): Promise<number> {
     const rows = await this.db()
       .select({ total: sql<number>`count(*)::int` })
-      .from(instagram_messages)
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.status, 'sending'),
-          eq(instagram_messages.lane, 'fast'),
-          contactId === undefined ? undefined : eq(instagram_messages.contact_id, contactId),
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.status, 'sending'),
+          eq(instagram_outgoing_messages.lane, 'fast'),
+          contactId === undefined
+            ? undefined
+            : eq(instagram_outgoing_messages.contact_id, contactId),
           channelAccountId === undefined
             ? undefined
-            : eq(instagram_messages.channel_account_id, channelAccountId),
-          messageKind === undefined ? undefined : eq(instagram_messages.message_kind, messageKind),
+            : eq(instagram_outgoing_messages.channel_account_id, channelAccountId),
+          messageKind === undefined
+            ? undefined
+            : eq(instagram_outgoing_messages.message_kind, messageKind),
         ),
       );
     return Number(rows[0]?.total ?? 0);
@@ -602,20 +626,20 @@ export class InstagramMessageRepository {
   }: {
     organizationId: number;
     publicId: string;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
         status: 'sent',
         reason: null,
-        sent_at: sql`coalesce(${instagram_messages.sent_at}, now())`,
+        sent_at: sql`coalesce(${instagram_outgoing_messages.sent_at}, now())`,
         updated_at: sql`now()`,
       })
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.public_id, publicId),
-          eq(instagram_messages.status, 'unknown'),
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.public_id, publicId),
+          eq(instagram_outgoing_messages.status, 'unknown'),
         ),
       )
       .returning();
@@ -623,11 +647,11 @@ export class InstagramMessageRepository {
   }
 
   /** The `WHERE` of one message by key. */
-  private whereKey(key: InstagramMessageKey): SQL | undefined {
+  private whereKey(key: InstagramOutgoingMessageKey): SQL | undefined {
     return and(
-      eq(instagram_messages.organization_id, key.organizationId),
-      eq(instagram_messages.public_id, key.publicId),
-      eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
+      eq(instagram_outgoing_messages.organization_id, key.organizationId),
+      eq(instagram_outgoing_messages.public_id, key.publicId),
+      eq(instagram_outgoing_messages.automation_run_started_at, key.automationRunStartedAt),
     );
   }
 
@@ -647,25 +671,25 @@ export class InstagramMessageRepository {
     /** Her Instagram id — the contact is found by it (an echo carries no contact of ours). */
     contactInstagramUserId: string;
     since: Date;
-  }): Promise<InstagramMessageRow[]> {
+  }): Promise<InstagramOutgoingMessageRow[]> {
     return this.db()
       .select()
-      .from(instagram_messages)
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.channel_account_id, channelAccountId),
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.channel_account_id, channelAccountId),
           eq(
-            instagram_messages.contact_id,
+            instagram_outgoing_messages.contact_id,
             sql`(SELECT ${contacts.id} FROM ${contacts}
               WHERE ${contacts.organization_id} = ${organizationId}
                 AND ${contacts.channel_account_id} = ${channelAccountId}
                 AND ${contacts.instagram_user_id} = ${contactInstagramUserId})`,
           ),
-          inArray(instagram_messages.status, ['sending', 'unknown']),
-          inArray(instagram_messages.channel, ['direct', 'private_reply']),
-          isNull(instagram_messages.instagram_message_id),
-          gte(instagram_messages.updated_at, since),
+          inArray(instagram_outgoing_messages.status, ['sending', 'unknown']),
+          inArray(instagram_outgoing_messages.channel, ['direct', 'private_reply']),
+          isNull(instagram_outgoing_messages.instagram_message_id),
+          gte(instagram_outgoing_messages.updated_at, since),
         ),
       )
       .limit(2);
@@ -679,11 +703,11 @@ export class InstagramMessageRepository {
     key,
     instagramMessageId,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     instagramMessageId: string;
-  }): Promise<InstagramMessageRow | null> {
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({
         status: 'sent',
         reason: null,
@@ -693,10 +717,10 @@ export class InstagramMessageRepository {
       })
       .where(
         and(
-          eq(instagram_messages.organization_id, key.organizationId),
-          eq(instagram_messages.public_id, key.publicId),
-          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
-          eq(instagram_messages.status, 'unknown'),
+          eq(instagram_outgoing_messages.organization_id, key.organizationId),
+          eq(instagram_outgoing_messages.public_id, key.publicId),
+          eq(instagram_outgoing_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_outgoing_messages.status, 'unknown'),
         ),
       )
       .returning();
@@ -715,14 +739,14 @@ export class InstagramMessageRepository {
   }): Promise<string[]> {
     if (messageIds.length === 0) return [];
     const rows = await this.db()
-      .select({ instagram_message_id: instagram_messages.instagram_message_id })
-      .from(instagram_messages)
+      .select({ instagram_message_id: instagram_outgoing_messages.instagram_message_id })
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.channel_account_id, channelAccountId),
-          isNotNull(instagram_messages.instagram_message_id),
-          inArray(instagram_messages.instagram_message_id, [...messageIds]),
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.channel_account_id, channelAccountId),
+          isNotNull(instagram_outgoing_messages.instagram_message_id),
+          inArray(instagram_outgoing_messages.instagram_message_id, [...messageIds]),
         ),
       );
     return rows.flatMap((row) =>
@@ -739,16 +763,16 @@ export class InstagramMessageRepository {
     channelAccountId: number;
   }): Promise<Array<{ lane: string; count: number }>> {
     const rows = await this.db()
-      .select({ lane: instagram_messages.lane, count: sql<number>`count(*)::int` })
-      .from(instagram_messages)
+      .select({ lane: instagram_outgoing_messages.lane, count: sql<number>`count(*)::int` })
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.channel_account_id, channelAccountId),
-          eq(instagram_messages.status, 'waiting'),
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.channel_account_id, channelAccountId),
+          eq(instagram_outgoing_messages.status, 'waiting'),
         ),
       )
-      .groupBy(instagram_messages.lane);
+      .groupBy(instagram_outgoing_messages.lane);
     return rows.map((row) => ({ lane: row.lane, count: Number(row.count) }));
   }
 
@@ -773,13 +797,13 @@ export class InstagramMessageRepository {
     const result = await this.db().execute(sql`
       WITH last_press AS (
         SELECT max(m.owner_retry_at) AS at
-        FROM ${instagram_messages} AS m
+        FROM ${instagram_outgoing_messages} AS m
         WHERE m.organization_id = ${organizationId}
           AND m.channel_account_id = ${channelAccountId}
           AND m.owner_retry_at IS NOT NULL
       ), pressed AS (
         SELECT m.automation_id, m.contact_id
-        FROM ${instagram_messages} AS m, last_press
+        FROM ${instagram_outgoing_messages} AS m, last_press
         WHERE m.organization_id = ${organizationId}
           AND m.channel_account_id = ${channelAccountId}
           AND m.owner_retry_at = last_press.at
@@ -797,7 +821,7 @@ export class InstagramMessageRepository {
              (SELECT c.public_id FROM ${contacts} AS c
                WHERE c.organization_id = ${organizationId} AND c.id = shared.contact_id
                  AND shared.automation_id IS NULL) AS contact_public_id,
-             (SELECT count(*)::int FROM ${instagram_messages} AS f
+             (SELECT count(*)::int FROM ${instagram_outgoing_messages} AS f
                WHERE f.organization_id = ${organizationId}
                  AND f.channel_account_id = ${channelAccountId}
                  AND f.status = 'failed' AND f.owner_retry_at IS NULL
@@ -849,7 +873,7 @@ export class InstagramMessageRepository {
              r.public_id AS automation_run_public_id,
              b.public_id AS broadcast_public_id,
              m.message_type, m.message_number, m.status, m.reason, m.channel
-      FROM ${instagram_messages} AS m
+      FROM ${instagram_outgoing_messages} AS m
       LEFT JOIN ${automations} AS a
         ON a.organization_id = m.organization_id AND a.id = m.automation_id
       LEFT JOIN ${automation_runs} AS r
@@ -904,7 +928,7 @@ export class InstagramMessageRepository {
       owner.by === 'automation'
         ? sql`m.automation_id = ${owner.id}`
         : sql`m.contact_id = ${owner.id}`;
-    return sql`FROM ${instagram_messages} AS m
+    return sql`FROM ${instagram_outgoing_messages} AS m
       LEFT JOIN ${contacts} AS c ON c.organization_id = m.organization_id AND c.id = m.contact_id
       LEFT JOIN ${contact_activities} AS ca
         ON ca.organization_id = m.organization_id AND ca.contact_id = m.contact_id
@@ -999,7 +1023,7 @@ export class InstagramMessageRepository {
         ORDER BY c.id
         FOR UPDATE
       )
-      UPDATE ${instagram_messages} AS m
+      UPDATE ${instagram_outgoing_messages} AS m
       SET status = 'waiting', reason = NULL, tries = 0, owner_retry_at = ${retriedAt},
           not_before = now(), updated_at = now()
       FROM picked
@@ -1050,7 +1074,7 @@ export class InstagramMessageRepository {
     /** The Lives Instagram lists as on air; `null` = not read (only the age and stored ends count). */
     onAirMediaIds: readonly string[] | null;
     oldestCommentAt: Date;
-  }): Promise<{ rows: InstagramMessageRow[]; endedMediaIds: string[] }> {
+  }): Promise<{ rows: InstagramOutgoingMessageRow[]; endedMediaIds: string[] }> {
     let onAir = sql`TRUE`;
     if (onAirMediaIds !== null) {
       onAir =
@@ -1068,7 +1092,7 @@ export class InstagramMessageRepository {
     }>(
       await this.db().execute(sql`
         SELECT m.id, m.automation_run_started_at, r.trigger_instagram_media_id AS media_id
-        FROM ${instagram_messages} m
+        FROM ${instagram_outgoing_messages} m
         JOIN ${automation_runs} r
           ON r.organization_id = m.organization_id
          AND r.id = m.automation_run_id
@@ -1093,13 +1117,13 @@ export class InstagramMessageRepository {
     );
     if (candidates.length === 0) return { rows: [], endedMediaIds: [] };
     const rows = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ status: 'expired', reason: 'live_ended', updated_at: sql`now()` })
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.status, 'waiting'),
-          sql`(${instagram_messages.id}, ${instagram_messages.automation_run_started_at}) IN (${sql.join(
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.status, 'waiting'),
+          sql`(${instagram_outgoing_messages.id}, ${instagram_outgoing_messages.automation_run_started_at}) IN (${sql.join(
             candidates.map(
               (candidate) =>
                 sql`(${Number(candidate.id)}, ${new Date(candidate.automation_run_started_at).toISOString()}::timestamptz)`,
@@ -1146,7 +1170,7 @@ export class InstagramMessageRepository {
                  - ${now.toISOString()}::timestamptz)) / 3600), 0)::int AS hours_left,
              count(*)::int AS waiting_count,
              max(m.trigger_occurred_at + ${expiry}) AS last_expires_at
-      FROM ${instagram_messages} m
+      FROM ${instagram_outgoing_messages} m
       WHERE m.organization_id = ${organizationId}
         AND m.channel_account_id = ${channelAccountId}
         AND m.lane = 'slow'
@@ -1168,7 +1192,7 @@ export class InstagramMessageRepository {
     }
     const fresh = await this.db().execute(sql`
       SELECT count(*)::int AS new_count
-      FROM ${instagram_messages} m
+      FROM ${instagram_outgoing_messages} m
       WHERE m.organization_id = ${organizationId}
         AND m.channel_account_id = ${channelAccountId}
         AND m.lane = 'slow'
@@ -1195,12 +1219,12 @@ export class InstagramMessageRepository {
     now: Date;
     newSince: Date;
   }): Promise<{
-    newest: InstagramMessagePickCandidate | null;
-    oldest: InstagramMessagePickCandidate | null;
+    newest: InstagramOutgoingMessagePickCandidate | null;
+    oldest: InstagramOutgoingMessagePickCandidate | null;
   }> {
     const waitingOf = (isNew: boolean) => sql`
       SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
-      FROM ${instagram_messages} AS m
+      FROM ${instagram_outgoing_messages} AS m
       WHERE m.organization_id = ${organizationId}
         AND m.channel_account_id = ${channelAccountId}
         AND m.automation_id = live.id
@@ -1253,10 +1277,10 @@ export class InstagramMessageRepository {
     now: Date;
     /** The plan's `reply_like_person` switch (P83): off → every reply goes unpaced. */
     isReplyLikePersonOffered: boolean;
-  }): Promise<InstagramMessagePickCandidate | null> {
+  }): Promise<InstagramOutgoingMessagePickCandidate | null> {
     const result = await this.db().execute(sql`
       SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
-      FROM ${instagram_messages} AS m
+      FROM ${instagram_outgoing_messages} AS m
       JOIN ${automations} AS a ON a.organization_id = m.organization_id AND a.id = m.automation_id
       WHERE m.organization_id = ${organizationId}
         AND m.channel_account_id = ${channelAccountId}
@@ -1268,7 +1292,7 @@ export class InstagramMessageRepository {
           (m.message_type = 'public_reply'
             AND (NOT a.is_reply_like_person_enabled OR NOT ${isReplyLikePersonOffered}))
           OR (m.message_type = 'hide_comment' AND NOT EXISTS (
-            SELECT 1 FROM ${instagram_messages} AS r
+            SELECT 1 FROM ${instagram_outgoing_messages} AS r
             WHERE r.organization_id = m.organization_id
               AND r.automation_run_id = m.automation_run_id
               AND r.automation_run_started_at = m.automation_run_started_at
@@ -1302,7 +1326,7 @@ export class InstagramMessageRepository {
         ON s.organization_id = a.organization_id AND s.automation_id = a.id
       CROSS JOIN LATERAL (
         SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
-        FROM ${instagram_messages} AS m
+        FROM ${instagram_outgoing_messages} AS m
         WHERE m.organization_id = ${organizationId}
           AND m.channel_account_id = ${channelAccountId}
           AND m.automation_id = a.id
@@ -1342,7 +1366,7 @@ export class InstagramMessageRepository {
     const result = await this.db().execute(sql`
       SELECT m.public_id, m.automation_run_started_at, m.contact_id, m.message_number,
              b.status AS broadcast_status
-      FROM ${instagram_messages} AS m
+      FROM ${instagram_outgoing_messages} AS m
       JOIN ${broadcasts} AS b ON b.organization_id = m.organization_id AND b.id = m.broadcast_id
       LEFT JOIN ${contact_activities} AS ca
         ON ca.organization_id = m.organization_id AND ca.contact_id = m.contact_id
@@ -1377,15 +1401,15 @@ export class InstagramMessageRepository {
     now: Date;
   }): Promise<Date | null> {
     const [row] = await this.db()
-      .select({ at: sql<string | null>`min(${instagram_messages.not_before})` })
-      .from(instagram_messages)
+      .select({ at: sql<string | null>`min(${instagram_outgoing_messages.not_before})` })
+      .from(instagram_outgoing_messages)
       .where(
         and(
-          eq(instagram_messages.organization_id, organizationId),
-          eq(instagram_messages.channel_account_id, channelAccountId),
-          eq(instagram_messages.lane, lane),
-          eq(instagram_messages.status, 'waiting'),
-          sql`${instagram_messages.not_before} > ${now.toISOString()}::timestamptz`,
+          eq(instagram_outgoing_messages.organization_id, organizationId),
+          eq(instagram_outgoing_messages.channel_account_id, channelAccountId),
+          eq(instagram_outgoing_messages.lane, lane),
+          eq(instagram_outgoing_messages.status, 'waiting'),
+          sql`${instagram_outgoing_messages.not_before} > ${now.toISOString()}::timestamptz`,
         ),
       );
     return row?.at === null || row?.at === undefined ? null : new Date(row.at);
@@ -1396,14 +1420,14 @@ export class InstagramMessageRepository {
     key,
     notBefore,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     notBefore: Date;
   }): Promise<boolean> {
     const moved = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ not_before: notBefore, updated_at: sql`now()` })
-      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
-      .returning({ id: instagram_messages.id });
+      .where(and(this.whereKey(key), eq(instagram_outgoing_messages.status, 'waiting')))
+      .returning({ id: instagram_outgoing_messages.id });
     return moved.length > 0;
   }
 
@@ -1417,14 +1441,14 @@ export class InstagramMessageRepository {
     status,
     reason,
   }: {
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     status: 'skipped' | 'expired' | 'cancelled';
-    reason: InstagramMessageReason;
-  }): Promise<InstagramMessageRow | null> {
+    reason: InstagramOutgoingMessageReason;
+  }): Promise<InstagramOutgoingMessageRow | null> {
     const [row] = await this.db()
-      .update(instagram_messages)
+      .update(instagram_outgoing_messages)
       .set({ status, reason, updated_at: sql`now()` })
-      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
+      .where(and(this.whereKey(key), eq(instagram_outgoing_messages.status, 'waiting')))
       .returning();
     return row ?? null;
   }
@@ -1447,7 +1471,7 @@ export class InstagramMessageRepository {
         FROM ${organizations} AS o WHERE o.id = ${organizationId}
       )
       SELECT a.public_id AS automation_public_id, count(*)::int AS count
-      FROM ${instagram_messages} AS m
+      FROM ${instagram_outgoing_messages} AS m
       JOIN ${automations} AS a ON a.organization_id = m.organization_id AND a.id = m.automation_id
       CROSS JOIN day_start
       WHERE m.organization_id = ${organizationId}
@@ -1463,10 +1487,10 @@ export class InstagramMessageRepository {
   }
 }
 
-/** {@link InstagramMessageRepository} bound to a job's organization handle — the run engine, the lanes. */
-export function createWorkerInstagramMessageRepository(
+/** {@link InstagramOutgoingMessageRepository} bound to a job's organization handle — the run engine, the lanes. */
+export function createWorkerInstagramOutgoingMessageRepository(
   databaseHandle: WorkerDatabaseHandle,
-): InstagramMessageRepository {
+): InstagramOutgoingMessageRepository {
   assertWorkerDatabaseContext(['organization']);
-  return new InstagramMessageRepository(databaseHandle);
+  return new InstagramOutgoingMessageRepository(databaseHandle);
 }

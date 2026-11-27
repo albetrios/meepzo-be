@@ -3,7 +3,7 @@ import type { AutomationSteps } from '@/domains/app/sub-domains/automation/autom
 import {
   composeInstagramMessage,
   fillInstagramName,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message-compose.util.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message-compose.util.js';
 
 const steps: AutomationSteps = {
   hello: {

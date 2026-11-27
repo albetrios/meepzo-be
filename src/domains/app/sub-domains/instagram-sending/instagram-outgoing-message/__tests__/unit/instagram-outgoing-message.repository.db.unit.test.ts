@@ -14,13 +14,13 @@ import {
   insertAutomationRun,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  type InstagramMessageFixtureRow,
-  insertInstagramMessage,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+  type InstagramOutgoingMessageFixtureRow,
+  insertInstagramOutgoingMessage,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/__tests__/factories/instagram-outgoing-message.factory.js';
 import {
-  type InstagramMessageKey,
-  InstagramMessageRepository,
-} from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.repository.js';
+  type InstagramOutgoingMessageKey,
+  InstagramOutgoingMessageRepository,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-outgoing-message/instagram-outgoing-message.repository.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -28,29 +28,33 @@ import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /**
- * `app.instagram_messages` against the database (routes-final § 6.B.3, SN16): the guarded moves —
+ * `app.instagram_outgoing_messages` against the database (routes-final § 6.B.3, SN16): the guarded moves —
  * only a `waiting` row of the claimed lane and channel is claimed, only a `sending` row takes a
  * result or goes back to `waiting` (a repeat does nothing), cancel / skip and a lane move touch
  * `waiting` rows only — and the reads the sender and route 63 use (her sent messages of the last
  * hour, the waiting count per lane, the own-echo lookup). Every statement runs in the organization's
  * job scope (`pnpm test:rls-role` safe).
  */
-describe('InstagramMessageRepository (database)', () => {
+describe('InstagramOutgoingMessageRepository (database)', () => {
   let organizationId: number;
   let organizationPublicId: string;
   let channelAccountId: number;
   let contactId: number;
   let run: AutomationRunFixtureRow;
 
-  function inUnit<T>(callback: (repository: InstagramMessageRepository) => Promise<T>): Promise<T> {
+  function inUnit<T>(
+    callback: (repository: InstagramOutgoingMessageRepository) => Promise<T>,
+  ): Promise<T> {
     return withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
       callback: (databaseHandle) =>
-        callback(new InstagramMessageRepository(databaseHandle as RequestScopedPostgresDatabase)),
+        callback(
+          new InstagramOutgoingMessageRepository(databaseHandle as RequestScopedPostgresDatabase),
+        ),
     });
   }
 
-  function keyOf(row: InstagramMessageFixtureRow): InstagramMessageKey {
+  function keyOf(row: InstagramOutgoingMessageFixtureRow): InstagramOutgoingMessageKey {
     return {
       organizationId,
       publicId: row.public_id,
@@ -59,9 +63,9 @@ describe('InstagramMessageRepository (database)', () => {
   }
 
   function waitingMessage(
-    overrides: Partial<Parameters<typeof insertInstagramMessage>[0]> = {},
-  ): Promise<InstagramMessageFixtureRow> {
-    return insertInstagramMessage({
+    overrides: Partial<Parameters<typeof insertInstagramOutgoingMessage>[0]> = {},
+  ): Promise<InstagramOutgoingMessageFixtureRow> {
+    return insertInstagramOutgoingMessage({
       run,
       channelAccountId,
       status: 'waiting',

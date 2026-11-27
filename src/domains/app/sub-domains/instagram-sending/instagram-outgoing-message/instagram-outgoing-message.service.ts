@@ -44,39 +44,39 @@ import {
   INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS,
   INSTAGRAM_MESSAGE_REASONS,
   INSTAGRAM_MESSAGE_RETRY_PIECE_SIZE,
-  type InstagramMessageReason,
-} from './instagram-message.constants.js';
+  type InstagramOutgoingMessageReason,
+} from './instagram-outgoing-message.constants.js';
 import {
-  type InstagramMessageKey,
-  InstagramMessageRepository,
-  type InstagramMessageRow,
-} from './instagram-message.repository.js';
+  type InstagramOutgoingMessageKey,
+  InstagramOutgoingMessageRepository,
+  type InstagramOutgoingMessageRow,
+} from './instagram-outgoing-message.repository.js';
 import { InstagramSendAttemptRepository } from './instagram-send-attempt.repository.js';
 import type {
-  InstagramMessageBroadcastResultPort,
-  InstagramMessageBroadcastSentPort,
-  InstagramMessageClaimInput,
-  InstagramMessageOpeningPort,
-  InstagramMessageRetryOptions,
-  InstagramMessageRetryQueue,
-  InstagramMessageRunReopenPort,
-  InstagramMessageRunResultPort,
+  InstagramOutgoingMessageBroadcastResultPort,
+  InstagramOutgoingMessageBroadcastSentPort,
+  InstagramOutgoingMessageClaimInput,
+  InstagramOutgoingMessageOpeningPort,
+  InstagramOutgoingMessageRetryOptions,
+  InstagramOutgoingMessageRetryQueue,
+  InstagramOutgoingMessageRunReopenPort,
+  InstagramOutgoingMessageRunResultPort,
   InstagramSendResultInput,
-} from './instagram-message.types.js';
+} from './instagram-outgoing-message.types.js';
 import {
   channelResultOf,
-  chooseInstagramMessagePlace,
+  chooseInstagramOutgoingMessagePlace,
   drawInstagramExtraDelayMilliseconds,
-  instagramMessageStepOf,
+  instagramOutgoingMessageStepOf,
   isInstagramChatWindowOpen,
-} from './instagram-message.util.js';
+} from './instagram-outgoing-message.util.js';
 
 /** A reason the port was passed, checked against the column's list (a programming error otherwise). */
-function messageReasonOf(reason: string): InstagramMessageReason {
+function messageReasonOf(reason: string): InstagramOutgoingMessageReason {
   if (!(INSTAGRAM_MESSAGE_REASONS as readonly string[]).includes(reason)) {
     throw new Error(`instagram message: unknown reason "${reason}"`);
   }
-  return reason as InstagramMessageReason;
+  return reason as InstagramOutgoingMessageReason;
 }
 
 /** An empty count of every block (SN18). */
@@ -92,7 +92,7 @@ function dayCountsOf({
   reason,
 }: {
   status: 'sent' | 'unknown' | 'failed' | 'skipped' | 'expired';
-  reason: InstagramMessageReason | null;
+  reason: InstagramOutgoingMessageReason | null;
 }): Partial<InstagramSendDayCounts> | null {
   switch (status) {
     case 'sent':
@@ -119,33 +119,33 @@ function dayCountsOf({
  * @remarks
  * - **Algorithm:** `saveWaitingMessage` writes in the caller's transaction (its handle): the type
  *   from the step, the lane and channel from the run's way to start and her window
- *   ({@link chooseInstagramMessagePlace}); a run place already saved is reused — a `sent` question
+ *   ({@link chooseInstagramOutgoingMessagePlace}); a run place already saved is reused — a `sent` question
  *   asked again or an `unknown` step on her next action goes back to `waiting` (D17), a waiting or
  *   sending one is answered as it is. `saveSendResult` is the only writer of a claimed row and, for a
  *   run's message, calls the engine's `recordMessageResult` in the same commit.
  * - **Failure modes:** an unknown reason or message kind throws (a caller's bug); a CHECK refuses an
  *   impossible row (23514); database errors roll the caller's commit back.
- * - **Side effects:** writes `app.instagram_messages` and `app.instagram_send_attempts`; the engine's
+ * - **Side effects:** writes `app.instagram_outgoing_messages` and `app.instagram_send_attempts`; the engine's
  *   writes on a result. Nothing sends here: the lane turns, the fast tickets, the gates and the lane
  *   wake after commit are the lanes' (ROUTE rows R37, R42), which pick waiting rows up.
  * - **Notes:** the retry is the `retry-failed` job (R46) when its queue is passed; without it (a unit
  *   test) it runs in the request (P136).
  */
-export class InstagramMessageService implements ChannelSendingPort {
+export class InstagramOutgoingMessageService implements ChannelSendingPort {
   constructor(
     private readonly options: {
       /** The engine's `recordMessageResult` (AU35) — a closure, the engine is built after. */
-      recordRunMessageResult: InstagramMessageRunResultPort;
+      recordRunMessageResult: InstagramOutgoingMessageRunResultPort;
       /** The broadcast recipients' `recordMessageResult` (BC18, R23) — a closure, built after. */
-      recordBroadcastMessageResult: InstagramMessageBroadcastResultPort;
+      recordBroadcastMessageResult: InstagramOutgoingMessageBroadcastResultPort;
       /** WC-42's queue (R46); absent → the retry runs in the request. */
-      retryQueue?: InstagramMessageRetryQueue | undefined;
+      retryQueue?: InstagramOutgoingMessageRetryQueue | undefined;
       /** The engine's reopen of a retried message's `failed` run (plan §33.10 rule 4, R46). */
-      reopenRetriedRuns?: InstagramMessageRunReopenPort | undefined;
+      reopenRetriedRuns?: InstagramOutgoingMessageRunReopenPort | undefined;
       /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
-      recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
+      recordContactOpeningMessage?: InstagramOutgoingMessageOpeningPort | undefined;
       /** The contact's `last_broadcast_at` (3.A.10), called in the result's commit (R45). */
-      recordContactBroadcastSent?: InstagramMessageBroadcastSentPort | undefined;
+      recordContactBroadcastSent?: InstagramOutgoingMessageBroadcastSentPort | undefined;
       /** A fast message's ticket after the save's commit (R44); absent → the repair finds it. */
       enqueueFastMessage?: typeof enqueueInstagramSendFastMessage | undefined;
     },
@@ -164,7 +164,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     if (!(INSTAGRAM_MESSAGE_KINDS as readonly string[]).includes(input.messageKind)) {
       throw new Error(`instagram message: unknown message kind "${input.messageKind}"`);
     }
-    const repository = new InstagramMessageRepository(input.databaseHandle);
+    const repository = new InstagramOutgoingMessageRepository(input.databaseHandle);
     const now = new Date();
     const isRun = 'automationRunId' in input.source;
     const triggerType =
@@ -179,7 +179,7 @@ export class InstagramMessageService implements ChannelSendingPort {
       organizationId: input.organizationId,
       contactId: input.contactId,
     });
-    const place = chooseInstagramMessagePlace({
+    const place = chooseInstagramOutgoingMessagePlace({
       step: input.step,
       triggerType,
       answersEventId: input.answersEventId,
@@ -350,7 +350,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     organizationId: number;
     messagePublicId: string;
   }): Promise<boolean> {
-    const moved = await new InstagramMessageRepository(databaseHandle).markUnknownSent({
+    const moved = await new InstagramOutgoingMessageRepository(databaseHandle).markUnknownSent({
       organizationId,
       publicId: messagePublicId,
     });
@@ -370,9 +370,9 @@ export class InstagramMessageService implements ChannelSendingPort {
     automationRunId,
     automationRunStartedAt,
   }: {
-    repository: InstagramMessageRepository;
+    repository: InstagramOutgoingMessageRepository;
     input: SaveWaitingMessageInput;
-    place: Extract<ReturnType<typeof chooseInstagramMessagePlace>, { kind: 'place' }>;
+    place: Extract<ReturnType<typeof chooseInstagramOutgoingMessagePlace>, { kind: 'place' }>;
     notBefore: Date;
     automationRunId: number;
     automationRunStartedAt: Date;
@@ -409,9 +409,9 @@ export class InstagramMessageService implements ChannelSendingPort {
     input,
     notBefore,
   }: {
-    repository: InstagramMessageRepository;
-    existing: InstagramMessageRow;
-    place: Extract<ReturnType<typeof chooseInstagramMessagePlace>, { kind: 'place' }>;
+    repository: InstagramOutgoingMessageRepository;
+    existing: InstagramOutgoingMessageRow;
+    place: Extract<ReturnType<typeof chooseInstagramOutgoingMessagePlace>, { kind: 'place' }>;
     input: SaveWaitingMessageInput;
     notBefore: Date;
   }): Promise<SaveWaitingMessageResult> {
@@ -446,7 +446,7 @@ export class InstagramMessageService implements ChannelSendingPort {
    * Failure modes: an unknown reason throws. Side effects: the rows.
    */
   async cancelWaitingMessages(selection: ChannelWaitingMessageSelection): Promise<number> {
-    return new InstagramMessageRepository(selection.databaseHandle).endWaiting({
+    return new InstagramOutgoingMessageRepository(selection.databaseHandle).endWaiting({
       selection,
       status: 'cancelled',
       reason: messageReasonOf(selection.reason),
@@ -462,7 +462,7 @@ export class InstagramMessageService implements ChannelSendingPort {
    * effects: the rows.
    */
   async skipWaitingMessages(selection: ChannelWaitingMessageSelection): Promise<number> {
-    return new InstagramMessageRepository(selection.databaseHandle).endWaiting({
+    return new InstagramOutgoingMessageRepository(selection.databaseHandle).endWaiting({
       selection,
       status: 'skipped',
       reason: messageReasonOf(selection.reason),
@@ -492,7 +492,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const rows = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).listContactMessages({
+        new InstagramOutgoingMessageRepository(databaseHandle).listContactMessages({
           organizationId,
           contactId,
           after,
@@ -531,7 +531,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const counts = await withAppDatabaseContext({
       scope: target.scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).countFailedByVerdict({
+        new InstagramOutgoingMessageRepository(databaseHandle).countFailedByVerdict({
           organizationId: target.organizationId,
           by: target.by,
           id: target.id,
@@ -592,7 +592,9 @@ export class InstagramMessageService implements ChannelSendingPort {
   async retryAllowedFailedMessages({
     target,
     ...options
-  }: InstagramMessageRetryOptions & { target: ChannelFailedMessagesTarget }): Promise<number> {
+  }: InstagramOutgoingMessageRetryOptions & {
+    target: ChannelFailedMessagesTarget;
+  }): Promise<number> {
     const retriedAt = new Date();
     const runInSlot = options.runInDatabaseSlot ?? (<T>(callback: () => Promise<T>) => callback());
     let total = 0;
@@ -601,7 +603,9 @@ export class InstagramMessageService implements ChannelSendingPort {
         withAppDatabaseContext({
           scope: target.scope,
           callback: async (databaseHandle) => {
-            const retried = await new InstagramMessageRepository(databaseHandle).retryFailedPiece({
+            const retried = await new InstagramOutgoingMessageRepository(
+              databaseHandle,
+            ).retryFailedPiece({
               owner: { organizationId: target.organizationId, by: target.by, id: target.id },
               limit: INSTAGRAM_MESSAGE_RETRY_PIECE_SIZE,
               retriedAt,
@@ -645,7 +649,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const owner = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).findFailedMessagesOwner({
+        new InstagramOutgoingMessageRepository(databaseHandle).findFailedMessagesOwner({
           organizationPublicId: scope.organizationPublicId,
           by,
           ownerPublicId,
@@ -672,7 +676,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const found = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).findOwnSentMessageIds({
+        new InstagramOutgoingMessageRepository(databaseHandle).findOwnSentMessageIds({
           organizationId: channelAccount.organizationId,
           channelAccountId: channelAccount.channelAccountId,
           messageIds,
@@ -712,7 +716,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     return withAppDatabaseContext({
       scope,
       callback: async (databaseHandle) => {
-        const repository = new InstagramMessageRepository(databaseHandle);
+        const repository = new InstagramOutgoingMessageRepository(databaseHandle);
         const candidates = await repository.listUnconfirmedDirectMessagesSince({
           organizationId,
           channelAccountId,
@@ -740,8 +744,8 @@ export class InstagramMessageService implements ChannelSendingPort {
             automationRunId: message.automation_run_id,
             automationRunStartedAt: message.automation_run_started_at,
             messagePublicId: message.public_id,
-            step: instagramMessageStepOf(
-              message.message_type as Parameters<typeof instagramMessageStepOf>[0],
+            step: instagramOutgoingMessageStepOf(
+              message.message_type as Parameters<typeof instagramOutgoingMessageStepOf>[0],
             ),
             messageNumber: message.message_number,
             result: 'sent',
@@ -768,7 +772,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const rows = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).countWaitingByLane({
+        new InstagramOutgoingMessageRepository(databaseHandle).countWaitingByLane({
           organizationId,
           channelAccountId,
         }),
@@ -797,7 +801,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const last = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).findLastRetry({
+        new InstagramOutgoingMessageRepository(databaseHandle).findLastRetry({
           organizationId,
           channelAccountId,
         }),
@@ -821,13 +825,14 @@ export class InstagramMessageService implements ChannelSendingPort {
    * Algorithm: the guarded update, then the attempt insert. Failure modes: database errors roll the
    * claim back. Side effects: the row and one attempt.
    */
-  async claimMessage(
-    input: InstagramMessageClaimInput,
-  ): Promise<{ message: InstagramMessageRow; attempt: { id: number; startedAt: Date } } | null> {
+  async claimMessage(input: InstagramOutgoingMessageClaimInput): Promise<{
+    message: InstagramOutgoingMessageRow;
+    attempt: { id: number; startedAt: Date };
+  } | null> {
     return withAppDatabaseContext({
       scope: input.scope,
       callback: async (databaseHandle) => {
-        const message = await new InstagramMessageRepository(databaseHandle).claimWaiting({
+        const message = await new InstagramOutgoingMessageRepository(databaseHandle).claimWaiting({
           key: input.key,
           lane: input.lane,
           channel: input.channel,
@@ -863,11 +868,13 @@ export class InstagramMessageService implements ChannelSendingPort {
    * month's Redis copy tombstoned after commit), the run's next step or the recipient, the
    * broadcast's numbers and its next message.
    */
-  async saveSendResult(input: InstagramSendResultInput): Promise<InstagramMessageRow | null> {
+  async saveSendResult(
+    input: InstagramSendResultInput,
+  ): Promise<InstagramOutgoingMessageRow | null> {
     return withAppDatabaseContext({
       scope: input.scope,
       callback: async (databaseHandle) => {
-        const repository = new InstagramMessageRepository(databaseHandle);
+        const repository = new InstagramOutgoingMessageRepository(databaseHandle);
         const message =
           input.status === 'waiting'
             ? await repository.putBackWaiting({
@@ -931,15 +938,15 @@ export class InstagramMessageService implements ChannelSendingPort {
     reason,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    keys: readonly InstagramMessageKey[];
+    keys: readonly InstagramOutgoingMessageKey[];
     status: 'expired' | 'skipped';
-    reason: InstagramMessageReason;
+    reason: InstagramOutgoingMessageReason;
   }): Promise<number> {
     if (keys.length === 0) return 0;
     return withAppDatabaseContext({
       scope,
       callback: async (databaseHandle) => {
-        const repository = new InstagramMessageRepository(databaseHandle);
+        const repository = new InstagramOutgoingMessageRepository(databaseHandle);
         let ended = 0;
         for (const key of keys) {
           const message = await repository.endWaitingByKey({ key, status, reason });
@@ -964,7 +971,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     databaseHandle,
   }: {
     input: InstagramSendResultInput;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
   }): Promise<void> {
     const giveBack = input.giveBack ?? null;
@@ -998,7 +1005,7 @@ export class InstagramMessageService implements ChannelSendingPort {
   }: {
     input: Pick<InstagramSendResultInput, 'scope' | 'reason'>;
     status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
-    message: InstagramMessageRow;
+    message: InstagramOutgoingMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
   }): Promise<void> {
     const occurredAt = new Date();
@@ -1044,8 +1051,8 @@ export class InstagramMessageService implements ChannelSendingPort {
         automationRunId: message.automation_run_id,
         automationRunStartedAt: message.automation_run_started_at,
         messagePublicId: message.public_id,
-        step: instagramMessageStepOf(
-          message.message_type as Parameters<typeof instagramMessageStepOf>[0],
+        step: instagramOutgoingMessageStepOf(
+          message.message_type as Parameters<typeof instagramOutgoingMessageStepOf>[0],
         ),
         messageNumber: message.message_number,
         result: channelResultOf(status),
@@ -1096,7 +1103,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     return withAppDatabaseContext({
       scope,
       callback: async (databaseHandle) => {
-        const { rows, endedMediaIds } = await new InstagramMessageRepository(
+        const { rows, endedMediaIds } = await new InstagramOutgoingMessageRepository(
           databaseHandle,
         ).expireWaitingLiveReplies({
           organizationId,
@@ -1137,14 +1144,16 @@ export class InstagramMessageService implements ChannelSendingPort {
     reason,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     status: 'skipped' | 'expired' | 'cancelled';
-    reason: InstagramMessageReason;
+    reason: InstagramOutgoingMessageReason;
   }): Promise<boolean> {
     return withAppDatabaseContext({
       scope,
       callback: async (databaseHandle) => {
-        const message = await new InstagramMessageRepository(databaseHandle).endWaitingByKey({
+        const message = await new InstagramOutgoingMessageRepository(
+          databaseHandle,
+        ).endWaitingByKey({
           key,
           status,
           reason,
@@ -1194,7 +1203,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     const rows = await withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).countWindowClosedTodayByAutomation({
+        new InstagramOutgoingMessageRepository(databaseHandle).countWindowClosedTodayByAutomation({
           organizationId,
           channelAccountId,
         }),
@@ -1216,14 +1225,14 @@ export class InstagramMessageService implements ChannelSendingPort {
     channel,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    key: InstagramMessageKey;
+    key: InstagramOutgoingMessageKey;
     lane: InstagramSendLane;
     channel: 'private_reply' | 'direct';
   }): Promise<boolean> {
     return withAppDatabaseContext({
       scope,
       callback: (databaseHandle) =>
-        new InstagramMessageRepository(databaseHandle).moveLane({ key, lane, channel }),
+        new InstagramOutgoingMessageRepository(databaseHandle).moveLane({ key, lane, channel }),
     });
   }
 }

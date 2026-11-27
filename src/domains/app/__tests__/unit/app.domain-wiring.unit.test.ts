@@ -73,7 +73,7 @@ describe('app domain wiring', () => {
       'instagramAccountTaskSlots',
       'instagramAttachmentService',
       'instagramMediaService',
-      'instagramMessageService',
+      'instagramOutgoingMessageService',
       'instagramSendAccessService',
       'instagramSendGateService',
       'instagramSendLaneService',
@@ -104,7 +104,7 @@ describe('app domain wiring', () => {
     );
     // Instagram's sending port is its message service (AU35, ROUTE row R19).
     expect(application.appDomain.channelSendingPorts.instagram).toBe(
-      application.appDomain.instagramMessageService,
+      application.appDomain.instagramOutgoingMessageService,
     );
     expect(application.appDomain.instagramWebhookEventService).toBeInstanceOf(
       InstagramWebhookEventService,

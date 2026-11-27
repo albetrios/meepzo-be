@@ -5,12 +5,12 @@ import type {
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type {
-  InstagramMessageChannel,
-  InstagramMessageFinalStatus,
-  InstagramMessageReason,
+  InstagramOutgoingMessageChannel,
+  InstagramOutgoingMessageFinalStatus,
+  InstagramOutgoingMessageReason,
   InstagramSendAttemptCountGroup,
-} from './instagram-message.constants.js';
-import type { InstagramMessageKey } from './instagram-message.repository.js';
+} from './instagram-outgoing-message.constants.js';
+import type { InstagramOutgoingMessageKey } from './instagram-outgoing-message.repository.js';
 import type { InstagramSendAttemptKey } from './instagram-send-attempt.repository.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 
@@ -18,13 +18,15 @@ import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime
  * The run engine's save-result entry point (4.B `AutomationRunService.recordMessageResult`, AU35) —
  * a closure in the app container, since the engine is built after this service.
  */
-export type InstagramMessageRunResultPort = (input: ChannelMessageResultInput) => Promise<void>;
+export type InstagramOutgoingMessageRunResultPort = (
+  input: ChannelMessageResultInput,
+) => Promise<void>;
 
 /**
  * The broadcast recipients' save-result entry point (7.C `BroadcastRecipientService.recordMessageResult`,
  * BC18 — ROUTE row R23) — a closure in the app container, since broadcasts are built after this service.
  */
-export type InstagramMessageBroadcastResultPort = (
+export type InstagramOutgoingMessageBroadcastResultPort = (
   input: ChannelBroadcastMessageResultInput,
 ) => Promise<void>;
 
@@ -33,7 +35,7 @@ export type InstagramMessageBroadcastResultPort = (
  * automation or contact and minute (job id `retry-failed-<aut_… or con_…>-<minute>`), added after
  * the press. Without it (a unit test) the retry runs in the request, piece by piece (P136).
  */
-export interface InstagramMessageRetryQueue {
+export interface InstagramOutgoingMessageRetryQueue {
   enqueueRetryFailed(input: {
     organizationPublicId: string;
     by: 'automation' | 'contact';
@@ -47,7 +49,7 @@ export interface InstagramMessageRetryQueue {
  * R46): the runs that ended `failed` wait for their retried message again, their open keys back, in
  * the piece's commit — a closure in the app container, the engine is built after.
  */
-export type InstagramMessageRunReopenPort = (input: {
+export type InstagramOutgoingMessageRunReopenPort = (input: {
   databaseHandle: WorkerDatabaseHandle;
   organizationId: number;
   runs: ReadonlyArray<{ runId: number; runStartedAt: Date }>;
@@ -57,17 +59,17 @@ export type InstagramMessageRunReopenPort = (input: {
  * What the retry's work takes besides its owner (WC-42): each piece's database slot (the task's) and
  * what to do after each piece's commit (wake the accounts' lanes).
  */
-export interface InstagramMessageRetryOptions {
+export interface InstagramOutgoingMessageRetryOptions {
   runInDatabaseSlot?: (<T>(callback: () => Promise<T>) => Promise<T>) | undefined;
   afterPiece?: ((input: { channelAccountIds: readonly number[] }) => Promise<void>) | undefined;
 }
 
 /** The claim's message and attempt parts (SN3 (d)) — the lanes' commit adds the gates (R42). */
-export interface InstagramMessageClaimInput {
+export interface InstagramOutgoingMessageClaimInput {
   scope: OrganizationPrincipalDatabaseScope;
-  key: InstagramMessageKey;
+  key: InstagramOutgoingMessageKey;
   lane: InstagramSendLane;
-  channel: InstagramMessageChannel | null;
+  channel: InstagramOutgoingMessageChannel | null;
   countGroup: InstagramSendAttemptCountGroup;
 }
 
@@ -77,11 +79,11 @@ export interface InstagramMessageClaimInput {
  */
 export interface InstagramSendResultInput {
   scope: OrganizationPrincipalDatabaseScope;
-  key: InstagramMessageKey;
+  key: InstagramOutgoingMessageKey;
   attempt: InstagramSendAttemptKey | null;
   /** The final status, or `waiting` — back to the lane (a stop, a sure "not sent", SN5). */
-  status: InstagramMessageFinalStatus | 'waiting';
-  reason: InstagramMessageReason | null;
+  status: InstagramOutgoingMessageFinalStatus | 'waiting';
+  reason: InstagramOutgoingMessageReason | null;
   /** Meta's `mid` of a sent message. */
   instagramMessageId: string | null;
   errorCode: number | null;
@@ -106,7 +108,7 @@ export interface InstagramSendResultInput {
  * result save calls in its commit for a broadcast message `sent` or `unknown` (plan §30.14 step 10,
  * ROUTE row R45): her `last_broadcast_at`, the 24-hour broadcast gap's clock.
  */
-export type InstagramMessageBroadcastSentPort = (input: {
+export type InstagramOutgoingMessageBroadcastSentPort = (input: {
   databaseHandle: WorkerDatabaseHandle;
   organizationId: number;
   contactId: number;
@@ -117,7 +119,7 @@ export type InstagramMessageBroadcastSentPort = (input: {
  * The contact's opening-DM bookkeeping (3.A.10 `ContactService.recordContactOpeningMessage`) the
  * result save calls in its commit for an opening DM `sent` or `unknown` (SN4).
  */
-export type InstagramMessageOpeningPort = (input: {
+export type InstagramOutgoingMessageOpeningPort = (input: {
   databaseHandle: WorkerDatabaseHandle;
   organizationId: number;
   contactId: number;

@@ -58,6 +58,8 @@ export const PUBLIC_ID_PREFIXES = {
   instagramConversation: 'igcv',
   /** One message of a conversation, either way (`app.instagram_conversation_messages`, feat-instagram-inbox CV1). */
   instagramConversationMessage: 'igcm',
+  /** One team note on a conversation (`app.instagram_conversation_notes`, feat-instagram-inbox CV1). */
+  instagramConversationNote: 'igcn',
   /**
    * One past-comments read of an automation (`app.automation_backfills`, feat-instagram-dm-sending
    * AU1; prefix chosen at kickoff, P22).

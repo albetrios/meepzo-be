@@ -770,9 +770,10 @@ export async function writeBroadcastHistory(organizationId: number): Promise<voi
 }
 
 /**
- * One conversation per live contact and one inbound message in it (feat-instagram-inbox R2, R3) — so the
- * organization delete is seen erasing `app.instagram_conversations` and `app.instagram_conversation_messages`
- * too, before the intake writes them (R8).
+ * One conversation per live contact, one inbound message and one team note in it (feat-instagram-inbox R2–R4)
+ * — so the organization delete is seen erasing `app.instagram_conversations`,
+ * `app.instagram_conversation_messages` and `app.instagram_conversation_notes` too, before the routes and
+ * the intake write them (R8, R9).
  */
 export async function writeConversationHistory(organizationId: number): Promise<void> {
   await operatorQuery`
@@ -786,4 +787,12 @@ export async function writeConversationHistory(organizationId: number): Promise<
     SELECT 'igcm_' || lpad(id::text, 21, '0'), organization_id, id, channel_account_id, contact_id,
            'contact', 'text', 'Hello', now()
       FROM app.instagram_conversations WHERE organization_id = ${organizationId}`;
+  // One team note per conversation (R4), by the organization's first member.
+  await operatorQuery`
+    INSERT INTO app.instagram_conversation_notes
+      (public_id, organization_id, instagram_conversation_id, author_membership_id, text)
+    SELECT 'igcn_' || lpad(conversation.id::text, 21, '0'), conversation.organization_id, conversation.id,
+           (SELECT id FROM tenancy.memberships WHERE organization_id = conversation.organization_id ORDER BY id LIMIT 1),
+           'Called her back'
+      FROM app.instagram_conversations AS conversation WHERE conversation.organization_id = ${organizationId}`;
 }

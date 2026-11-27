@@ -30,6 +30,7 @@ TableGroup app {
   app.instagram_accounts
   app.instagram_attachments
   app.instagram_conversation_messages
+  app.instagram_conversation_notes
   app.instagram_conversations
   app.instagram_media
   app.instagram_messages
@@ -683,6 +684,22 @@ Table app.instagram_conversation_messages {
 
 Note app.instagram_conversation_messages {
   'Partitioned BY RANGE (sent_at)\nRLS: enabled\nPolicies: instagram_conversation_messages_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_conversation_notes {
+  author_membership_id bigint [not null]
+  created_at timestamptz [not null]
+  deleted_at timestamptz
+  id bigint [pk, increment]
+  instagram_conversation_id bigint [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  text varchar(2000) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.instagram_conversation_notes {
+  'RLS: enabled\nPolicies: instagram_conversation_notes_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_conversations {

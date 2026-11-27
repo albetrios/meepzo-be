@@ -40,6 +40,7 @@ import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { instagram_conversations } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation.schema.js';
 import { instagram_conversation_messages } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation-message/instagram-conversation-message.schema.js';
+import { instagram_conversation_notes } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation-note/instagram-conversation-note.schema.js';
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -913,6 +914,34 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_conversation_messages' }),
     conversationMessageIds,
+  );
+
+  // Conversation notes (feat-instagram-inbox R4): one note per conversation, by the organization's owner.
+  const conversationNoteIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [author] = (
+      await database.execute<{ id: string }>(
+        drizzleSql`SELECT id::text FROM tenancy.memberships WHERE organization_id = ${organization.id} ORDER BY id LIMIT 1`,
+      )
+    ).rows;
+    const [note] = await database
+      .insert(instagram_conversation_notes)
+      .values({
+        public_id: generatePublicId('instagramConversationNote'),
+        organization_id: organization.id,
+        instagram_conversation_id: conversationIds[side],
+        author_membership_id: Number(author!.id),
+        text: 'rls matrix note',
+      })
+      .returning();
+    conversationNoteIds[side] = note!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_conversation_notes' }),
+    conversationNoteIds,
   );
 
   // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.

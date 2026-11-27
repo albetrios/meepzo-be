@@ -20,6 +20,8 @@ conversation messages (2.B, R3), the notes (2.C, R4) and the routes 155–169 (R
 - `instagram-conversation.constants.ts` — states, holders, sender types, the preview cap, the 24-hour idle release
 - `instagram-conversation-message/` — every message both ways, split by month, kept a year (2.B, ROUTE row R3) —
   [overview](instagram-conversation-message/instagram-conversation-message.overview.md)
+- `instagram-conversation-note/` — the team's notes, soft-deleted (2.C, ROUTE row R4) —
+  [overview](instagram-conversation-note/instagram-conversation-note.overview.md)
 - `__tests__/unit/` — the table's database suite
 
 ## Key invariants

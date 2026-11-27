@@ -511,6 +511,13 @@ src/
     │   │   │   │   ├── instagram-conversation-message.constants.ts
     │   │   │   │   ├── instagram-conversation-message.overview.md
     │   │   │   │   └── instagram-conversation-message.schema.ts
+    │   │   │   ├── instagram-conversation-note/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   └── instagram-conversation-note.schema.db.unit.test.ts
+    │   │   │   │   ├── instagram-conversation-note.constants.ts
+    │   │   │   │   ├── instagram-conversation-note.overview.md
+    │   │   │   │   └── instagram-conversation-note.schema.ts
     │   │   │   ├── instagram-conversation.constants.ts
     │   │   │   ├── instagram-conversation.overview.md
     │   │   │   └── instagram-conversation.schema.ts

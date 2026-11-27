@@ -796,3 +796,13 @@ export async function writeConversationHistory(organizationId: number): Promise<
            'Called her back'
       FROM app.instagram_conversations AS conversation WHERE conversation.organization_id = ${organizationId}`;
 }
+
+/**
+ * One saved reply per organization (feat-instagram-inbox R5) — so the organization delete is seen erasing
+ * `app.saved_replies` too, before its routes write them (R10).
+ */
+export async function writeSavedReplyHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.saved_replies (public_id, organization_id, title, text)
+    VALUES ('svr_' || lpad(${organizationId}::text, 21, '0'), ${organizationId}, 'Thanks', 'Thanks for writing!')`;
+}

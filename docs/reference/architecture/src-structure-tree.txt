@@ -681,75 +681,75 @@ src/
     │   │   │   ├── sending-state.repository.ts
     │   │   │   ├── sending-state.schema.ts
     │   │   │   └── sending-state.service.ts
-    │   │   └── instagram-webhook/
+    │   │   ├── instagram-webhook/
     │   │   │   ├── __tests__/
-    │   │   │       ├── integration/
-    │   │   │       │   ├── instagram-webhook-events.integration.test.ts
-    │   │   │       │   └── instagram-webhook.integration.test.ts
-    │   │   │       └── unit/
-    │   │   │       │   ├── events/
-    │   │   │       │       └── worker/
-    │   │   │       │       │   └── instagram-webhook.worker.unit.test.ts
-    │   │   │       │   ├── instagram-missed-comment-check.processor.unit.test.ts
-    │   │   │       │   ├── instagram-next-post-linking.processor.unit.test.ts
-    │   │   │       │   ├── instagram-past-comment-read.processor.unit.test.ts
-    │   │   │       │   ├── instagram-tag-event-intake.processor.db.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-event-classifier.util.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-event-dispatch.util.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-inbound-seam.policy.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-ingress.plugin.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-intake.processor.db.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-intake.processor.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-reclaim.processor.db.unit.test.ts
-    │   │   │       │   ├── instagram-webhook-reclaim.processor.unit.test.ts
-    │   │   │       │   ├── instagram-webhook.dto.unit.test.ts
-    │   │   │       │   ├── instagram-webhook.queue.unit.test.ts
-    │   │   │       │   └── instagram-webhook.service.unit.test.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-webhook-events.integration.test.ts
+    │   │   │   │   │   └── instagram-webhook.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── events/
+    │   │   │   │   │       └── worker/
+    │   │   │   │   │       │   └── instagram-webhook.worker.unit.test.ts
+    │   │   │   │   │   ├── instagram-missed-comment-check.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-next-post-linking.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-past-comment-read.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-tag-event-intake.processor.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-event-classifier.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-event-dispatch.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-inbound-seam.policy.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-ingress.plugin.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-intake.processor.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-intake.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-reclaim.processor.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook-reclaim.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook.dto.unit.test.ts
+    │   │   │   │   │   ├── instagram-webhook.queue.unit.test.ts
+    │   │   │   │   │   └── instagram-webhook.service.unit.test.ts
     │   │   │   ├── instagram-webhook-event/
-    │   │   │       ├── __tests__/
-    │   │   │       │   ├── factories/
-    │   │   │       │   │   └── instagram-webhook-event.factory.ts
-    │   │   │       │   └── unit/
-    │   │   │       │   │   ├── instagram-webhook-event-payload-masking.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-store.db.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event.repository.db.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event.serializer.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event.service.unit.test.ts
-    │   │   │       │   │   └── instagram-webhook-event.validator.unit.test.ts
-    │   │   │       ├── seed/
-    │   │   │       │   ├── index.ts
-    │   │   │       │   ├── instagram-webhook-event.bulk.seed.ts
-    │   │   │       │   └── instagram-webhook-event.faker.ts
-    │   │   │       ├── instagram-webhook-event-key.repository.ts
-    │   │   │       ├── instagram-webhook-event-key.schema.ts
-    │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
-    │   │   │       ├── instagram-webhook-event.constants.ts
-    │   │   │       ├── instagram-webhook-event.controller.ts
-    │   │   │       ├── instagram-webhook-event.dto.ts
-    │   │   │       ├── instagram-webhook-event.overview.md
-    │   │   │       ├── instagram-webhook-event.repository.ts
-    │   │   │       ├── instagram-webhook-event.routes.ts
-    │   │   │       ├── instagram-webhook-event.schema.ts
-    │   │   │       ├── instagram-webhook-event.serializer.ts
-    │   │   │       ├── instagram-webhook-event.service.ts
-    │   │   │       ├── instagram-webhook-event.types.ts
-    │   │   │       └── instagram-webhook-event.validator.ts
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-webhook-event.factory.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-webhook-event-payload-masking.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event-store.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event.controller.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-webhook-event.service.unit.test.ts
+    │   │   │   │   │   │   └── instagram-webhook-event.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── index.ts
+    │   │   │   │   │   ├── instagram-webhook-event.bulk.seed.ts
+    │   │   │   │   │   └── instagram-webhook-event.faker.ts
+    │   │   │   │   ├── instagram-webhook-event-key.repository.ts
+    │   │   │   │   ├── instagram-webhook-event-key.schema.ts
+    │   │   │   │   ├── instagram-webhook-event-payload-masking.util.ts
+    │   │   │   │   ├── instagram-webhook-event.constants.ts
+    │   │   │   │   ├── instagram-webhook-event.controller.ts
+    │   │   │   │   ├── instagram-webhook-event.dto.ts
+    │   │   │   │   ├── instagram-webhook-event.overview.md
+    │   │   │   │   ├── instagram-webhook-event.repository.ts
+    │   │   │   │   ├── instagram-webhook-event.routes.ts
+    │   │   │   │   ├── instagram-webhook-event.schema.ts
+    │   │   │   │   ├── instagram-webhook-event.serializer.ts
+    │   │   │   │   ├── instagram-webhook-event.service.ts
+    │   │   │   │   ├── instagram-webhook-event.types.ts
+    │   │   │   │   └── instagram-webhook-event.validator.ts
     │   │   │   ├── queues/
-    │   │   │       ├── instagram-webhook.job.schema.ts
-    │   │   │       └── instagram-webhook.queue.ts
+    │   │   │   │   ├── instagram-webhook.job.schema.ts
+    │   │   │   │   └── instagram-webhook.queue.ts
     │   │   │   ├── workers/
-    │   │   │       ├── instagram-contact-profile-read.processor.ts
-    │   │   │       ├── instagram-missed-comment-check.constants.ts
-    │   │   │       ├── instagram-missed-comment-check.processor.ts
-    │   │   │       ├── instagram-next-post-linking.processor.ts
-    │   │   │       ├── instagram-past-comment-read.processor.ts
-    │   │   │       ├── instagram-tag-event-intake.processor.ts
-    │   │   │       ├── instagram-webhook-intake.processor.ts
-    │   │   │       ├── instagram-webhook-reclaim.constants.ts
-    │   │   │       ├── instagram-webhook-reclaim.processor.ts
-    │   │   │       └── instagram-webhook.worker.ts
+    │   │   │   │   ├── instagram-contact-profile-read.processor.ts
+    │   │   │   │   ├── instagram-missed-comment-check.constants.ts
+    │   │   │   │   ├── instagram-missed-comment-check.processor.ts
+    │   │   │   │   ├── instagram-next-post-linking.processor.ts
+    │   │   │   │   ├── instagram-past-comment-read.processor.ts
+    │   │   │   │   ├── instagram-tag-event-intake.processor.ts
+    │   │   │   │   ├── instagram-webhook-intake.processor.ts
+    │   │   │   │   ├── instagram-webhook-reclaim.constants.ts
+    │   │   │   │   ├── instagram-webhook-reclaim.processor.ts
+    │   │   │   │   └── instagram-webhook.worker.ts
     │   │   │   ├── instagram-webhook-error.util.ts
     │   │   │   ├── instagram-webhook-event-classifier.util.ts
     │   │   │   ├── instagram-webhook-event-dispatch.util.ts
@@ -761,6 +761,13 @@ src/
     │   │   │   ├── instagram-webhook.routes.ts
     │   │   │   ├── instagram-webhook.service.ts
     │   │   │   └── instagram-webhook.types.ts
+    │   │   └── saved-reply/
+    │   │   │   ├── __tests__/
+    │   │   │       └── unit/
+    │   │   │       │   └── saved-reply.schema.db.unit.test.ts
+    │   │   │   ├── saved-reply.constants.ts
+    │   │   │   ├── saved-reply.overview.md
+    │   │   │   └── saved-reply.schema.ts
     │   ├── workers/
     │   │   ├── app-partition-upkeep.constants.ts
     │   │   ├── app-partition-upkeep.processor.ts

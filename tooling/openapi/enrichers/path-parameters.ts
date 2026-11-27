@@ -37,6 +37,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   instagramConversation: 'Instagram conversation',
   instagramConversationMessage: 'Instagram conversation message',
   instagramConversationNote: 'Instagram conversation note',
+  savedReply: 'saved reply',
   segment: 'segment',
   automationBackfill: 'past-comments read',
   trialAccount: 'trial account',

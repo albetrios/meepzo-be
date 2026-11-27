@@ -63,6 +63,8 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   ],
   // Notes (R4): organization-scoped only — nothing reads them across organizations.
   'app.instagram_conversation_notes': ['app.current_organization_public_id'],
+  // Saved replies (R5): organization-scoped only.
+  'app.saved_replies': ['app.current_organization_public_id'],
   // Automations: organization-scoped, plus the retention sweep arm in USING (routes-final § 3.3).
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.automation_counts': ['app.current_organization_public_id'],

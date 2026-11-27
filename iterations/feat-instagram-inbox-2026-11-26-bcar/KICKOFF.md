@@ -56,7 +56,7 @@ team reads, takes, replies and notes from our app, while a bot never answers ove
 | R2 | `app.instagram_conversations` — routes-final § 2.A.3 | table | — | staged-build prompt (NEW table) | AC-1.1 | — | done |
 | R3 | `app.instagram_conversation_messages` (monthly, 12 months, upkeep entry) — § 2.B.3 | table | R2 | staged-build prompt (NEW table) | AC-6.2 | — | done |
 | R4 | `app.instagram_conversation_notes` — § 2.C.3 | table | R2 | staged-build prompt (NEW table) | AC-1.8 | — | done |
-| R5 | `app.saved_replies` — § 3.3 | table | — | staged-build prompt (NEW table) | AC-4.1 | — | open |
+| R5 | `app.saved_replies` — § 3.3 | table | — | staged-build prompt (NEW table) | AC-4.1 | — | done |
 | R6 | `instagram_account_settings.is_mark_seen_on_open_enabled`; the upload purpose — CV8, CVC8 | table | — | `/be-build-requirement` (CHANGE table) | AC-1.6 | — | open |
 | R7 | 2.A Conversation routes 155–163, route 19's summary, route 12's field — § 2.A (CVC1, CVC5, CVC6) | sub-domain | R2, R6 | `/be-build-requirement` | AC-1.1–AC-1.7 | — | open |
 | R8 | 2.B Messages: the intake write, the result save's text, routes 164–166, the direct team send — § 2.B (CVC2, CVC4) | sub-domain | R1, R3, R7 | `/be-build-requirement` | AC-2.1–AC-2.8 | — | open |

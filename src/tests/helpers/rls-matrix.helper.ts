@@ -41,6 +41,7 @@ import { contact_activities } from '@/domains/app/sub-domains/contact/contact-ac
 import { instagram_conversations } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation.schema.js';
 import { instagram_conversation_messages } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation-message/instagram-conversation-message.schema.js';
 import { instagram_conversation_notes } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation-note/instagram-conversation-note.schema.js';
+import { saved_replies } from '@/domains/app/sub-domains/saved-reply/saved-reply.schema.js';
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -943,6 +944,25 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     tableKey({ schemaName: 'app', tableName: 'instagram_conversation_notes' }),
     conversationNoteIds,
   );
+
+  // Saved replies (feat-instagram-inbox R5): one per organization.
+  const savedReplyIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [savedReply] = await database
+      .insert(saved_replies)
+      .values({
+        public_id: generatePublicId('savedReply'),
+        organization_id: organization.id,
+        title: `rls ${side}`,
+        text: 'Thanks for writing!',
+      })
+      .returning();
+    savedReplyIds[side] = savedReply!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'saved_replies' }), savedReplyIds);
 
   // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.
   const segmentIds = { organizationA: 0, organizationB: 0 };

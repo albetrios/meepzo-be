@@ -10,8 +10,8 @@ erDiagram
   instagram_media["instagram_media · EXISTING · app.instagram_media"]
   automation_comment_log["automation_comment_log · EXISTING · app.automation_comment_logs"]
   contact["contact · EXISTING · app.contacts"]
-  instagram_comment["instagram_comment · NEW"]
-  instagram_mention["instagram_mention · NEW"]
+  instagram_comment["instagram_comment · NEW · app.instagram_comments"]
+  instagram_mention["instagram_mention · NEW · app.instagram_mentions"]
   instagram_account ||--o{ instagram_comment : "ADDED: receives"
   instagram_media ||--o{ instagram_comment : "ADDED: is commented on"
   instagram_comment |o--o{ automation_comment_log : "ADDED: answered by"
@@ -25,14 +25,14 @@ erDiagram
 
 - **Holds** — one row per comment on the account's posts and reels (any automation or none), so the inbox lists them
   in one place; the team's reply, hide and delete state.
-- **Table** — `app.instagram_comments` (the brief's name; Step 4 confirms).
+- **Table** — `app.instagram_comments` ([E-D5](decisions.md)).
 - **Sources** — B:5-8, B:23, B:32-33, B:38, B:42.
 - **Added / Replaced** — new; the per-automation comment log stays (E1).
-- **Open** — what is stored (every comment, or only those the inbox shows); retention (E5).
+- **Open** — none: every comment ([E-D2](decisions.md)), kept 90 days ([E-D3](decisions.md)).
 
 ```mermaid
 erDiagram
-  instagram_comment["instagram_comment · NEW"] {
+  instagram_comment["instagram_comment · NEW · app.instagram_comments"] {
     id id PK
     id organization_id FK
     id channel_account_id FK
@@ -59,14 +59,14 @@ erDiagram
 ### instagram_mention
 
 - **Holds** — one row per @mention of the account in someone's caption or comment (B:9).
-- **Table** — `app.instagram_mentions` (Step 4 confirms).
+- **Table** — `app.instagram_mentions` ([E-D5](decisions.md)).
 - **Sources** — B:9-10, B:23-24, B:36-37, B:45.
 - **Added / Replaced** — new.
-- **Open** — Meta's payload under Unified Login (E7, owner test EO1); retention.
+- **Open** — Meta's payload under Unified Login (E7, owner test EO1); kept 90 days ([E-D3](decisions.md)); both sources start the `mention` trigger ([E-D4](decisions.md)).
 
 ```mermaid
 erDiagram
-  instagram_mention["instagram_mention · NEW"] {
+  instagram_mention["instagram_mention · NEW · app.instagram_mentions"] {
     id id PK
     id organization_id FK
     id channel_account_id FK

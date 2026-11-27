@@ -13,9 +13,9 @@ ones start at **182**. Paths under `/api/v1/app`. Every route reads Postgres onl
 
 | # | Change | Method | Path | Access | Purpose | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-1 | NEW (route 182) | GET | `/analytics/channel-accounts/{channel_account_id}` | per [N-D6](decisions.md) | the account's numbers by day / week / month for a range | B:5-7, B:40 |
-| RC-2 | NEW (route 183) | GET | `/analytics/automations/{automation_id}` | per N-D6 | one automation's numbers by day (the automation detail's results panel) | B:7, B:22 |
-| RC-3 | NEW (route 184) | GET | `/analytics/broadcasts/{broadcast_id}` | per N-D6 | one broadcast's numbers by day | B:7 |
+| RC-1 | NEW (route 182) | GET | `/analytics/channel-accounts/{channel_account_id}` | instagram-account · read ([N-D6](decisions.md)) | the account's numbers by day / week / month for a range | B:5-7, B:40 |
+| RC-2 | NEW (route 183) | GET | `/analytics/automations/{automation_id}` | instagram-account · read | one automation's numbers by day (the automation detail's results panel) | B:7, B:22 |
+| RC-3 | NEW (route 184) | GET | `/analytics/broadcasts/{broadcast_id}` | instagram-account · read | one broadcast's numbers by day | B:7 |
 
 ## Meta insights
 
@@ -38,5 +38,5 @@ ones start at **182**. Paths under `/api/v1/app`. Every route reads Postgres onl
 | --- | --- | --- | --- | --- | --- |
 | RC-8 | `GET /social/channel-accounts/{channel_account_id}/capabilities` | output | 11 features | + `insights` (permission `instagram_manage_insights`; refused `permission_not_granted` with the permission and fix `reconnect`) | B:26, B:30-31 |
 
-Every range read honours the plan's history ([N-D1](decisions.md)): a Free organization asking past 7 days gets the
-last 7 days and `meta.range_limited: true` (proposed; the route review settles the shape).
+Range reads are not limited by plan ([N-D1](decisions.md): analytics open to every plan, no history limit); the range
+is bounded only by retention (13 months).

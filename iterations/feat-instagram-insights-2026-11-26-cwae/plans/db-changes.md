@@ -33,7 +33,8 @@ erDiagram
 
 ### instagram_analytics_day_count
 
-- **Holds** — per account, day of the organization's time zone, and automation or broadcast (or neither): DMs sent,
+- **Holds** — per account, day of the organization's time zone, automation or broadcast (or neither), and the post a run
+  started from (route review AN2): DMs sent,
   replies received, links tapped, emails and phones collected, new contacts, response count and total response
   seconds (B:5-7).
 - **Table** — `app.instagram_analytics_day_counts` (name proposed, [N-D3](decisions.md)).
@@ -49,7 +50,8 @@ erDiagram
     date day_date "organization's day"
     id automation_id "nullable"
     id broadcast_id "nullable"
-    int slot "spread hot rows"
+    text instagram_media_id "nullable, the post a run started from (AN2)"
+    int slot "spread hot rows, 0–7"
     int dms_sent
     int replies_received
     int links_tapped

@@ -8,22 +8,22 @@ feat-instagram-insights-2026-11-26-cwae --check` → passed.
 
 | Source (file:line) | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| B:5-7 | Account analytics screen: DMs sent, replies, links tapped, emails / phones collected, new contacts, first / last response times; by day, week, month; per automation and per broadcast | analytics.own-numbers | account-analytics | B:40-41 | open |
-| B:8-9 | Account insights from Meta (reach, views, profile taps, follower count, demographics) when `instagram_manage_insights` is granted | insights.account | account-insights | B:42-43 | open |
-| B:10-11 | Post / reel insights (views, reach, saves, shares) beside "DMs started from this post"; rank posts by conversations | insights.media, analytics.media-conversations | post-insights | B:42-43 | open |
-| B:12-13 | Story insights: final numbers by webhook (`story_insights`), kept after the story ends | insights.story, integrations.story-insights-webhook | story-insights | B:44 | open |
-| B:22 | Screens: account analytics (new), post detail (insights panel), automation detail (results panel) | analytics.own-numbers, insights.media | account-analytics, post-insights | B:40-43 | open |
-| B:23 | Entity `app.instagram_insight_snapshots` (new — daily account / media snapshots) | data.instagram-insight-snapshot | account-insights, post-insights | B:42-43 | open |
-| B:23 | Entity: story insights (new) | data.instagram-story-insight | story-insights | B:44 | open |
-| B:24 | Existing run / message / contact tables read as aggregates | data.analytics-day-counts | account-analytics | B:40-41 | open |
-| B:25-26 | Routes under `…/instagram/accounts/{channel_account_id}/insights…` and `/app/analytics…` | (route-changes.md) | all | B:40-46 | open |
-| B:26 | Capabilities route gains an `insights` feature | access.insights-capability | account-insights | B:42-43 | open |
-| B:30-31 | Without `instagram_manage_insights`: our numbers only; capability says `permission_not_granted` + the permission (`reconnect`) | access.insights-capability | account-insights | B:42-43 | open |
-| B:32 | Snapshots by a daily pull-based job, never on screen open; reads never call Meta | background.insight-snapshot, quality.reads-never-call-meta | account-insights, post-insights | B:46 | open |
-| B:33-34 | Our analytics read pre-aggregated counts; the organization's day | quality.pre-aggregated, analytics.organization-day | account-analytics | B:40-41 | open |
+| B:5-7 | Account analytics screen: DMs sent, replies, links tapped, emails / phones collected, new contacts, first / last response times; by day, week, month; per automation and per broadcast | analytics.own-numbers | account-analytics | B:40-41 | covered |
+| B:8-9 | Account insights from Meta (reach, views, profile taps, follower count, demographics) when `instagram_manage_insights` is granted | insights.account | account-insights | B:42-43 | covered |
+| B:10-11 | Post / reel insights (views, reach, saves, shares) beside "DMs started from this post"; rank posts by conversations | insights.media, analytics.media-conversations | post-insights | B:42-43 | covered |
+| B:12-13 | Story insights: final numbers by webhook (`story_insights`), kept after the story ends | insights.story, integrations.story-insights-webhook | story-insights | B:44 | covered |
+| B:22 | Screens: account analytics (new), post detail (insights panel), automation detail (results panel) | analytics.own-numbers, insights.media | account-analytics, post-insights | B:40-43 | covered |
+| B:23 | Entity `app.instagram_insight_snapshots` (new — daily account / media snapshots) | data.instagram-insight-snapshot | account-insights, post-insights | B:42-43 | covered |
+| B:23 | Entity: story insights (new) | data.instagram-story-insight | story-insights | B:44 | covered |
+| B:24 | Existing run / message / contact tables read as aggregates | data.analytics-day-counts | account-analytics | B:40-41 | covered |
+| B:25-26 | Routes under `…/instagram/accounts/{channel_account_id}/insights…` and `/app/analytics…` | (route-changes.md) | all | B:40-46 | covered |
+| B:26 | Capabilities route gains an `insights` feature | access.insights-capability | account-insights | B:42-43 | covered |
+| B:30-31 | Without `instagram_manage_insights`: our numbers only; capability says `permission_not_granted` + the permission (`reconnect`) | access.insights-capability | account-insights | B:42-43 | covered |
+| B:32 | Snapshots by a daily pull-based job, never on screen open; reads never call Meta | background.insight-snapshot, quality.reads-never-call-meta | account-insights, post-insights | B:46 | covered |
+| B:33-34 | Our analytics read pre-aggregated counts; the organization's day | quality.pre-aggregated, analytics.organization-day | account-analytics | B:40-41 | covered |
 | B:35 | Plan: a new `analytics` feature key; Free sees the last 7 days only | access.analytics-plan | account-analytics | B:45 | out-of-scope (N-D1: open to all plans, user 2026-11-27) |
-| B:36 | New tables `instagram_` prefixed, FORCE RLS, retention 13 months | quality.tenant-isolation, quality.insights-retention | all | — | open |
-| B:46 | The daily job respects Meta usage and the sending gate | quality.meta-usage | account-insights | B:46 | open |
+| B:36 | New tables `instagram_` prefixed, FORCE RLS, retention 13 months | quality.tenant-isolation, quality.insights-retention | all | — | covered |
+| B:46 | The daily job respects Meta usage and the sending gate | quality.meta-usage | account-insights | B:46 | covered |
 | B:50 | Out of scope: ads insights, competitor benchmarks, report export, Facebook Page insights | — | — | — | out-of-scope (brief) |
 
 ## Reconciliation

@@ -1,6 +1,7 @@
 import type { AutomationBackfillOutput } from './automation-backfill/automation-backfill.types.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { RecordDeleteReason } from '@/shared/constants/record-fields.constants.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import type {
   AutomationAlsoStartFrom,
@@ -243,6 +244,15 @@ export interface AutomationActionInput extends AutomationGetInput {
   actingUserPublicId: string | undefined;
 }
 
+/**
+ * Route 32's input: the action's, plus the plan guard's entitlement snapshot (change-plan-gates
+ * RG5, P24) — go-live's month and feature checks read the plan from it, not again.
+ */
+export interface AutomationGoLiveInput extends AutomationActionInput {
+  /** `request.entitlementSnapshot`; absent (a direct call), go-live resolves once. */
+  entitlement?: EntitlementSnapshot | undefined;
+}
+
 /** Route 33's input. */
 export interface AutomationPauseInput extends AutomationActionInput {
   mode: AutomationPauseMode;
@@ -310,6 +320,8 @@ export interface AutomationMonthLimitPort {
   readOrganizationPlanStop(input: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
+    /** Go-live's snapshot (K2): the month count reads the ceiling from it. */
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<'plan_limit' | null>;
 }
 

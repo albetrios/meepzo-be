@@ -18,6 +18,7 @@ export const ACTIVE_PLAN_ACCESS: Readonly<PlanAccess> = Object.freeze({
   plan: null,
   features: null,
   seatLimit: null,
+  defaultedKeys: [],
   overrides: [],
   isPlanChoiceRequired: false,
 });

@@ -1,4 +1,5 @@
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import type { PlanFeatureKey } from '@/domains/billing/sub-domains/plan/plan.constants.js';
 import type { EntitlementOverrideEntry } from '@/domains/billing/sub-domains/entitlement/entitlement-override.util.js';
 /** MVCC token and provider watermark used to guard an authoritative same-second reconciliation. */
 export interface StripeSubscriptionOrderingState {
@@ -140,6 +141,12 @@ export interface PlanAccess {
    */
   seatLimit: number | null;
   /**
+   * The feature switches the plan row whose features apply did not carry, so they read their
+   * entitlement registry default — off (change-plan-gates P19, P36); empty when the row carried every
+   * switch, and always empty with no plan. An override on one of them still wins.
+   */
+  defaultedKeys: PlanFeatureKey[];
+  /**
    * The organization's overrides in force now (P270) — already laid over `features`; empty when
    * none. Listed so `GET /billing/entitlements` can name them.
    */
@@ -201,6 +208,11 @@ export interface PlanAccessPlan {
   price_monthly: string;
   price_yearly: string;
   features: PlanFeatures;
+  /**
+   * The feature switches the stored row lacked, filled with their registry default (off) before the
+   * strict parse (change-plan-gates P19); empty when it carried every switch.
+   */
+  defaulted_keys: PlanFeatureKey[];
   /** The plan's seats; `null` = unlimited (D55). */
   included_seats: number | null;
 }

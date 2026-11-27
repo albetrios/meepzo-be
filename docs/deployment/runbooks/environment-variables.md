@@ -418,7 +418,7 @@ Environment through `.env.<environment>` + `pnpm github:sync`.
 | --- | --- | --- | --- | --- |
 | `MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED` | `false` | `true` (local QA accepts invitations without the email) | `false` unless QA needs it | `false` — enforced (refused outside `local` / `development`) |
 | `MAIL_RESERVED_DOMAIN_SKIP_ENABLED` | `false` | `true` (seeded `example.com` accounts never reach Resend, which refuses them with a 422) | `true` (the same seeded accounts) | `false` — enforced (refused outside `local` / `development`) |
-| `LAPSED_PLAN_READ_ONLY_ENABLED` | `false` | `false` (set `true` in `.env.local` to work on the grace and read-only screens) | `false` | `false` until organizations can pay — then `true`: an organization without a paid plan turns read-only 14 days after it was created, or `BILLING_DUNNING_GRACE_DAYS` after a lapsed subscription's period (owner decision D3). Not refined — switching it on is a launch decision, not a security posture |
+| `LAPSED_PLAN_READ_ONLY_ENABLED` | `false` | `false` (set `true` in `.env.local` to work on the grace and read-only screens) | `false` | `false` until organizations can pay — then `true`: a lapsed paid plan turns read-only once its grace ends (`BILLING_DUNNING_GRACE_DAYS` after the period end), a cancelled paid plan from its period end; Free never ends, so an organization that never paid stays active (owner decision D3). While read-only, only the automation go-live and the broadcast send answer `403 organization_read_only`. Default `false`. Not refined — switching it on is a launch decision, not a security posture |
 
 The allowed values and a description of each key are in [reference/env-catalog.md](../../reference/env-catalog.md).
 

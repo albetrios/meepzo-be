@@ -215,6 +215,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 ```typescript
 {
   queueName: '<unique BullMQ queue>',
+  jobPlanGates: { '<job name>': { gates: ['limit:<key>'] } | { open: '<one-line reason>' } },
   family: 'mail' | 'notify' | 'webhook' | 'stripe' | 'instagram' | 'retention' | 'observability',
   logLabel: 'human-readable worker name',
   usesPostgres: true | false,
@@ -247,7 +248,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 
 1. Implement the worker file under `src/domains/<domain>/<sub-domain>/workers/*.worker.ts` and export a `createXxxWorker()` factory that returns `WorkerHandle`.
 2. Add a constants file (`<queue>.constants.ts`) exporting the queue name string.
-3. **Add a single entry to `worker-registration.registry.ts`** — pick `family`, `usesPostgres`, `resolvePostgresConcurrency`, `scheduled`, `criticality`, and (when relevant) `holdsConnectionDuringExternalIo`. Use `retentionDefinition({ ... })` for single-concurrency cron workers (it defaults `scheduled: true` + `criticality: 'maintenance'`).
+3. **Add a single entry to `worker-registration.registry.ts`** — pick `family`, `usesPostgres`, `resolvePostgresConcurrency`, `scheduled`, `criticality`, and (when relevant) `holdsConnectionDuringExternalIo`. Declare **every job name** the queue runs in `jobPlanGates` (change-plan-gates P33): the plan gates its paid work meets (a send meets the claim's `limit:message_month_limit` + `limit:channel_accounts_max`; a switch read at the start is `feature:<key>`), or `open` with a one-line reason (`JOB_PLAN_GATE_OPEN_REASON` in the entitlement constants). `plan-gate-coverage.global.test.ts` fails on a job the code puts on the queue without a declaration, an unknown gate, or a declaration for a job the queue never runs. Use `retentionDefinition({ ... })` for single-concurrency cron workers (it defaults `scheduled: true` + `criticality: 'maintenance'`).
 4. If it is a repeatable / cron job, add an `upsertJobScheduler` entry in `scheduler.ts` using the same `queueName` constant — and set `scheduled: true` in the registration. The startup audit will warn if these disagree.
 5. **Add the queue constant to `WORKER_QUEUE_NAMES` in `src/infrastructure/queue/queue-catalog.ts`** (and to `WORKER_THROUGHPUT_QUEUE_NAMES` for `criticality: 'throughput'`). That one list gives the queue its depth gauge, a sampled and age-trimmed DLQ, its heartbeat read-out and a Bull Board entry; `queue-catalog.coverage.unit.test.ts` fails until it matches the registry. Bootstrap attaches the dead-letter, job-duration and heartbeat hooks to every registered worker — nothing to wire per worker.
 6. If every job calls one third-party provider (Resend, Stripe, S3), build the worker with `createProviderPausableWorker` so the queue pauses through a provider outage instead of spending attempts. A queue whose jobs mostly need no provider call (Instagram intake, which only makes fail-open reads) stays a plain worker — an outage must never pause it (feat-instagram-dm-sending WH25).

@@ -39,7 +39,7 @@ export function entitlementRoutes(service: EntitlementService): FastifyPluginAsy
         schema: {
           summary: 'Get the organization entitlements',
           description:
-            "One read of what the active organization may do and how much of it is used: `state` (`active`, `grace`, `read_only`), the `plan` whose features apply, its typed `features` with any per-organization overrides laid over them, `limits` — `direct_messages` (this month's DMs against `message_month_limit`, `resets_on` the 1st of next month), `channel_accounts` (accounts in the plan against `channel_accounts_max`) and `seats` (members against the plan's seats; `limit` null = unlimited) —, `trial_ends_at`, `grace_ends_at`, `is_plan_choice_required` and the active `overrides` (`key`, `expires_at`). Team and personal organizations (a personal one answers zeros). Requires SUBSCRIPTION_READ permission.",
+            "One read of what the active organization may do and how much of it is used: `state` (`active`, `grace`, `read_only`), the `plan` whose features apply, its typed `features` with any per-organization overrides laid over them, `limits` — `direct_messages` (this month's DMs against `message_month_limit`, `resets_on` the 1st of next month), `channel_accounts` (accounts in the plan against `channel_accounts_max`) and `seats` (members against the plan's seats; `limit` null = unlimited) —, `trial_ends_at`, `grace_ends_at`, `is_plan_choice_required`, the active `overrides` (`key`, `expires_at`) and `sources` — where each value came from, per key (`override`, `plan` or `default`: a switch the plan row lacks reads off). Team and personal organizations (a personal one answers zeros). Requires SUBSCRIPTION_READ permission.",
           tags: ['Billing'],
         },
       },
@@ -64,7 +64,12 @@ export function entitlementRoutes(service: EntitlementService): FastifyPluginAsy
     zodApplication.post(
       '/entitlement-overrides',
       {
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'global-admin route: sets an organization exception, no organization plan applies',
+          },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
         schema: {
@@ -80,7 +85,12 @@ export function entitlementRoutes(service: EntitlementService): FastifyPluginAsy
     zodApplication.delete<{ Params: { entitlement_override_id: string } }>(
       '/entitlement-overrides/:entitlement_override_id',
       {
-        ...MODERATE_AUTHED_RATE_LIMIT,
+        config: {
+          ...MODERATE_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'global-admin route: sets an organization exception, no organization plan applies',
+          },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
         schema: {

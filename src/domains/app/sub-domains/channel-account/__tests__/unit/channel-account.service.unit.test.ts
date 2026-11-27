@@ -9,10 +9,11 @@ import type {
   ChannelAccountRepository,
   ChannelAccountRow,
 } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import {
-  type ChannelAccountPlanAccessService,
-  ChannelAccountService,
-} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+  entitlementServiceOf,
+  planFeaturesWithSwitches,
+} from '@/domains/app/__tests__/factories/entitlement.factory.js';
 import type {
   ChannelAccountLanePort,
   ChannelAccountPlanStopPort,
@@ -197,11 +198,12 @@ function setup({
     resolveUserInternalIdByPublicId: vi.fn(async () => 41),
     resolveUserPublicIdsByInternalIds: vi.fn(async () => new Map<number, string>()),
   };
-  const planAccessService = {
-    getPlanAccess: vi.fn(async () => ({
-      features: accountsMax === undefined ? null : { channel_accounts_max: accountsMax },
-    })),
-  };
+  const entitlementService = entitlementServiceOf({
+    features:
+      accountsMax === undefined
+        ? null
+        : { ...planFeaturesWithSwitches({}), channel_accounts_max: accountsMax },
+  });
   const lanePort = {
     readActiveStop: vi.fn(async () => null),
     stopLanes: vi.fn(async () => undefined),
@@ -218,7 +220,7 @@ function setup({
     connectionRepository as unknown as ChannelConnectionRepository,
     connectionTokenService as unknown as ChannelConnectionTokenService,
     organizationService as unknown as OrganizationService,
-    planAccessService as unknown as ChannelAccountPlanAccessService,
+    entitlementService,
     lanePort as unknown as ChannelAccountLanePort,
     planStopPort as unknown as ChannelAccountPlanStopPort,
   );

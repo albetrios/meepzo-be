@@ -1,23 +1,23 @@
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
-import {
-  type PlanFeatures,
-  planFeaturesSchema,
-} from '@/domains/billing/sub-domains/plan/plan.types.js';
+import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import { parsePlanFeaturesWithDefaults } from '@/domains/billing/sub-domains/plan/plan-features.util.js';
 
 /**
- * Parses a plan row's `features` with {@link planFeaturesSchema} (routes-final BL12, P83): a row with a
- * missing, unknown or wrongly typed key throws a `ZodError` — a loud error, never a silent default.
+ * Parses a plan row's `features` with `planFeaturesSchema` (routes-final BL12, P83): a row with an
+ * unknown or wrongly typed key, or a missing limit, throws a `ZodError` — a loud error.
  *
  * @remarks
  * Every `billing.plans` read in the repository passes through it, so no caller ever meets an untyped
  * feature map. The database's `chk_plans_features` refuses a bad row first; this is the read half.
+ * A feature switch the row lacks reads the plan's switch default, off
+ * (`parsePlanFeaturesWithDefaults`, change-plan-gates P19) — the one default; nothing else is filled.
  */
 export function parsePlanRow<Row extends { features: unknown }>(
   row: Row,
 ): Omit<Row, 'features'> & { features: PlanFeatures } {
-  return { ...row, features: planFeaturesSchema.parse(row.features) };
+  return { ...row, features: parsePlanFeaturesWithDefaults(row.features).features };
 }
 
 /**

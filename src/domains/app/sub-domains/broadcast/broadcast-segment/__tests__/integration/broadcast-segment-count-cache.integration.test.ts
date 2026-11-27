@@ -201,17 +201,24 @@ describe('Segment count copy (route 82, BC14)', () => {
     });
     expect(anonymous.statusCode).toBe(401);
 
-    // A move down to Free: the segments switch is off, the warm copy is not served (P76).
-    const free = await createTestPlan({
-      features: FREE_PLAN_FEATURES,
+    // A move down to a plan whose segments switch is off (Free has it on since change-plan-gates
+    // P13, so the switch is turned off explicitly): the warm copy is not served (P76).
+    const withoutSegments = await createTestPlan({
+      features: {
+        ...FREE_PLAN_FEATURES,
+        feature_switches: { ...FREE_PLAN_FEATURES.feature_switches, segments: false },
+      },
       priceMonthly: '0.00',
       priceYearly: '0.00',
     });
     await operatorQuery`
-      UPDATE billing.subscriptions SET plan_id = ${free.id}
+      UPDATE billing.subscriptions SET plan_id = ${withoutSegments.id}
       WHERE organization_id = ${team.organization.id}`;
     const refused = await count({ team, account });
     expect(refused.statusCode).toBe(403);
+    expect((refused.json() as { error: { reason?: string } }).error.reason).toBe(
+      'plan_lacks_feature',
+    );
   });
 
   it('counts inline in Postgres while Redis is down for the copy (test 5)', async () => {

@@ -308,7 +308,7 @@ describe('Flow: a move down at the period end (R58)', () => {
     expect(await planStops()).toEqual([null, null, null, 'plan_downgrade', 'plan_downgrade']);
   });
 
-  it('Creator → Free: one account kept, broadcasts cancelled, the read failed, nothing deleted, one notice — and the month over Free starts plan_limit (AC-23.5–AC-23.9)', async () => {
+  it('Creator → Free: one account kept, broadcasts kept (change-plan-gates P13), the read failed, nothing deleted, one notice — and the month over Free starts plan_limit (AC-23.5–AC-23.9)', async () => {
     const { subscriptionId, accounts } = await subscribeWithAccounts(catalog.creator.public_id, 2);
     const [older, kept] = accounts as [TestAccount, TestAccount];
     const steps = (extra: object) => ({
@@ -411,18 +411,20 @@ describe('Flow: a move down at the period end (R58)', () => {
     expect(await planStops()).toEqual(['plan_downgrade', 'plan_limit']);
     expect(older.public_id).not.toBe(kept.public_id);
     expect(result).toMatchObject({
-      cancelledBroadcastCount: 1,
+      cancelledBroadcastCount: 0,
       failedBackfillCount: 1,
       questionStepsOffCount: 3,
     });
-    // Scheduled broadcasts end cancelled · plan_feature_off; the draft stays (AC-23.5).
+    // Free keeps its broadcasts switch on (change-plan-gates P13), so the scheduled broadcast and the
+    // draft both stay; the cancel on a switch turned off (AC-23.5) is proven with an override in
+    // instagram-plan-change.integration.test.ts.
     const broadcasts = await operatorQuery<
       { name: string; status: string; cancel_reason: string | null }[]
     >`
       SELECT name, status, cancel_reason FROM app.broadcasts
       WHERE organization_id = ${team.organization.id} ORDER BY id`;
     expect(broadcasts).toEqual([
-      { name: 'Spring drop', status: 'cancelled', cancel_reason: 'plan_feature_off' },
+      { name: 'Spring drop', status: 'scheduled', cancel_reason: null },
       { name: 'Draft', status: 'draft', cancel_reason: null },
     ]);
     // The unfinished past-comments read ends failed · plan_feature_off (AC-23.6).

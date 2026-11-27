@@ -11,7 +11,6 @@ import { broadcastRoutes } from './sub-domains/broadcast/broadcast.routes.js';
 import { broadcastSegmentRoutes } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.routes.js';
 import { automationBackfillRoutes } from './sub-domains/automation/automation-backfill/automation-backfill.routes.js';
 import { instagramSendingRoutes } from './sub-domains/instagram-sending/instagram-sending.routes.js';
-import { createAppPlanAccessPreHandler } from './app-plan-access.js';
 import { instagramAccountRoutes } from '@/domains/app/sub-domains/instagram-account/instagram-account.routes.js';
 
 /**
@@ -31,8 +30,9 @@ import { instagramAccountRoutes } from '@/domains/app/sub-domains/instagram-acco
  * (`/automations/{automation_id}/backfills`), broadcasts (`/broadcasts`) and segments (`/segments`).
  *
  * @remarks
- * The read-only plan guard (`app-plan-access.ts`, AQ8) is built here from billing's subscription
- * service and attached to the automation go-live and the broadcast send only (D27, BC3).
+ * The read-only plan guard is not built here: the automation go-live and the broadcast send
+ * declare `read_only` in their `config.planGate`, and the one route hook in `src/routes.ts` puts
+ * the entitlement module's guard first on them (change-plan-gates RG3).
  */
 export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   const { appDomain } = app;
@@ -46,13 +46,8 @@ export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   await app.register(instagramMediaRoutes(appDomain.instagramMediaService));
   await app.register(instagramSendingRoutes(appDomain.instagramSendingService));
   await app.register(contactRoutes(appDomain.contactService));
-  const planAccessPreHandler = createAppPlanAccessPreHandler(app.billingDomain.subscriptionService);
-  await app.register(
-    automationRoutes({ automationService: appDomain.automationService, planAccessPreHandler }),
-  );
-  await app.register(
-    broadcastRoutes({ broadcastService: appDomain.broadcastService, planAccessPreHandler }),
-  );
+  await app.register(automationRoutes({ automationService: appDomain.automationService }));
+  await app.register(broadcastRoutes({ broadcastService: appDomain.broadcastService }));
   await app.register(broadcastSegmentRoutes(appDomain.broadcastSegmentService));
   await app.register(automationBackfillRoutes(appDomain.automationBackfillService));
   await app.register(

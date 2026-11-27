@@ -301,16 +301,17 @@ const SERVER_VARS = {
  * 2026-10-17; routes-final BL3, BL4): an organization whose PAID plan lapsed keeps writing through
  * its dunning grace, then reports `plan_access` `read_only`; a cancelled paid plan reads `read_only`
  * from its period end. Free never ends, so an organization that never paid is always `active`.
- * Category-A: the static default `true` is the production-safe value — only a lapsed or cancelled
- * paid plan reaches `read_only`, and the owner can always choose a plan — so no refine pins it.
+ * Category-A: billing policy, not a security guard, so no refine pins it. The static default is `false`
+ * (change-plan-gates P5, the product-first launch): a lapsed paid plan keeps writing until a deploy turns
+ * read-only on with an explicit `true`.
  */
 const BILLING_POLICY_VARS = {
   LAPSED_PLAN_READ_ONLY_ENABLED: envVar({
-    schema: booleanString('true'),
+    schema: booleanString('false'),
     meta: {
       allowed: 'true | false (or 1 | 0)',
       description:
-        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active.',
+        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, only POST /app/automations/{automation_id}/go-live and POST /app/broadcasts/{broadcast_id}/send answer 403 organization_read_only (P10); drafts, edits, pause and delete stay open, as do billing, auth, team management and data export, so the owner can always pay. Off, every organization reports plan_access active.',
     },
   }),
 } satisfies Record<string, EnvVarSpec>;

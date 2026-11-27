@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelSendingPorts } from '@/domains/app/app.channel-ports.js';
-import type { ChannelAccountPlanAccessService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountEntitlementService } from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 import {
   AUTOMATION_DUPLICATE_NAME_SUFFIX,
   AUTOMATION_NAME_MAX_LENGTH,
@@ -186,7 +187,7 @@ function setup({
     resolveUserInternalIdByPublicId: vi.fn(async () => 41),
     resolveUserPublicIdsByInternalIds: vi.fn(async () => new Map<number, string>()),
   };
-  const planAccessService = { getPlanAccess: vi.fn(async () => ({ features: null })) };
+  const entitlementService = entitlementServiceOf({ features: null });
   const channelAccountPort = { readAutomationAccount: vi.fn(async () => null) };
   const cancelWaitingMessages = vi.fn(async () => 0);
   const enqueueStarterQuestionSync = vi.fn(async () => undefined);
@@ -195,7 +196,7 @@ function setup({
     countService as unknown as AutomationCountService,
     {} as AutomationReplyStateService,
     channelAccountPort as unknown as AutomationChannelAccountPort,
-    planAccessService as unknown as ChannelAccountPlanAccessService,
+    entitlementService as ChannelAccountEntitlementService,
     organizationService as unknown as OrganizationService,
     cancelSteps,
     {

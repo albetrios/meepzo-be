@@ -9,6 +9,10 @@ import type { TenancyContainer } from '@/domains/tenancy/tenancy.container.js';
 import type { UploadContainer } from '@/domains/upload/upload.container.js';
 import type { UserContainer } from '@/domains/user/user.container.js';
 import type { AuthContext } from '@/shared/types/index.js';
+import type {
+  EntitlementSnapshot,
+  PlanGateDeclaration,
+} from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { PrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import type { FailedAuthenticationRateLimit } from '@/shared/middlewares/rate-limit/failed-authentication-rate-limit.js';
@@ -18,6 +22,15 @@ import type Stripe from 'stripe';
 declare module 'fastify' {
   interface FastifyContextConfig {
     idempotencyRequired?: boolean;
+    /**
+     * The route's plan-gate declaration (change-plan-gates RG1) — required on every write route
+     * (`plan-gate-coverage.global.test.ts` reads the live routes): `{ gates: [...] }` with
+     * `read_only`, `feature:<switch key>` or `limit:<limit key>` (typed from the entitlement
+     * registry), or `{ open: '<one line>' }` saying why no plan gate applies. A route declaring
+     * `read_only` gets the one plan guard first in its `preHandler` list (the route hook in
+     * `src/routes.ts`); `feature:` and `limit:` are enforced where they are used (P29).
+     */
+    planGate?: PlanGateDeclaration;
     /**
      * sec-B finding #7: routes set this flag to request that the global
      * content-type parser capture the raw body buffer onto `request.rawBody`
@@ -68,6 +81,12 @@ declare module 'fastify' {
      */
     metaSignedRequest?: MetaSignedRequestPayload;
     metricsStartTimeNanoseconds?: bigint;
+    /**
+     * The organization's entitlement snapshot, resolved once by the plan guard on a route that
+     * declares `read_only` (change-plan-gates RG5, P24) for the controller to pass on; `null` on
+     * every other route (decorated in `src/routes.ts`).
+     */
+    entitlementSnapshot: EntitlementSnapshot | null;
     /** i18n translate function fixed to `language` (set by the i18n middleware on every request). */
     t?: TFunction;
     /** The request's supported language code (`SUPPORTED_LANGUAGES`: "en", "es"). */

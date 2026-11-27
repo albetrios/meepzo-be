@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { MODERATE_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { createUploadController } from './upload.controller.js';
 import { createUploadDto, uploadPublicIdParamDto } from './upload.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Fastify plugin mounting upload routes under the upload prefix: presigned URL
@@ -17,7 +18,11 @@ export const uploadRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/',
     {
       onRequest: [app.authenticate],
-      config: { idempotencyRequired: true, ...MODERATE_AUTHED_RATE_LIMIT.config },
+      config: {
+        idempotencyRequired: true,
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'a file upload with its own per-type caps — no plan switch (UP1–UP5)' },
+      },
       schema: {
         summary: 'Request pre-signed upload URL',
         description:
@@ -47,7 +52,10 @@ export const uploadRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/:upload_id/confirm',
     {
       onRequest: [app.authenticate],
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'a file upload with its own per-type caps — no plan switch (UP1–UP5)' },
+      },
       schema: {
         summary: 'Confirm uploaded object',
         description:
@@ -62,7 +70,10 @@ export const uploadRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/:upload_id',
     {
       onRequest: [app.authenticate],
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+      },
       schema: {
         summary: 'Delete upload',
         description:

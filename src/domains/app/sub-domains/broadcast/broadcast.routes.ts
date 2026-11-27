@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
@@ -13,6 +13,7 @@ import {
   sendBroadcastBodyDto,
   updateBroadcastBodyDto,
 } from './broadcast.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** The draft fields as the create and edit descriptions name them (BC8). */
 const DRAFT_FIELDS_DESCRIPTION =
@@ -26,7 +27,8 @@ const DRAFT_FIELDS_DESCRIPTION =
  * @remarks
  * Gates (7.A.4, P20 — the automation codes): `automation:read` on 70, 72; `automation:create` on 71;
  * `automation:update` on 73, 75, 76; `automation:delete` on 74. The PRO `broadcasts` switch is the
- * service's (BC3). The read-only plan guard (`planAccessPreHandler`) runs on route 75 only, first.
+ * service's (BC3). Route 75 declares `read_only`, so the one plan guard (`src/routes.ts`) runs on
+ * it first; every write declares its `config.planGate` (change-plan-gates RG1).
  * 71 creates a row, 75 starts background work and 76 hands the broadcast to the end duty, so all
  * three need `X-Idempotency-Key` (`idempotencyRequired`, 7.7); 73 takes an optional
  * `expected_updated_at`. The writes carry the organization-scoped rate limit; the reads ride the
@@ -34,11 +36,8 @@ const DRAFT_FIELDS_DESCRIPTION =
  */
 export function broadcastRoutes({
   broadcastService,
-  planAccessPreHandler,
 }: {
   broadcastService: BroadcastService;
-  /** The app domain's read-only plan guard (`createAppPlanAccessPreHandler`). */
-  planAccessPreHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }): FastifyPluginAsync {
   const controller = createBroadcastController(broadcastService);
 
@@ -64,7 +63,11 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:broadcasts'] },
+        },
         schema: {
           summary: 'Create a broadcast draft',
           description: `Makes a draft broadcast on one channel account: channel_account_id (fixed) and ${DRAFT_FIELDS_DESCRIPTION} Nothing is sent until send. A plan without broadcasts answers 403 plan_lacks_feature; a message kind the account's channel cannot send 422 channel_lacks_feature; 409 permission_not_granted when the connection lacks the messaging permission. 404 instagram_not_connected when the account is not this organization's or is disconnected. Answers the broadcast. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_CREATE permission.`,
@@ -94,7 +97,10 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.DRAFT },
+        },
         schema: {
           summary: 'Update a broadcast draft',
           description: `Edits a draft — at least one of ${DRAFT_FIELDS_DESCRIPTION} Sending one audience clears the other; null clears a field. Optional expected_updated_at answers 409 record_changed when the broadcast changed since it was read. 409 broadcast_not_draft once it was sent or cancelled. Open on every plan. 404 broadcast_not_found. Answers the broadcast. Team organizations only. Requires AUTOMATION_UPDATE permission.`,
@@ -110,7 +116,10 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete a broadcast',
           description:
@@ -125,15 +134,16 @@ export function broadcastRoutes({
       '/broadcasts/:broadcast_id/send',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
-        ],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['read_only', 'feature:broadcasts', 'limit:message_month_limit'] },
+        },
         schema: {
           summary: 'Send a broadcast',
           description:
-            "Sends a draft: mode now (sending, to the people of its audience whose chat is open), scheduled with scheduled_at (in the future, at most 30 days ahead — it starts then) or when_chat_opens with open_wait_days 1–7 (each person of the audience when her chat next opens before ends_at). The audience is copied at send — a saved segment's later edit never changes it. Always left out: opted-out, paused and deleted contacts and anyone who got a broadcast in the last 24 hours. A field of another mode answers 400. 409 transition_not_allowed when it is not a draft; 409 instagram_not_connected when the account is disconnected or broken; 409 message_month_limit_reached when this month's DMs are used up; 422 broadcast_incomplete with errors[] naming messages or audience (none, or its segment was deleted) or a file that is not usable. A plan without broadcasts answers 403 plan_lacks_feature; 403 organization_read_only while the plan has ended. Answers the broadcast. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_UPDATE permission.",
+            "Sends a draft: mode now (sending, to the people of its audience whose chat is open), scheduled with scheduled_at (in the future, at most 30 days ahead — it starts then) or when_chat_opens with open_wait_days 1–7 (each person of the audience when her chat next opens before ends_at). The audience is copied at send — a saved segment's later edit never changes it. Always left out: opted-out, paused and deleted contacts and anyone who got a broadcast in the last 24 hours. A field of another mode answers 400. 409 transition_not_allowed when it is not a draft; 409 instagram_not_connected when the account is disconnected or broken; 409 message_month_limit_reached with limit, used and resets_on when this month's DMs are used up; 422 broadcast_incomplete with errors[] naming messages or audience (none, or its segment was deleted) or a file that is not usable. A plan without broadcasts answers 403 plan_lacks_feature; 403 organization_read_only while the plan has ended. Answers the broadcast. Needs X-Idempotency-Key. Team organizations only. Requires AUTOMATION_UPDATE permission.",
           tags: ['Broadcasts'],
           params: broadcastIdParamsDto,
           body: sendBroadcastBodyDto,
@@ -146,7 +156,11 @@ export function broadcastRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Cancel a broadcast',
           description:

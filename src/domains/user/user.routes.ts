@@ -28,6 +28,7 @@ import {
   UploadAvatarDto,
   userIdParamsDto,
 } from './user.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Fastify plugin that mounts the user domain HTTP surface: admin user management routes, the
@@ -83,7 +84,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/:user_id',
     {
       // route-#4: bound admin user-mutations so a compromised admin token cannot bulk-edit accounts.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'global-admin user management (super_admin) — no organization plan' },
+      },
       onRequest: [app.authenticate],
       // A-2: a `status` change suspends or reactivates the account — strong step-up, like suspend.
       preHandler: [
@@ -105,7 +109,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/:user_id',
     {
       // route-#4: stronger bound on the destructive admin delete (matches DELETE /me).
-      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      config: {
+        ...EXPENSIVE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'global-admin user management (super_admin) — no organization plan' },
+      },
       onRequest: [app.authenticate],
       preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN), requireStrongRecentStepUpPreHandler],
       schema: {
@@ -121,7 +128,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
   zodApplication.post(
     '/:user_id/suspend',
     {
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'global-admin user management (super_admin) — no organization plan' },
+      },
       onRequest: [app.authenticate],
       preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN), requireStrongRecentStepUpPreHandler],
       schema: {
@@ -137,7 +147,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
   zodApplication.post(
     '/:user_id/unsuspend',
     {
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: 'global-admin user management (super_admin) — no organization plan' },
+      },
       onRequest: [app.authenticate],
       preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
       schema: {
@@ -203,7 +216,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       // touches PII columns and downstream notification preferences, so cap at
       // the moderate-authed tier (30 req / 60s) consistent with other authed
       // mutation paths. Unauthenticated traffic is already rejected upstream.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Update current user profile',
         description:
@@ -219,7 +235,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       // A self-service write like PATCH /me — the moderate-authed tier.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Set my presence',
         description:
@@ -235,7 +254,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       // Each request sends an email: the strict authed tier on top of the 60 s wait per person.
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Email me a confirm link',
         description:
@@ -251,7 +273,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // Idempotent one-shot stamp on wizard finish; moderate-authed tier matches
       // the other self-service mutations.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Mark onboarding complete',
         description:
@@ -269,7 +294,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       // memberships, schedules retention sweep). Cap at the expensive-authed
       // tier (5 req / 5 min) so a hijacked session cannot rip through victim
       // accounts in bulk.
-      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      config: {
+        ...EXPENSIVE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       // Irreversible: a stolen access token alone must not be enough.
       preHandler: [requireRecentStepUpPreHandler],
       schema: {
@@ -300,7 +328,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-r4-I1: moderate-authed tier for self-service settings mutations so a
       // session-token holder cannot churn settings rows unbounded.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Update my settings',
         description:
@@ -330,7 +361,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-r4-I1: cap notification-preference saves at the moderate-authed tier — a PUT
       // upserts up to 21 kind × channel items per call and could otherwise be looped to churn rows.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Save notification preferences',
         description:
@@ -348,7 +382,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       // sec-r4-I1: each avatar upload writes to S3 and rewrites the user row;
       // cap at moderate-authed (30 req / 60s) so a hijacked session cannot
       // mint unbounded S3 objects.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Upload avatar',
         description: "Uploads or replaces the authenticated user's avatar image.",
@@ -364,7 +401,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-r4-I1: avatar deletion calls S3 and rewrites the user row; same
       // moderate-authed bound as the upload counterpart.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Remove avatar',
         description: "Removes the authenticated user's avatar image.",
@@ -381,7 +421,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // A report is a deliberate act: 10 a minute per person stops a stuck client or a script
       // from flooding the table (feat-bug-report BR7).
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       schema: {
         summary: 'Report a bug',
         description:
@@ -398,7 +441,10 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/data-export',
     {
       onRequest: [app.authenticate],
-      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      config: {
+        ...EXPENSIVE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.USER },
+      },
       // The bundle is every piece of personal data: a stolen access token alone must not get it.
       preHandler: [requireRecentStepUpPreHandler],
       schema: {

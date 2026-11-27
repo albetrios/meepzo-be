@@ -79,6 +79,9 @@ function buildErrorPayload({
   return payload;
 }
 
+/** A calendar date, `YYYY-MM-DD` — the `date` kind of {@link APP_ERROR_FIELD_KINDS} (`resets_on`). */
+const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Whether `value` is of the JSON kind {@link APP_ERROR_FIELD_KINDS} names. */
 function isAppErrorFieldKind({
   kind,
@@ -96,6 +99,8 @@ function isAppErrorFieldKind({
       return value === null || (typeof value === 'string' && !Number.isNaN(Date.parse(value)));
     case 'boolean':
       return typeof value === 'boolean';
+    case 'date':
+      return typeof value === 'string' && CALENDAR_DATE_PATTERN.test(value);
     case 'string_list':
       return (
         Array.isArray(value) &&

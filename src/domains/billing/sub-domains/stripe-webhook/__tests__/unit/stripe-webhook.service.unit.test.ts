@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type Stripe from 'stripe';
-import { StripeWebhookService } from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook.service.js';
+import {
+  StripeWebhookService,
+  type StripeWebhookEntitlementService,
+} from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook.service.js';
 import {
   StripeWebhookEventAbandonedError,
   StripeWebhookPermanentError,
@@ -104,6 +107,8 @@ describe('StripeWebhookService', () => {
     subscriptionService,
     stripeWebhookEventRepository,
     planRepository,
+    // The plan-state cases' entitlement read (EN7) — not reached here. Stub for type safety only.
+    { resolve: vi.fn() } as never,
   );
 
   const stripeEventCreatedAtSeconds = 1_700_000_000;
@@ -1104,6 +1109,7 @@ describe('StripeWebhookService.ingestEvent', () => {
     {} as SubscriptionService,
     repository,
     {} as PlanRepository,
+    {} as StripeWebhookEntitlementService,
   );
 
   beforeEach(() => {

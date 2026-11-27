@@ -477,6 +477,26 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
       expect(paused.statusCode).toBe(200);
       expect((await remove(live.public_id)).statusCode).toBe(204);
     });
+
+    it('checks the plan before the permission on go-live (change-plan-gates R2, P4)', async () => {
+      const draft = await create({
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+      });
+      const draftId = dataOf<{ id: string }>(draft).id;
+
+      // Writable: a viewer is refused by the permission.
+      const writable = await goLive(draftId, team.viewerToken);
+      expect(writable.statusCode).toBe(403);
+      expect(errorOf(writable).reason).not.toBe('organization_read_only');
+
+      await endPaidPlanWithoutPaying(team.organization.id);
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
+
+      // Read-only: the plan answers first, before the permission.
+      const readOnly = await goLive(draftId, team.viewerToken);
+      expect(readOnly.statusCode).toBe(403);
+      expect(errorOf(readOnly).reason).toBe('organization_read_only');
+    });
   });
 
   describe('route 30 — save content (AU12, AC-6.6)', () => {
@@ -518,6 +538,26 @@ describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
       expect(errorOf(turnOn).reason).toBe('plan_lacks_feature');
       // The plan refusal contract (P269): the first PRO part the plan lacks, by its plan key.
       expect(errorOf(turnOn)).toMatchObject({ feature: 'phone_ask', upgrade_required: true });
+      // change-plan-gates AP3: the entitlement module's refusal builder answers the body the
+      // automation built itself before — every field, its value and its order.
+      expect(errorOf(turnOn)).toEqual({
+        type: 'request_error',
+        code: 'forbidden',
+        reason: 'plan_lacks_feature',
+        detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+        feature: 'phone_ask',
+        upgrade_required: true,
+        documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+      });
+      expect(Object.keys(errorOf(turnOn))).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'feature',
+        'upgrade_required',
+        'documentation_url',
+      ]);
       const keepsIt = await edit({ automationPublicId: live.public_id, body: { name: 'Renamed' } });
       expect(keepsIt.statusCode).toBe(200);
       expect(dataOf(keepsIt)).toMatchObject({ name: 'Renamed', pro_parts_off: ['email_ask'] });

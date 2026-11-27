@@ -53,6 +53,7 @@ import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -134,7 +135,7 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
     engine = new AutomationRunService({
       channelAccountService: { readAutomationRunAccount: runAccountRead as never },
       contactService,
-      planAccessService: { getPlanAccess: (async () => ({ features: null })) as never },
+      entitlementService: entitlementServiceOf({ features: null }),
       countService: new AutomationCountService(new AutomationCountRepository()),
       replyStateService: new AutomationReplyStateService(new AutomationReplyStateRepository()),
       sendingPorts: { instagram: port },

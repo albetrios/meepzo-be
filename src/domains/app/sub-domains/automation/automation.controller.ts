@@ -205,6 +205,8 @@ function createAutomationActionHandlers(service: AutomationService) {
         scope: requireOrganizationScope(request),
         automationPublicId: readAutomationPublicId(request),
         actingUserPublicId: getActingUserPublicId(requirePrincipal(request)),
+        // The plan guard's snapshot (change-plan-gates RG5): go-live reads the plan no second time.
+        entitlement: request.entitlementSnapshot ?? undefined,
       });
       if (isChanged) {
         await recordAutomationAudit({

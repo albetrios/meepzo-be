@@ -36,6 +36,9 @@ export function stripeWebhookRoutes(
           ...WEBHOOK_RATE_LIMIT.config,
           captureRawBody: true,
           rawBodySignatureHeader: STRIPE_SIGNATURE_HEADER,
+          planGate: {
+            open: "Stripe's signed webhook — it moves the plan state, it is not gated by it",
+          },
         },
         // sec-C/M #29: the shared 5 MB webhook body limit — a 413 here turns into "Stripe retries
         // for 3 days then parks the event", which silently desyncs entitlement / dunning state.

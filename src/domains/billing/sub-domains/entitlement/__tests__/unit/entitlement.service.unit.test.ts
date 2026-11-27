@@ -43,6 +43,7 @@ function planAccess(values: Partial<PlanAccess> = {}): PlanAccess {
     plan: { publicId: 'pln_creator', name: 'Creator' },
     features: CREATOR_PLAN_FEATURES,
     seatLimit: null,
+    defaultedKeys: [],
     overrides: [],
     isPlanChoiceRequired: false,
     ...values,
@@ -92,6 +93,7 @@ function setup() {
   const planAccessService = {
     getPlanAccess: vi.fn().mockResolvedValue(planAccess()),
     emitPlanStateChanged: vi.fn().mockResolvedValue(undefined),
+    reserveSeatCeilingForMemberAdd: vi.fn().mockResolvedValue(null),
   };
   const membershipSeatUsage = { countActiveMembers: vi.fn().mockResolvedValue(4) };
   const service = new EntitlementService({
@@ -119,6 +121,64 @@ const setInput = {
 describe('EntitlementService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe('resolve — one plan read, a source per key (change-plan-gates EN2)', () => {
+    it('reads the plan access exactly once and names each value source', async () => {
+      const { service, planAccessService } = setup();
+      planAccessService.getPlanAccess.mockResolvedValue(
+        planAccess({
+          state: 'grace',
+          graceEndsAt: new Date('2026-12-10T00:00:00.000Z'),
+          trialEndsAt: null,
+          seatLimit: 5,
+          features: {
+            ...CREATOR_PLAN_FEATURES,
+            channel_accounts_max: 9,
+            feature_switches: { ...CREATOR_PLAN_FEATURES.feature_switches, mark_seen: false },
+          },
+          defaultedKeys: ['mark_seen'],
+          overrides: [{ key: 'channel_accounts_max', value: 9, expiresAt: null }],
+        }),
+      );
+
+      const snapshot = await service.resolve({ organizationPublicId: ORGANIZATION_PUBLIC_ID });
+
+      expect(planAccessService.getPlanAccess).toHaveBeenCalledExactlyOnceWith({
+        organizationPublicId: ORGANIZATION_PUBLIC_ID,
+      });
+      expect(snapshot).toMatchObject({
+        state: 'grace',
+        graceEndsAt: new Date('2026-12-10T00:00:00.000Z'),
+        trialEndsAt: null,
+        plan: { publicId: 'pln_creator', name: 'Creator' },
+      });
+      expect(snapshot.values.channel_accounts_max).toEqual({ value: 9, source: 'override' });
+      expect(snapshot.values.mark_seen).toEqual({ value: false, source: 'default' });
+      expect(snapshot.values.broadcasts).toEqual({ value: true, source: 'plan' });
+      expect(snapshot.values.seats).toEqual({ value: 5, source: 'plan' });
+    });
+  });
+
+  describe('reserveSeatCeilingForMemberAdd — the seat port ceiling (change-plan-gates SE1)', () => {
+    it.each([
+      [3, 3],
+      [null, null],
+    ])(
+      'delegates to the subscription locked read once, unchanged (%s)',
+      async (ceiling, expected) => {
+        const { service, planAccessService } = setup();
+        planAccessService.reserveSeatCeilingForMemberAdd.mockResolvedValue(ceiling);
+
+        await expect(service.reserveSeatCeilingForMemberAdd(ORGANIZATION_ID)).resolves.toBe(
+          expected,
+        );
+        expect(planAccessService.reserveSeatCeilingForMemberAdd).toHaveBeenCalledExactlyOnceWith(
+          ORGANIZATION_ID,
+        );
+        expect(planAccessService.getPlanAccess).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('getEntitlements — the plan read, the usage port and the seats (P271)', () => {
@@ -166,6 +226,7 @@ describe('EntitlementService', () => {
         },
         grace_ends_at: '2026-12-10T00:00:00.000Z',
         overrides: [{ key: 'broadcasts', expires_at: null }],
+        sources: { broadcasts: 'override', segments: 'plan', seats: 'plan' },
       });
     });
 

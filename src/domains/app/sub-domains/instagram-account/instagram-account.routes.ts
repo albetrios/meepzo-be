@@ -32,6 +32,13 @@ export function instagramAccountRoutes(
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE)],
         ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          // feat-meta-connect-flow IG2: the owner must be able to fix a stop on any plan.
+          planGate: {
+            open: "reads Instagram's own setting and stores it — no paid work, no plan room used",
+          },
+        },
         schema: {
           summary: 'Check message access now',
           description:

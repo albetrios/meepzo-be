@@ -47,6 +47,8 @@ organization's or a revoked account is `404 channel_account_not_found`. Routes 7
   the kept, then the accounts in the plan, oldest first, then on a move up the `plan_downgrade` ones); while the plan
   has ended nothing is trimmed. The repository's `listOrganizationsHoldingPlanStop` (retention handle,
   `createRetentionChannelAccountRepository`) is the repair duties' cross-organization read.
+- `channel-account-entitlement.util.ts` — the app's one plan dependency (`ChannelAccountEntitlementService`, the
+  entitlement module's `resolve`), `readEntitlementSnapshot` and `readChannelAccountsMax` (change-plan-gates AP1, P39).
 - `channel-account-capabilities.constants.ts` — `CHANNEL_CAPABILITIES` (per channel: ways to start, steps, message
   kinds, features), `CHANNEL_FEATURES` (each feature's permission, plan switch and Meta test — the plan switches are
   exactly billing's `PLAN_FEATURE_KEYS`, a unit test pins it). `APP_UNTESTED_META_FEATURES` lives in sub-domain 6's
@@ -67,4 +69,11 @@ organization's or a revoked account is `404 channel_account_not_found`. Routes 7
 - **Route 11 counts under the organization lock** (CA9): at the plan's `channel_accounts_max` the named
   `stop_channel_account_id` takes `plan_downgrade` in the same commit; `X-Idempotency-Key` replays the swap.
 - **The feature check reads Postgres and constants only** — the channel, the connection's `scopes`, the plan's switch
-  (`getPlanAccess`) and the untested list, in that order of refusal.
+  (`can()` over the entitlement module's snapshot — the caller's, else one resolve; change-plan-gates AP2) and the
+  untested list, in that order of refusal. Its plan refusal is the module's `buildPlanRefusal`; the three channel
+  reasons stay here.
+- **Every plan read goes through the entitlement module** (change-plan-gates AP1, K3):
+  `readEntitlementSnapshot` takes the caller's snapshot, else resolves once — one plan read per request or job; the
+  accounts maximum is `limit('channel_accounts_max')`, Free's 1 when it reads `null` (P39). Route 11 and the
+  pick refuse `409 plan_account_limit` through `buildPlanRefusal`; the plan stops and the plan change read the same
+  snapshot.

@@ -1,5 +1,5 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
-import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type {
   InstagramAccountExtensionOutput,
   InstagramMessageAccessOutput,
@@ -173,9 +173,12 @@ export interface ChannelAccountLanePort {
  * else `null` — `ChannelAccountPlanStopService` answers both, `plan_ended` first.
  */
 export interface ChannelAccountPlanStopPort {
-  /** The organization's plan stop now, in the caller's unit. */
+  /**
+   * The organization's plan stop now, in the caller's unit — from the caller's entitlement snapshot
+   * when it holds one, else from one resolve (change-plan-gates AP5, P24).
+   */
   readOrganizationPlanStop(
-    options: ChannelAccountPortScope,
+    options: ChannelAccountPortScope & { entitlement?: EntitlementSnapshot | undefined },
   ): Promise<Exclude<ChannelAccountPlanStopReason, 'plan_downgrade'> | null>;
 }
 
@@ -273,10 +276,11 @@ export interface ChannelAccountPlanStopMove {
 export interface ChannelAccountPlanStopsResult {
   /** `tenancy.organizations.id` of the scope's organization. */
   organizationId: number;
-  /** The plan's typed features read for the change (`null` when the catalog has no plan to read). */
-  features: PlanFeatures | null;
-  /** The name of the plan whose features apply (`null` with no plan in the catalog) — the move down's notice. */
-  planName: string | null;
+  /**
+   * The organization's entitlement resolved once for the change (change-plan-gates AP1, P24): the
+   * job reads the switches the new plan lacks with `can()` and the move down's notice its plan name.
+   */
+  entitlement: EntitlementSnapshot;
   /** The accounts whose plan stop moved. */
   moves: ChannelAccountPlanStopMove[];
 }

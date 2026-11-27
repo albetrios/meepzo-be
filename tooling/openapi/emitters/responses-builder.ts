@@ -100,12 +100,12 @@ const errorResponseSchema = {
         limit: {
           type: 'integer',
           description:
-            "The plan's limit a limit refusal hit — `plan_account_limit` (`channel_accounts_max`), `seat_limit_reached` (seats). Absent otherwise.",
+            "The plan's limit a limit refusal hit — `plan_account_limit` (`channel_accounts_max`), `seat_limit_reached` (seats), `message_month_limit_reached` (`message_month_limit`). Absent otherwise.",
         },
         used: {
           type: 'integer',
           description:
-            'How much of `limit` the organization uses before this write — beside `limit` on `plan_account_limit` and `seat_limit_reached`. Absent otherwise.',
+            'How much of `limit` the organization uses before this write — beside `limit` on `plan_account_limit`, `seat_limit_reached` and `message_month_limit_reached`. Absent otherwise.',
         },
         grace_ends_at: {
           type: ['string', 'null'],
@@ -117,6 +117,12 @@ const errorResponseSchema = {
           type: 'boolean',
           description:
             '`true` when a plan change is what lifts the refusal (`plan_lacks_feature`, `plan_account_limit`, `seat_limit_reached`, `organization_read_only`); pick the plan from `GET /billing/plans` by `feature` / `limit`. Absent otherwise.',
+        },
+        resets_on: {
+          type: 'string',
+          format: 'date',
+          description:
+            "When the month's DM count starts again — the 1st of next month (`YYYY-MM-DD`), on `message_month_limit_reached`. Absent otherwise.",
         },
         missing_permissions: {
           type: 'array',
@@ -222,10 +228,14 @@ function permissionDeniedExample(): Record<string, unknown> {
  * @remarks
  * `GET /auth/oauth/{provider}/callback` signs up, links and signs in; in link mode an account
  * already linked to someone else is `409 provider_account_in_use` (feat-instagram-dm-sending
- * § 10.B.9, AT12). Keyed by `"<METHOD> <openapi-path>"`.
+ * § 10.B.9, AT12). `GET /app/social/channel-connections/{channel_connection_id}/shared-assets`
+ * re-reads Meta and a refused token moves the connection to error, so a connection that is not
+ * connected is `409 channel_connection_not_connected` (feat-meta-connect-flow route 151). Keyed by
+ * `"<METHOD> <openapi-path>"`.
  */
 const GET_ROUTE_KEYS_ANSWERING_CONFLICT = new Set<string>([
   'GET /api/v1/auth/oauth/{provider}/callback',
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/shared-assets',
 ]);
 
 /**

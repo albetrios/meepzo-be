@@ -40,7 +40,10 @@ export const ERROR_CODE_TO_SNAKE: Record<AppErrorCode, string> = {
  *   `plan_lacks_feature` names), `limit` and `used` (`plan_account_limit`, `seat_limit_reached`),
  *   `grace_ends_at` (`organization_read_only`: when write access ended, ISO 8601 or `null`) and
  *   `upgrade_required` (`true` when a plan change is what lifts the refusal — the client picks the
- *   plan from `GET /billing/plans` by `feature` / `limit`).
+ *   plan from `GET /billing/plans` by `feature` / `limit`);
+ * - the month refusal's numbers (change-plan-gates P6): `limit` and `used` on
+ *   `message_month_limit_reached`, and `resets_on` (the 1st of next month, `YYYY-MM-DD`, when the
+ *   month's count starts again).
  *
  * A unit test pins this map; a new field is a contract change.
  */
@@ -52,6 +55,7 @@ export const APP_ERROR_FIELD_KINDS = {
   used: 'integer',
   grace_ends_at: 'timestamp_or_null',
   upgrade_required: 'boolean',
+  resets_on: 'date',
   missing_permissions: 'string_list',
   expected_client_business_id: 'string',
   plan_room: 'plan_room',
@@ -69,6 +73,7 @@ interface AppErrorFieldValueByKind {
   string: string;
   timestamp_or_null: string | null;
   boolean: boolean;
+  date: string;
   /** A non-empty list of non-empty strings (feat-meta-connect-flow CN3: `missing_permissions`). */
   string_list: string[];
   /** The plan's room for channel accounts (feat-meta-connect-flow CN6), as the success answers carry it. */

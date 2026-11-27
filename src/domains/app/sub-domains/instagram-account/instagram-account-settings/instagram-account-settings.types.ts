@@ -1,6 +1,7 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type {
   ChannelAccountLanePort,
   ChannelFeatureCheckResult,
@@ -125,12 +126,20 @@ export interface InstagramAccountSettingsChannelAccountPort {
       isAutomationEnabled: boolean;
     },
   ): Promise<InstagramAccountSettingsChannelAccount>;
-  /** The one feature check (CA11, P50). */
+  /**
+   * The organization's entitlement snapshot — the save's one plan read, through the entitlement
+   * module (P41, K2): read once, then passed to every feature check of the save.
+   */
+  readEntitlementSnapshot(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<EntitlementSnapshot>;
+  /** The one feature check (CA11, P50), on the save's snapshot. */
   canChannelAccountUseFeature(options: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     channelAccountId: number;
     feature: ChannelFeature;
+    entitlement: EntitlementSnapshot;
   }): Promise<ChannelFeatureCheckResult>;
 }
 

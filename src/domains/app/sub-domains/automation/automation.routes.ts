@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
@@ -15,6 +15,20 @@ import {
   pauseAutomationDto,
   updateAutomationDto,
 } from './automation.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
+import type { PlanGate } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
+
+/**
+ * The automation's PRO parts as plan gates (`listAutomationFeatureParts`, AU34): a save of a live or
+ * paused automation and its go-live may not turn on a part the plan lacks.
+ */
+const AUTOMATION_PRO_FEATURE_GATES = [
+  'feature:email_ask',
+  'feature:phone_ask',
+  'feature:reply_like_person',
+  'feature:multiple_public_reply_lines',
+  'feature:message_versions',
+] as const satisfies readonly PlanGate[];
 
 /**
  * Returns the Fastify plugin that registers the automation routes (feat-instagram-dm-sending
@@ -25,19 +39,17 @@ import {
  *
  * @remarks
  * Gates (4.A.4): `automation:read` on 27, 29, 35, 36; `automation:create` on 28, 34;
- * `automation:update` on 30, 32, 33, 37; `automation:delete` on 31. The read-only plan guard
- * (`planAccessPreHandler`, AU4 (1), P10) runs on route 32 only, first — create, edit, pause,
- * duplicate and delete stay open. `X-Idempotency-Key` is required on 28, 34 and 37 (AU5); 32, 33 (state
- * no-ops) and 35 (saves nothing) take none. The writes and route 35 carry the organization-scoped
+ * `automation:update` on 30, 32, 33, 37; `automation:delete` on 31. Route 32 declares `read_only`
+ * (AU4 (1), P10), so the one plan guard (`src/routes.ts`) runs on it first — create, edit, pause,
+ * duplicate and delete stay open; every write declares its `config.planGate` (change-plan-gates
+ * RG1). `X-Idempotency-Key` is required on 28, 34 and 37 (AU5); 32, 33 (state no-ops) and 35
+ * (saves nothing) take none. The writes and route 35 carry the organization-scoped
  * rate limit; the reads ride the global limiter.
  */
 export function automationRoutes({
   automationService,
-  planAccessPreHandler,
 }: {
   automationService: AutomationService;
-  /** The app domain's read-only plan guard (`createAppPlanAccessPreHandler`). */
-  planAccessPreHandler: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }): FastifyPluginAsync {
   const controller = createAutomationController(automationService);
 
@@ -63,7 +75,11 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.DRAFT },
+        },
         schema: {
           summary: 'Save an automation draft',
           description:
@@ -94,7 +110,10 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: AUTOMATION_PRO_FEATURE_GATES },
+        },
         schema: {
           summary: 'Save automation content',
           description:
@@ -111,7 +130,10 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete an automation',
           description:
@@ -127,11 +149,18 @@ export function automationRoutes({
       '/automations/:automation_id/go-live',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
-        ],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            gates: [
+              'read_only',
+              ...AUTOMATION_PRO_FEATURE_GATES,
+              'feature:starter_questions',
+              'limit:message_month_limit',
+            ],
+          },
+        },
         schema: {
           summary: 'Go live',
           description:
@@ -148,7 +177,10 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Pause an automation',
           description:
@@ -165,7 +197,11 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.DRAFT },
+        },
         schema: {
           summary: 'Duplicate an automation',
           description:
@@ -197,7 +233,11 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['limit:message_month_limit'] },
+        },
         schema: {
           summary: "Retry an automation's failed messages",
           description:
@@ -214,7 +254,10 @@ export function automationRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_READ)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: 'a dry run — writes and sends nothing' },
+        },
         schema: {
           summary: 'Try an automation keyword',
           description:

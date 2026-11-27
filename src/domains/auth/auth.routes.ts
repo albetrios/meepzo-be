@@ -47,6 +47,7 @@ import {
   webauthnCredentialIdParamsDto,
   webauthnRegisterVerifyDto,
 } from './sub-domains/auth-webauthn/webauthn.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, the confirm-email link, OAuth, MFA, WebAuthn, sessions, and auth-method management; the four password routes only when `PASSWORD_ROUTES_ENABLED` is true (PASSWORD-ROUTES-DISABLED, P251). */
 export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
@@ -63,7 +64,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   zodApplication.post(
     '/logout',
     {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Logout current session',
         description:
@@ -74,7 +78,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     controller.logout,
   );
   zodApplication.post('/email/send-code', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
+    config: {
+      ...STRICT_PUBLIC_RATE_LIMIT.config,
+      planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+    },
     preHandler: [perEmailRateLimit, captchaPreHandler],
     schema: {
       summary: 'Send email sign-in code',
@@ -86,7 +93,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     handler: controller.sendEmailCode,
   });
   zodApplication.post('/email/login', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
+    config: {
+      ...STRICT_PUBLIC_RATE_LIMIT.config,
+      planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+    },
     preHandler: [captchaPreHandler],
     schema: {
       summary: 'Log in with an email verification code',
@@ -101,7 +111,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   // captcha — the 32-byte token is the proof and a guess space no captcha would shrink; the strict
   // public limit (as the former reset route) bounds probing.
   zodApplication.post('/email/confirm', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
+    config: {
+      ...STRICT_PUBLIC_RATE_LIMIT.config,
+      planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+    },
     schema: {
       summary: 'Confirm the email with the emailed link',
       description:
@@ -163,7 +176,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     // route by that name.
     const zodApplication = formApplication.withTypeProvider<ZodTypeProvider>();
     zodApplication.post('/oauth/apple/callback', {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       bodyLimit: OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES,
       schema: {
         summary: "Apple's sign-in form callback",
@@ -190,7 +206,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   zodApplication.post(
     '/mfa/login',
     {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       // sec-new-A1: add bot-protection at the MFA step. The mfa_session_token is
       // single-use (GETDEL), so per-email rate-limiting is already enforced at
       // the first factor that mints the token (POST /auth/email/login). Captcha here adds a second
@@ -207,7 +226,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     controller.verifyMfaLogin,
   );
   zodApplication.post('/webauthn/authenticate/options', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
+    config: {
+      ...STRICT_PUBLIC_RATE_LIMIT.config,
+      planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+    },
     preHandler: [perEmailRateLimit, captchaPreHandler],
     schema: {
       summary: 'Begin passkey authentication',
@@ -219,7 +241,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     handler: controller.webauthnAuthenticateOptions,
   });
   zodApplication.post('/webauthn/authenticate/verify', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
+    config: {
+      ...STRICT_PUBLIC_RATE_LIMIT.config,
+      planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+    },
     schema: {
       summary: 'Complete passkey authentication',
       description:
@@ -232,7 +257,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   zodApplication.post(
     '/refresh',
     {
-      ...REFRESH_RATE_LIMIT,
+      config: { ...REFRESH_RATE_LIMIT.config, planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY } },
       schema: {
         summary: 'Refresh access token',
         description:
@@ -248,7 +273,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // Per-user cap: each switch re-mints a JWT and hits the DB, so throttle like the other
       // moderate authed operations rather than leaving it on the global limiter alone.
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Switch to personal organization',
         description:
@@ -262,7 +290,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/switch-to-organization',
     {
       onRequest: [app.authenticate],
-      ...MODERATE_AUTHED_RATE_LIMIT,
+      config: {
+        ...MODERATE_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Switch active organization',
         description:
@@ -287,7 +318,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
    */
   if (getEnv().PASSWORD_ROUTES_ENABLED) {
     zodApplication.post('/login', {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       preHandler: [perEmailRateLimit, captchaPreHandler],
       schema: {
         summary: 'Login with email and password',
@@ -299,7 +333,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       handler: controller.login,
     });
     zodApplication.post('/password/forgot', {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       preHandler: [perEmailRateLimit, captchaPreHandler],
       schema: {
         summary: 'Request password reset',
@@ -311,7 +348,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       handler: controller.forgotPassword,
     });
     zodApplication.post('/password/reset', {
-      ...STRICT_PUBLIC_RATE_LIMIT,
+      config: {
+        ...STRICT_PUBLIC_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       preHandler: [captchaPreHandler],
       schema: {
         summary: 'Reset password with token',
@@ -327,7 +367,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       {
         onRequest: [app.authenticate],
         preHandler: [requireRecentStepUpPreHandler],
-        ...STRICT_AUTHED_RATE_LIMIT,
+        config: {
+          ...STRICT_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+        },
         schema: {
           summary: 'Change current password',
           description:
@@ -345,7 +388,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/step-up',
     {
       onRequest: [app.authenticate],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Step-up (re-authenticate)',
         description:
@@ -361,7 +407,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       preHandler: [requireRecentStepUpPreHandler],
-      config: { ...STRICT_AUTHED_RATE_LIMIT.config },
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Begin MFA enrollment (phase 1 of 2)',
         description:
@@ -377,7 +426,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       preHandler: [requireRecentStepUpPreHandler],
-      config: { ...STRICT_AUTHED_RATE_LIMIT.config },
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Confirm MFA enrollment (phase 2 of 2)',
         description:
@@ -393,7 +445,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       preHandler: [requireRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Begin passkey registration',
         description:
@@ -409,7 +464,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       preHandler: [requireRecentStepUpPreHandler],
-      config: { ...STRICT_AUTHED_RATE_LIMIT.config },
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Complete passkey registration',
         description:
@@ -440,7 +498,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Revoke a passkey',
         description:
@@ -470,7 +531,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Remove MFA method',
         description:
@@ -491,7 +555,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       // A STRONG step-up is required: 2FA, or the email code for a person without settled 2FA
       // (AT15 — their mailbox can already sign them in, so it gives no new power).
       preHandler: [requireStrongRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Revoke all sessions',
         description:
@@ -505,7 +572,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/mfa/verify',
     {
       onRequest: [app.authenticate],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Verify MFA code',
         description:
@@ -549,7 +619,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     {
       onRequest: [app.authenticate],
       preHandler: [requireRecentStepUpPreHandler],
-      config: { ...STRICT_AUTHED_RATE_LIMIT.config },
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Add auth method',
         description:
@@ -566,7 +639,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Remove auth method',
         description:
@@ -597,7 +673,10 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-A7: see the comment on DELETE /me/sessions above — same threat model (strong step-up).
       preHandler: [requireStrongRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
+      config: {
+        ...STRICT_AUTHED_RATE_LIMIT.config,
+        planGate: { open: PLAN_GATE_OPEN_REASON.IDENTITY },
+      },
       schema: {
         summary: 'Revoke a specific session',
         description:

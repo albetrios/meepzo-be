@@ -6,6 +6,8 @@ import {
   AUTOMATION_SHE_MESSAGED_FIRST_TRIGGER_TYPES,
   type AutomationTriggerType,
 } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import { can } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import { AUTOMATION_RUN_ONCE_KEY_MAX_LENGTH } from './automation-run.constants.js';
 
 /**
@@ -16,20 +18,6 @@ import { AUTOMATION_RUN_ONCE_KEY_MAX_LENGTH } from './automation-run.constants.j
  * Injected into the run engine so a test fixes every draw.
  */
 export type AutomationRandomSource = (maxExclusive: number) => number;
-
-/** The plan's feature switches the engine reads per job (AU26, D57); `null` = no readable plan. */
-export type AutomationPlanSwitches = Readonly<Record<string, boolean>> | null;
-
-/** Whether the plan switch is on (AU26): an unreadable plan has no PRO part. */
-export function isPlanSwitchOn({
-  switches,
-  feature,
-}: {
-  switches: AutomationPlanSwitches;
-  feature: string;
-}): boolean {
-  return switches?.[feature] === true;
-}
 
 /** The hello step when it is on with at least one version (D30). */
 export function helloStepOf(steps: AutomationSteps) {
@@ -43,19 +31,23 @@ export function followStepOf(steps: AutomationSteps) {
   return follow?.on === true && follow.versions.length > 0 ? follow : null;
 }
 
-/** The email or phone ask when it is on, has a wording and the plan holds its PRO switch (AU26). */
+/**
+ * The email or phone ask when it is on, has a wording and the plan holds its PRO switch (AU26) —
+ * `can()` over the job's entitlement snapshot (change-plan-gates AP3): a switched-off step is
+ * skipped silently (the downgrade rule); an organization with no plan has no PRO part.
+ */
 export function questionStepOf({
   steps,
   part,
-  switches,
+  entitlement,
 }: {
   steps: AutomationSteps;
   part: 'email' | 'phone';
-  switches: AutomationPlanSwitches;
+  entitlement: EntitlementSnapshot;
 }) {
   const question = steps[part];
   if (question?.on !== true || question.wordings.length === 0) return null;
-  return isPlanSwitchOn({ switches, feature: part === 'email' ? 'email_ask' : 'phone_ask' })
+  return can({ snapshot: entitlement, key: part === 'email' ? 'email_ask' : 'phone_ask' })
     ? question
     : null;
 }
@@ -87,18 +79,18 @@ export function helloHasNextButton({
 
 /**
  * A version picked at random for a run's start (AU27, D36): 1 without the plan's `message_versions`
- * switch or with one version, else one of `count`.
+ * switch (`can()` over the job's snapshot) or with one version, else one of `count`.
  */
 export function pickVersionNumber({
   count,
-  switches,
+  entitlement,
   drawInteger,
 }: {
   count: number;
-  switches: AutomationPlanSwitches;
+  entitlement: EntitlementSnapshot;
   drawInteger: AutomationRandomSource;
 }): number {
-  if (count <= 1 || !isPlanSwitchOn({ switches, feature: 'message_versions' })) return 1;
+  if (count <= 1 || !can({ snapshot: entitlement, key: 'message_versions' })) return 1;
   return drawInteger(count) + 1;
 }
 

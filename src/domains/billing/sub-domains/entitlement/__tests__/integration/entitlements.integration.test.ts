@@ -19,6 +19,8 @@ import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import type { EntitlementsOutput } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
+import { PLAN_FEATURE_KEYS } from '@/domains/billing/sub-domains/plan/plan.constants.js';
+import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
 
 const ENTITLEMENTS_PATH = testApiPath('/billing/entitlements');
 
@@ -74,6 +76,34 @@ describe('GET /billing/entitlements (P271)', () => {
     expect(data.limits.direct_messages.resets_on).toMatch(/^\d{4}-\d{2}-01$/);
     // The four members of the fixture (owner, admin, editor, viewer).
     expect(data.limits.seats.used).toBeGreaterThanOrEqual(1);
+    // change-plan-gates EN6: the Free row carries every key, so each value's source is the plan.
+    expect(data.sources).toEqual({
+      ...Object.fromEntries(PLAN_FEATURE_KEYS.map((key) => [key, 'plan'])),
+      message_month_limit: 'plan',
+      channel_accounts_max: 'plan',
+      seats: 'plan',
+    });
+  });
+
+  it('change-plan-gates P19: a switch the plan row lacks reads off with source default', async () => {
+    await cleanupDatabase();
+    await seedAllPermissions();
+    const { mark_seen: _dropped, ...switchesWithoutMarkSeen } = FREE_PLAN_FEATURES.feature_switches;
+    expect(FREE_PLAN_FEATURES.feature_switches.mark_seen).toBe(true);
+    await createTestPlan({
+      features: {
+        ...FREE_PLAN_FEATURES,
+        feature_switches: switchesWithoutMarkSeen,
+      } as unknown as PlanFeatures,
+      priceMonthly: '0.00',
+      priceYearly: '0.00',
+    });
+    team = await createInstagramTeam();
+    const { response, data } = await readEntitlements(team.ownerToken);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(data.features?.feature_switches.mark_seen).toBe(false);
+    expect(data.sources.mark_seen).toBe('default');
+    expect(data.sources.starter_questions).toBe('plan');
   });
 
   it('answers a paid trial with its plan and trial end, and lays an active override over it', async () => {
@@ -120,6 +150,13 @@ describe('GET /billing/entitlements (P271)', () => {
     expect(data.overrides).toEqual([
       { key: 'channel_accounts_max', expires_at: expiresAt.toISOString() },
     ]);
+    // change-plan-gates EN6: the active override is the source; the expired one falls back to the plan.
+    expect(data.sources).toMatchObject({
+      channel_accounts_max: 'override',
+      broadcasts: 'plan',
+      message_month_limit: 'plan',
+      seats: 'plan',
+    });
   });
 
   it('refuses a member without subscription:read with 403', async () => {

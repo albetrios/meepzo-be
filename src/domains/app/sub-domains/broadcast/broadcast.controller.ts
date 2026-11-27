@@ -152,6 +152,8 @@ export function createBroadcastController(service: BroadcastService) {
         caller: broadcastCallerOf(request),
         broadcastPublicId: broadcastPublicIdOf(request),
         input: validateSendBroadcastBody(request.body),
+        // The plan guard's snapshot (change-plan-gates RG5): the send reads the plan no second time.
+        entitlement: request.entitlementSnapshot ?? undefined,
       });
       await recordBroadcastAudit({
         request,

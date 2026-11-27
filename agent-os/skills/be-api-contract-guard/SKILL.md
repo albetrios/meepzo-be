@@ -112,7 +112,8 @@ Every organization-scoped list endpoint uses the **shared** helpers in `src/shar
 3. `ROUTE_EXAMPLE_CAPTURE=1 pnpm test && pnpm routes:examples` to refresh captured samples.
 4. `pnpm docs:generate:multilang && pnpm docs:postman` then `pnpm docs:check`.
 5. Gates: `validate:route-success-statuses`, `validate:route-success-coverage`, unit suites for the response map and examples fixture.
-6. Frontend client contract: when an auth **entry-flow** route or its response body changes (login, email verification-code send/login, oauth, webauthn, mfa/login, refresh, switch-to-organization/personal, or `GET /auth/me/context`), or a **client-sent header** requirement (the header matrix above) changes, update `docs/reference/api/frontend-auth-guide.md` — its entry-flow → calls-to-dashboard matrix and the typed `landOnDashboard()` client mirror those shapes. Server-internal sequences for the same journeys live in `src/FLOWS.md`.
+6. Plan gate: every new write route carries `config.planGate` — its gates (`read_only`, `feature:<switch key>`, `limit:<limit key>`) or a one-line `open` reason (`PLAN_GATE_OPEN_REASON` when one fits); never attach a plan guard by hand. Gate: `src/tests/global/plan-gate-coverage.global.test.ts` (pattern `plan-gates` in `src/PATTERNS.md`).
+7. Frontend client contract: when an auth **entry-flow** route or its response body changes (login, email verification-code send/login, oauth, webauthn, mfa/login, refresh, switch-to-organization/personal, or `GET /auth/me/context`), or a **client-sent header** requirement (the header matrix above) changes, update `docs/reference/api/frontend-auth-guide.md` — its entry-flow → calls-to-dashboard matrix and the typed `landOnDashboard()` client mirror those shapes. Server-internal sequences for the same journeys live in `src/FLOWS.md`.
 
 ---
 

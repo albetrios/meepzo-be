@@ -62,16 +62,16 @@ changes as the checklist. Parallel lanes once dependencies are done: rows 3 ∥ 
 
 | # | Work item | Kind | Depends on | Skill/driver | Acceptance | Assignee | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | The pre-handler order test for go-live and broadcast send, **first** (§3 RGC1) | feature | — | `/be-build-requirement` (be-test-generator) | AC-10 | Claude | open |
-| 2 | Entitlement module: registry, `resolve` with sources, `can` / `limit`, `buildPlanRefusal`, `sources` on the read (§1 ENC1–ENC5, ENC8) | sub-domain | — | `/be-build-requirement` (route 1 output: be-api-contract-guard → be-route-schema-doc-guard → be-openapi-multilingual) | AC-5, AC-6, AC-7, AC-8, AC-11 | Claude | open |
-| 3 | Free plan data: data migration + seed, the two "on Free" tests flipped (§2 PLC1–PLC4) | table | 2 | `/be-build-requirement` (be-db-migration-maintainer → be-seed-maintainer) | AC-15 | Claude | open |
-| 4 | Read-only flag default `false`: schema, `.env.example`, env catalog, schema comment (P5) | feature | — | `/be-build-requirement` (be-env-schema-add; if it refuses, stop and ask) | AC-14 | Claude | open |
-| 5 | Route declarations and the one guard: type, shared reasons, 128 declarations (one commit per domain), the route hook, the snapshot hand-off, the live coverage test (§3 RGC2–RGC7) | sub-domain | 1, 2 | `/be-route-complete` chain per domain (be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog) | AC-1, AC-10 | Claude | open |
-| 6 | App gate users onto the module (§4 APC1–APC5) | sub-domain | 2, 5 | `/be-build-requirement` | AC-5, AC-9, AC-10 | Claude | open |
-| 7 | Seats onto the module (§5 SEC1–SEC4) | sub-domain | 2, 5 | `/be-build-requirement` | AC-5, AC-9 | Claude | open |
-| 8 | Job declarations for every job; the hand-kept model deleted (§6 JGC1–JGC5) | background | 5, 6 | `/be-worker-complete` (be-workers-events → be-test-generator → be-tsdoc-export-guard) | AC-2, AC-3 | Claude | open |
-| 9 | Remaining plan-access callers (auth me context, Stripe webhook, subscription emits) and the policy test (§1 ENC6, ENC7) | feature | 6, 7, 8 | `/be-build-requirement` | AC-4 | Claude | open |
-| 10 | Docs and close: the "plan gates" pattern in the system narratives, the refusal doc, the stale read-only flow line (P9), the frontend route map, acceptance (§3 RGC7) | flow | 3, 4, 9 | be-system-narrative-maintainer, be-docs-maintainer, `pnpm iteration:frontend-map` | AC-12, AC-13 | Claude | open |
+| 1 | The pre-handler order test for go-live and broadcast send, **first** (§3 RGC1) | feature | — | `/be-build-requirement` (be-test-generator) | AC-10 | Claude | done |
+| 2 | Entitlement module: registry, `resolve` with sources, `can` / `limit`, `buildPlanRefusal`, `sources` on the read (§1 ENC1–ENC5, ENC8) | sub-domain | — | `/be-build-requirement` (route 1 output: be-api-contract-guard → be-route-schema-doc-guard → be-openapi-multilingual) | AC-5, AC-6, AC-7, AC-8, AC-11 | Claude | done |
+| 3 | Free plan data: data migration + seed, the two "on Free" tests flipped (§2 PLC1–PLC4) | table | 2 | `/be-build-requirement` (be-db-migration-maintainer → be-seed-maintainer) | AC-15 | Claude | done |
+| 4 | Read-only flag default `false`: schema, `.env.example`, env catalog, schema comment (P5) | feature | — | `/be-build-requirement` (be-env-schema-add; if it refuses, stop and ask) | AC-14 | Claude | done |
+| 5 | Route declarations and the one guard: type, shared reasons, 128 declarations (one commit per domain), the route hook, the snapshot hand-off, the live coverage test (§3 RGC2–RGC7) | sub-domain | 1, 2 | `/be-route-complete` chain per domain (be-api-contract-guard → be-route-schema-doc-guard → be-route-catalog) | AC-1, AC-10 | Claude | done |
+| 6 | App gate users onto the module (§4 APC1–APC5) | sub-domain | 2, 5 | `/be-build-requirement` | AC-5, AC-9, AC-10 | Claude | done |
+| 7 | Seats onto the module (§5 SEC1–SEC4) | sub-domain | 2, 5 | `/be-build-requirement` | AC-5, AC-9 | Claude | done |
+| 8 | Job declarations for every job; the hand-kept model deleted (§6 JGC1–JGC5) | background | 5, 6 | `/be-worker-complete` (be-workers-events → be-test-generator → be-tsdoc-export-guard) | AC-2, AC-3 | Claude | done |
+| 9 | Remaining plan-access callers (auth me context, Stripe webhook, subscription emits) and the policy test (§1 ENC6, ENC7) | feature | 6, 7, 8 | `/be-build-requirement` | AC-4 | Claude | done |
+| 10 | Docs and close: the "plan gates" pattern in the system narratives, the refusal doc, the stale read-only flow line (P9), the frontend route map, acceptance (§3 RGC7) | flow | 3, 4, 9 | be-system-narrative-maintainer, be-docs-maintainer, `pnpm iteration:frontend-map` | AC-12, AC-13 | Claude | done |
 
 ## 6. Requirements index
 

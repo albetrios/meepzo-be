@@ -5,4 +5,5 @@
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-route-schema-doc-guard/SKILL.md"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"be-route-catalog"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-tsdoc-export-guard/SKILL.md"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-test-generator/SKILL.md"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-change-completeness-guard/SKILL.md"}}]}}

@@ -58,6 +58,8 @@ describe('Integration: stripe-webhook worker concurrency race', () => {
       // sec-B7: race test fires `account.updated` (not subscription.updated)
       // so the plan-id resolver is never reached. Stub for type safety only.
       { findByStripePriceId: vi.fn() } as never,
+      // The plan-state cases' entitlement read (EN7) — not reached here. Stub for type safety only.
+      { resolve: vi.fn() } as never,
     );
 
     const results = await Promise.allSettled(

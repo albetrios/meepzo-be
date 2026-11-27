@@ -14,13 +14,30 @@ import { billingRoutesPlugin } from '@/domains/billing/billing.routes.js';
 import { notifyRoutesPlugin } from '@/domains/notify/notify.routes.js';
 import { uploadRoutesPlugin } from '@/domains/upload/upload.routes.js';
 import { appRoutesPlugin } from '@/domains/app/app.routes.js';
+import {
+  createPlanGuardRouteHook,
+  createPlanReadOnlyGuard,
+} from '@/domains/billing/sub-domains/entitlement/entitlement-plan-guard.util.js';
 
 /**
  * Central route registration. Domain services are decorated on the Fastify instance
  * via `domainContainersPlugin`; route plugins read `application.*Domain` from containers.
+ * Between the two, the one plan-guard route hook (change-plan-gates RG3): every route registered
+ * after it that declares `config.planGate` `read_only` runs the entitlement module's read-only
+ * guard first in its `preHandler` list.
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(domainContainersPlugin);
+
+  app.decorateRequest('entitlementSnapshot', null);
+  app.addHook(
+    'onRoute',
+    createPlanGuardRouteHook({
+      guard: createPlanReadOnlyGuard({
+        entitlementService: app.billingDomain.entitlementService,
+      }),
+    }),
+  );
 
   const apiV1 = buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1);
 

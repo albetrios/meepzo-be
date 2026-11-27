@@ -12,6 +12,7 @@ import {
   paymentMethodIdParamsDto,
   subscriptionIdParamsDto,
 } from './subscription.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * Fastify plugin factory that mounts the organization-scoped subscription
@@ -60,6 +61,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         schema: {
           summary: 'Create subscription',
@@ -79,6 +81,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         schema: {
           summary: 'Change subscription plan',
@@ -99,6 +102,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
@@ -118,6 +122,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
@@ -177,7 +182,10 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
     zodApplication.delete<{ Params: { payment_method_id: string } }>(
       '/payment-methods/:payment_method_id',
       {
-        config: ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
+        },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
         schema: {
@@ -196,6 +204,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
@@ -216,6 +225,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         config: {
           idempotencyRequired: true,
           ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.PAYING },
         },
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],

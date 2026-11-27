@@ -4,11 +4,13 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
-import type {
-  ChannelAccountPlanAccessService,
-  ChannelAccountService,
-} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
-import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
+import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import {
+  type ChannelAccountEntitlementService,
+  readChannelAccountsMax,
+  readEntitlementSnapshot,
+} from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
+import { limit } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
 import { instagramNotConnectedError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import type { InstagramSendDayCountRepository } from './instagram-send-day-count.repository.js';
 import type { InstagramSendLaneService } from './instagram-send-lane.service.js';
@@ -36,7 +38,8 @@ import type {
  *   lanes and today's counter row (S8); the all-accounts stop from the global row (outside the unit,
  *   maintenance scope); the later rows' parts through {@link InstagramSendingStatusSources}.
  * - Route 64: the team check; the month through its 10-second Redis copy (SN11); the active accounts;
- *   billing's plan read (the limit, `channel_accounts_max`, the plan state and trial end).
+ *   one entitlement resolve (change-plan-gates AP5) — the month limit and `channel_accounts_max`
+ *   through `limit()` (Free's 1 when it reads `null`, P39), the plan state and the trial end.
  *
  * Failure modes: as above; a Redis failure falls through to Postgres.
  *
@@ -53,7 +56,7 @@ export class InstagramSendingService {
   private readonly dayCountRepository: InstagramSendDayCountRepository;
   private readonly monthCountService: MessageMonthCountService;
   private readonly sendingStateService: SendingStateService;
-  private readonly planAccessService: ChannelAccountPlanAccessService;
+  private readonly entitlementService: ChannelAccountEntitlementService;
   private readonly sources: InstagramSendingStatusSources;
 
   constructor(dependencies: {
@@ -63,7 +66,7 @@ export class InstagramSendingService {
     dayCountRepository: InstagramSendDayCountRepository;
     messageMonthCountService: MessageMonthCountService;
     sendingStateService: SendingStateService;
-    planAccessService: ChannelAccountPlanAccessService;
+    entitlementService: ChannelAccountEntitlementService;
     /** The later rows' parts of route 63; each empty until its row passes it. */
     sources?: InstagramSendingStatusSources | undefined;
   }) {
@@ -73,7 +76,7 @@ export class InstagramSendingService {
     this.dayCountRepository = dependencies.dayCountRepository;
     this.monthCountService = dependencies.messageMonthCountService;
     this.sendingStateService = dependencies.sendingStateService;
-    this.planAccessService = dependencies.planAccessService;
+    this.entitlementService = dependencies.entitlementService;
     this.sources = dependencies.sources ?? {};
   }
 
@@ -164,17 +167,15 @@ export class InstagramSendingService {
       },
     });
     const month = await this.monthCountService.readMonth({ scope, organizationId });
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
     });
     return serializeAppUsage({
       month,
-      limit: planAccess.features?.message_month_limit ?? null,
-      accounts: {
-        used: accountsUsed,
-        maximum: planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN,
-      },
-      planAccess,
+      limit: limit({ snapshot: entitlement, key: 'message_month_limit' }),
+      accounts: { used: accountsUsed, maximum: readChannelAccountsMax(entitlement) },
+      planAccess: entitlement,
       hasLiveAccount: liveAccounts > 0,
       now: new Date(Date.now()),
     });

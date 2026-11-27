@@ -189,8 +189,9 @@ export class InstagramAccountSettingsService {
    * Algorithm:
    * 1. One read unit: the organization must be a team (`422`, capability `INSTAGRAM`); the account
    *    — not revoked, `instagram` (`404 channel_account_not_found`); its saved settings.
-   * 2. Outside any unit: each feature the change turns on goes through the one feature check
-   *    (CA11) — the extra delay (`403 plan_lacks_feature` without the plan's `extra_delay` switch,
+   * 2. Outside any unit: when the change turns a feature on, the organization's entitlement is
+   *    resolved once (P41, K2) and each feature it turns on goes through the one feature check
+   *    (CA11) on that snapshot — the extra delay (`403 plan_lacks_feature` without the plan's `extra_delay` switch,
    *    P83), mark as seen (`422 feature_not_offered` while untested, P36); a connection lacking the
    *    permission → `409 permission_not_granted`.
    * 3. One commit: the settings row locked `FOR UPDATE`; `expected_updated_at` older → `409
@@ -228,14 +229,20 @@ export class InstagramAccountSettingsService {
         return { organizationId: organization.id, channelAccountId: account.id, saved: row };
       },
     });
-    for (const feature of featuresTurnedOn({ saved, changes })) {
-      const check = await this.channelAccountPort.canChannelAccountUseFeature({
-        scope,
-        organizationId,
-        channelAccountId,
-        feature,
-      });
-      if (!check.isAllowed) throw channelFeatureRefusalError({ reason: check.reason, feature });
+    const features = featuresTurnedOn({ saved, changes });
+    if (features.length > 0) {
+      // P41, K2: one plan read per save — resolved once, passed to every feature check.
+      const entitlement = await this.channelAccountPort.readEntitlementSnapshot({ scope });
+      for (const feature of features) {
+        const check = await this.channelAccountPort.canChannelAccountUseFeature({
+          scope,
+          organizationId,
+          channelAccountId,
+          feature,
+          entitlement,
+        });
+        if (!check.isAllowed) throw channelFeatureRefusalError({ reason: check.reason, feature });
+      }
     }
     const key: ChannelAccountKey = { organizationId, channelAccountId };
     const result = await withAppDatabaseContext({

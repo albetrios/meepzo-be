@@ -61,7 +61,10 @@ const opsMiddleware: FastifyPluginAsync = async (application) => {
   application.post(
     '/internal/ops/circuit-breakers/:circuit_name/reset',
     {
-      config: { raw_response: true },
+      config: {
+        raw_response: true,
+        planGate: { open: 'operator endpoint (ops token) — no organization plan' },
+      },
       schema: {
         summary: 'Reset a circuit breaker',
         description:

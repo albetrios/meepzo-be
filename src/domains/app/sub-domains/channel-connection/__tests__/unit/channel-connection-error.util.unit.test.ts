@@ -4,9 +4,9 @@ import { readMetaGraphErrorResponse } from '@/domains/app/sub-domains/channel-co
 import {
   isMetaAdPermissionMissing,
   isMetaTokenRefused,
-  planAccountLimitError,
   toChannelConnectionAdReadError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
 
 /** A Graph error answer as the Meta client throws it. */
 function metaError({ httpStatus, code }: { httpStatus: number; code: number }) {
@@ -67,10 +67,13 @@ describe('channel connection ad picker errors', () => {
   });
 });
 
-/** The account limit's refusal carries the plan refusal contract's fields (MC7, CA9, P269). */
-describe('planAccountLimitError', () => {
+/**
+ * The account limit's refusal carries the plan refusal contract's fields (MC7, CA9, P269) — built
+ * by the entitlement module since change-plan-gates AP4 (the pick and route 11 throw it).
+ */
+describe('the account limit refusal (buildPlanRefusal plan_account_limit)', () => {
   it('is 409 plan_account_limit with limit, used and upgrade_required', () => {
-    const error = planAccountLimitError({ limit: 3, used: 3 });
+    const error = buildPlanRefusal({ reason: 'plan_account_limit', limit: 3, used: 3 });
     expect(error).toMatchObject({ statusCode: 409, reason: 'plan_account_limit' });
     expect(error.fields).toEqual({
       limit: 3,

@@ -1,6 +1,7 @@
 /**
- * The plan switches that are PRO (plan:L2088, P83): off on Free, on for Creator and Studio. "PRO" is
- * a label for these switches, not a field — each is its own key in `features.feature_switches`.
+ * The plan switches that are PRO (plan:L2088, P83): on for Creator and Studio, off on Free except
+ * `broadcasts` and `segments` (on for Free since change-plan-gates P13). "PRO" is a label for these
+ * switches, not a field — each is its own key in `features.feature_switches`.
  */
 export const PRO_PLAN_FEATURE_KEYS = [
   'email_ask',
@@ -33,6 +34,17 @@ export const PLAN_FEATURE_KEYS = [
 
 /** One of {@link PLAN_FEATURE_KEYS}. */
 export type PlanFeatureKey = (typeof PLAN_FEATURE_KEYS)[number];
+
+/**
+ * The value a feature switch a plan row lacks reads (change-plan-gates P19): `false`, off — the one
+ * default of `billing.plans.features`; the limits have none (P36).
+ *
+ * @remarks
+ * Filled by `parsePlanFeaturesWithDefaults` (`plan-features.util.ts`) before the strict parse, and
+ * the entitlement registry builds its switch entries' `default` from this same constant, so the plan
+ * read and the registry cannot disagree.
+ */
+export const PLAN_FEATURE_SWITCH_DEFAULT = false;
 
 /** The highest `channel_accounts_max` a plan row may carry (routes-final BL12). */
 export const PLAN_CHANNEL_ACCOUNTS_MAX_LIMIT = 100;

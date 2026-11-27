@@ -109,6 +109,47 @@ Scope key includes `userId` / `organizationId` / `apiKeyPublicId` so two clients
 - Forward to Stripe: pass the same `Idempotency-Key` to Stripe's API; Stripe honors it for 24 h, matching our TTL.
 - Bodies above 100 KiB cannot be replayed; the middleware logs a warning and skips caching. Design endpoints with retry replay in mind to stay under the cap.
 
+## plan-gates
+
+### Purpose
+
+Every write route says, where it is registered, which plan gate it meets or why it meets none — and the entitlement module is the one place that answers a plan question (change-plan-gates RG1–RG6, K2, K3, P29). A new write cannot ship without a declaration, a read-only organization is refused by one guard instead of hand-placed copies, and each feature or limit is checked where its work happens.
+
+### Where it lives
+
+- Declaration type: `config.planGate` on the route config ([src/fastify.d.ts](src/fastify.d.ts)) — `PlanGate` / `PlanGateDeclaration` in [entitlement.types.ts](src/domains/billing/sub-domains/entitlement/entitlement.types.ts), typed from the key registry; the shared open reasons (`PLAN_GATE_OPEN_REASON`) beside the registry in [entitlement.constants.ts](src/domains/billing/sub-domains/entitlement/entitlement.constants.ts).
+- The one guard and its route hook: [entitlement-plan-guard.util.ts](src/domains/billing/sub-domains/entitlement/entitlement-plan-guard.util.ts), registered once in [src/routes.ts](src/routes.ts) after the domain containers and before the domain route plugins.
+- The plan reader: `EntitlementService.resolve` (one plan read → the snapshot), `can` / `limit` in [entitlement-snapshot.util.ts](src/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.ts), the one refusal builder `buildPlanRefusal` in [entitlement-refusal.util.ts](src/domains/billing/sub-domains/entitlement/entitlement-refusal.util.ts).
+- Job declarations: `jobPlanGates` on each queue's entry in [worker-registration.registry.ts](src/infrastructure/queue/worker-runtime/worker-registration.registry.ts) — one `PlanGateDeclaration` per job name the queue runs (JG1, P33); the shared job reasons (`JOB_PLAN_GATE_OPEN_REASON`) beside `PLAN_GATE_OPEN_REASON`.
+- Coverage gate: [src/tests/global/plan-gate-coverage.global.test.ts](src/tests/global/plan-gate-coverage.global.test.ts) — reads the live routes of the built app, and walks the worker registry against the job names the code puts on each queue ([worker-job-names.ts](src/tests/helpers/worker-job-names.ts)).
+
+### Implementation
+
+```mermaid
+flowchart TD
+    R[Write route registered] --> D{config.planGate}
+    D -- open: one-line reason --> O[No plan gate — a decision, not a gap]
+    D -- gates --> G{declares read_only?}
+    G -- yes --> H[src/routes.ts onRoute hook puts the plan guard FIRST in preHandler]
+    H --> Q[authenticate → plan guard → permission → idempotency claim]
+    Q --> S[resolve once → read_only? 403 organization_read_only : request.entitlementSnapshot]
+    G -- feature: / limit: --> U[Enforced at point of use: the service's can / limit, the counter's lock]
+```
+
+- **Declaration on every write.** `{ gates: [...] }` with `read_only`, `feature:<switch key>` or `limit:<limit key>` — an unknown key fails to compile — or `{ open: '<one line>' }`. The coverage test fails on a write with no declaration, an empty or multi-line reason, a gate not in the registry, and a `read_only` set that differs from the routes the guard was attached to.
+- **One guard for read-only.** The guard enforces `read_only` only (P29): it resolves the organization's entitlement once, refuses with `buildPlanRefusal`, and otherwise leaves the snapshot on `request.entitlementSnapshot` (P24). Prepended by the route hook, it runs before the permission check and before the idempotency claim the idempotency plugin appends, so a refused write holds no key (P4).
+- **Enforcement at point of use.** `feature:` and `limit:` gates need the request body or a transaction, so the service checks them with `can()` / `limit()` on one snapshot and counters keep their locks (K4); moving them ahead of validation would change which error a caller sees (K1).
+- **Declaration on every job.** Each job a registered queue runs declares the same shape (JG1–JG3): a send meets the claim's `limit:message_month_limit` + `limit:channel_accounts_max`, a job that reads a switch when it starts declares `feature:<key>`, every other job is `open` with a reason ("enforces a plan, does no paid work" for the plan-change follow-up, the month wake-up, the plan-stop repair and the plan-state check). A declaration only — no job reads it (P12). The coverage test fails on a job with no declaration, an invalid one, or one for a job the queue never runs.
+- **The module is the one plan reader** (K3): no other domain reads plan access; it asks the entitlement module for a snapshot, a switch, a limit or a refusal.
+
+### How to apply
+
+- Add a write route: put `planGate` in its `config` beside `idempotencyRequired` (merge with a rate-limit preset as `config: { ...PRESET.config, planGate }`). Cite a `PLAN_GATE_OPEN_REASON` when one fits; otherwise write the one-line reason inline.
+- Add a queue job: declare it in its queue's `jobPlanGates` in the worker registry — its gates, or a `JOB_PLAN_GATE_OPEN_REASON` / inline one-line reason.
+- Gate a route on a read-only plan: add `read_only` to its gates — never attach a guard by hand.
+- Gate work on a feature or a limit: declare it on the route, then check it in the service from one snapshot (`can` / `limit`) and refuse with `buildPlanRefusal`.
+- Reuse the guard's snapshot: on a `read_only` route the controller passes `request.entitlementSnapshot` to its service, which hands it to every plan check of the request (go-live's month and feature checks, the broadcast send's), so the request reads the plan once (RG5). The app's services take the module through `ChannelAccountEntitlementService` and `readEntitlementSnapshot` ([channel-account-entitlement.util.ts](src/domains/app/sub-domains/channel-account/channel-account-entitlement.util.ts)) — the caller's snapshot, else one resolve.
+
 ## soft-delete
 
 ### Purpose

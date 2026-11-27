@@ -12,16 +12,14 @@ import { registerHealthSendingProbe } from '@/shared/utils/infrastructure/health
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
 import { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountEntitlementService } from './sub-domains/channel-account/channel-account-entitlement.util.js';
 import { ChannelAccountPlanStopService } from './sub-domains/channel-account/channel-account-plan-stop.service.js';
 import type {
   ChannelConnectionLanePort,
   ChannelConnectionTrialPort,
 } from './sub-domains/channel-connection/channel-connection.types.js';
 import { ChannelConnectionRepository } from './sub-domains/channel-connection/channel-connection.repository.js';
-import {
-  type ChannelConnectionPlanAccessService,
-  ChannelConnectionService,
-} from './sub-domains/channel-connection/channel-connection.service.js';
+import { ChannelConnectionService } from './sub-domains/channel-connection/channel-connection.service.js';
 import { ChannelConnectionTokenRepository } from './sub-domains/channel-connection/channel-connection-token.repository.js';
 import { ChannelConnectionTokenService } from './sub-domains/channel-connection/channel-connection-token.service.js';
 import { ChannelConnectionUsageRepository } from './sub-domains/channel-connection/channel-connection-usage.repository.js';
@@ -275,7 +273,7 @@ function createChannelConnectionService(options: {
   channelConnectionUsageService: ChannelConnectionUsageService;
   channelAccountService: ChannelAccountService;
   organizationService: OrganizationService;
-  planAccessService: ChannelConnectionPlanAccessService;
+  entitlementService: ChannelAccountEntitlementService;
   lanePort: ChannelConnectionLanePort;
   trialPort: ChannelConnectionTrialPort;
 }): ChannelConnectionService {
@@ -285,7 +283,7 @@ function createChannelConnectionService(options: {
     options.channelConnectionUsageService,
     options.channelAccountService,
     options.organizationService,
-    options.planAccessService,
+    options.entitlementService,
     redisConnection,
     options.lanePort,
     options.trialPort,
@@ -405,10 +403,10 @@ function createBroadcastServices({
  * probe's registration.
  */
 function createInstagramSendingServices({
-  planAccessService,
+  entitlementService,
   organizationService,
 }: {
-  planAccessService: ChannelConnectionPlanAccessService;
+  entitlementService: ChannelAccountEntitlementService;
   organizationService: OrganizationService;
 }) {
   const instagramSendLaneService = new InstagramSendLaneService(
@@ -438,7 +436,7 @@ function createInstagramSendingServices({
   });
   const messageMonthCountService = new MessageMonthCountService(
     new MessageMonthCountRepository(),
-    planAccessService,
+    entitlementService,
   );
   // The month at 80 % and 100 % (WC-56, R53): told after the claim that crossed a line.
   const messageMonthNoticeService = new MessageMonthNoticeService(
@@ -475,20 +473,20 @@ function createInstagramSendingServices({
 function createInstagramSendingStatusService({
   organizationService,
   channelAccountService,
-  planAccessService,
+  entitlementService,
   sending,
   instagramOutgoingMessageService,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
-  planAccessService: ChannelConnectionPlanAccessService;
+  entitlementService: ChannelAccountEntitlementService;
   sending: ReturnType<typeof createInstagramSendingServices>;
   instagramOutgoingMessageService: InstagramOutgoingMessageService;
 }): InstagramSendingService {
   return new InstagramSendingService({
     organizationService,
     channelAccountService,
-    planAccessService,
+    entitlementService,
     ...sending,
     dayCountRepository: new InstagramSendDayCountRepository(),
     sources: {
@@ -693,7 +691,7 @@ function createContactServices({
 function createAutomationServices({
   organizationService,
   channelAccountService,
-  planAccessService,
+  entitlementService,
   messageMonthCountService,
   messageFilePort,
   channelSendingPorts,
@@ -702,7 +700,7 @@ function createAutomationServices({
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
-  planAccessService: ChannelConnectionPlanAccessService;
+  entitlementService: ChannelAccountEntitlementService;
   messageMonthCountService: MessageMonthCountService;
   messageFilePort: AutomationMessageFilePort | undefined;
   /** The message files' upload ahead of their sends (WC-32, R46). */
@@ -735,7 +733,7 @@ function createAutomationServices({
     automationCountService,
     automationReplyStateService,
     channelAccountService,
-    planAccessService,
+    entitlementService,
     organizationService,
     automationOpenRunCancelSteps,
     {
@@ -770,7 +768,7 @@ function createAutomationServices({
   const automationRunService = new AutomationRunService({
     channelAccountService,
     contactService,
-    planAccessService,
+    entitlementService,
     countService: automationCountService,
     replyStateService: automationReplyStateService,
     sendingPorts: channelSendingPorts,
@@ -1029,7 +1027,7 @@ function withSendWorkAndWatches(
 /**
  * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
  * service, so route 12 reaches it through this port; each call reads the service at request time,
- * after both are built.
+ * after both are built. The save's one plan read goes through it too (P41, K2).
  */
 function createSettingsChannelAccountPort(
   readChannelAccountService: () => ChannelAccountService,
@@ -1038,6 +1036,7 @@ function createSettingsChannelAccountPort(
     requireLiveInstagramAccount: (input) =>
       readChannelAccountService().requireLiveInstagramAccount(input),
     setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
+    readEntitlementSnapshot: (input) => readChannelAccountService().readEntitlementSnapshot(input),
     canChannelAccountUseFeature: (input) =>
       readChannelAccountService().canChannelAccountUseFeature(input),
   };
@@ -1101,8 +1100,11 @@ function createInstagramAccountTaskWork({
 /** The cross-domain services {@link createAppContainer} is given (its parameters). */
 export interface AppContainerDependencies {
   organizationService: OrganizationService;
-  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
-  planAccessService: ChannelConnectionPlanAccessService;
+  /**
+   * Billing's entitlement module — every app plan read: the switches, the limits and the plan state
+   * (change-plan-gates AP1, K3).
+   */
+  entitlementService: ChannelAccountEntitlementService;
   /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
   trialPort: ChannelConnectionTrialPort;
   /**
@@ -1115,7 +1117,7 @@ export interface AppContainerDependencies {
 /**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
- * team check, user id resolution; billing's plan read: the channel account limit; billing's trial
+ * team check, user id resolution; billing's entitlement module: every plan switch and limit; billing's trial
  * port: a pick during a trial).
  *
  * @remarks
@@ -1126,7 +1128,7 @@ export interface AppContainerDependencies {
  */
 export function createAppContainer({
   organizationService,
-  planAccessService,
+  entitlementService,
   trialPort,
   messageFilePort,
 }: AppContainerDependencies): AppContainer {
@@ -1134,7 +1136,7 @@ export function createAppContainer({
     createChannelSendingServices({ automation: () => automation });
   const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
-  const sending = createInstagramSendingServices({ planAccessService, organizationService });
+  const sending = createInstagramSendingServices({ entitlementService, organizationService });
   const {
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -1158,9 +1160,9 @@ export function createAppContainer({
     channelConnectionRepository,
     channelConnectionTokenService,
     organizationService,
-    planAccessService,
+    entitlementService,
     sending.instagramSendLaneService,
-    new ChannelAccountPlanStopService(planAccessService, sending.messageMonthCountService),
+    new ChannelAccountPlanStopService(entitlementService, sending.messageMonthCountService),
   );
   // The connection: accounts via 1B (R5), lanes via 6 (R18), a trial pick via billing (R24).
   const channelConnectionService = createChannelConnectionService({
@@ -1169,7 +1171,7 @@ export function createAppContainer({
     channelConnectionUsageService: sending.channelConnectionUsageService,
     channelAccountService,
     organizationService,
-    planAccessService,
+    entitlementService,
     lanePort: sending.instagramSendLaneService,
     trialPort,
   });
@@ -1177,7 +1179,7 @@ export function createAppContainer({
   const instagramSendingService = createInstagramSendingStatusService({
     organizationService,
     channelAccountService,
-    planAccessService,
+    entitlementService,
     sending,
     instagramOutgoingMessageService,
   });
@@ -1199,7 +1201,7 @@ export function createAppContainer({
     attachmentUploads: sendAccess.instagramAttachmentService,
     organizationService,
     channelAccountService,
-    planAccessService,
+    entitlementService,
     messageMonthCountService: sending.messageMonthCountService,
     messageFilePort,
     channelSendingPorts,
@@ -1261,7 +1263,7 @@ export function registerAppContainer(application: FastifyInstance): void {
     'appDomain',
     createAppContainer({
       organizationService,
-      planAccessService: application.billingDomain.subscriptionService,
+      entitlementService: application.billingDomain.entitlementService,
       trialPort: application.billingDomain.subscriptionTrialService,
       messageFilePort: application.uploadDomain.uploadService,
     }),

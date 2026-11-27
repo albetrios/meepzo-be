@@ -492,6 +492,32 @@ describe('Channel connection routes', () => {
         // CN6: the same room the successful answers carry.
         plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
       });
+      // change-plan-gates AP4: the entitlement module's refusal builder answers the body the pick
+      // built itself before — every field, its value and its order.
+      const refusal = (response.json() as { error: Record<string, unknown> }).error;
+      expect(refusal).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'plan_account_limit',
+        detail:
+          'Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.',
+        limit: 1,
+        used: 0,
+        upgrade_required: true,
+        plan_room: { accounts_max: 1, accounts_used: 0, accounts_free: 1 },
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(Object.keys(refusal)).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'upgrade_required',
+        'plan_room',
+        'documentation_url',
+      ]);
       expect(await readInstagramAccountRows(team.organization.id)).toHaveLength(0);
     });
 
@@ -894,7 +920,7 @@ describe('Channel connection routes', () => {
       const read = (token: string) =>
         injectAuthenticated(app, {
           method: 'GET',
-          url: '/api/v1/app/social/channel-connections/meta/connect-options',
+          url: `${CHANNEL_CONNECTIONS_PATH}/meta/connect-options`,
           token,
         });
       const owner = await read(team.ownerToken);

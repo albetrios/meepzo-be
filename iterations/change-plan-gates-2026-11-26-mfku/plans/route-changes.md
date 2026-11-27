@@ -86,3 +86,9 @@ is `docs/routes.txt`.
 | RC-7, RC-9 | go-live, broadcast send | guard position | the read-only check runs before the permission check, and no test pins it | unchanged (P4); a new order test pins authenticate → plan gate → permission → idempotency claim | P4, R2 |
 | RC-8–RC-12 | broadcast and segment writes | behaviour on Free (plan data, not code) | a Free organization gets 403 `plan_lacks_feature` (`broadcasts` / `segments`) | allowed; the plan row's switches are on | P13 |
 | RC-20 | every write | declaration | 16 routes listed by hand in a test helper; 2 carry the guard by hand | every route declares its gate where it's registered; one guard reads the declaration | BRIEF:L28-L30 |
+
+## Built
+
+| # | Final route | Commit | AS-BUILT |
+| --- | --- | --- | --- |
+| RC-1 | `GET /api/v1/billing/entitlements` — `sources` added as planned | `3d96cf3` | row 2 |

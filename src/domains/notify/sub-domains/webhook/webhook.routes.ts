@@ -26,6 +26,7 @@ import {
   UpdateWebhookDto,
   webhookIdParamsDto,
 } from './webhook.dto.js';
+import { PLAN_GATE_OPEN_REASON } from '@/domains/billing/sub-domains/entitlement/entitlement.constants.js';
 
 /**
  * PreHandler for webhook create/update: the principal must hold the read permission behind every
@@ -138,7 +139,13 @@ export function webhookRoutes({
           requireOrganizationPermission(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE),
           requireWebhookEventReadPermissions(),
         ],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'an outgoing webhook — a platform integration with its own cap, no plan switch',
+          },
+        },
         schema: {
           summary: 'Create webhook',
           description:
@@ -157,7 +164,12 @@ export function webhookRoutes({
           requireOrganizationPermission(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE),
           requireWebhookEventReadPermissions(webhookService),
         ],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: {
+            open: 'an outgoing webhook — a platform integration with its own cap, no plan switch',
+          },
+        },
         schema: {
           summary: 'Update webhook',
           description:
@@ -174,7 +186,10 @@ export function webhookRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { open: PLAN_GATE_OPEN_REASON.REMOVING },
+        },
         schema: {
           summary: 'Delete webhook',
           description:
@@ -206,7 +221,10 @@ export function webhookRoutes({
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE)],
-        ...STRICT_AUTHED_RATE_LIMIT,
+        config: {
+          ...STRICT_AUTHED_RATE_LIMIT.config,
+          planGate: { open: "one test delivery to the owner's own endpoint — no paid work" },
+        },
         schema: {
           summary: 'Send test webhook',
           description:

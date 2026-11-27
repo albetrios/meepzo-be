@@ -9,6 +9,7 @@ import type { OrganizationService } from '@/domains/tenancy/sub-domains/organiza
 import type { AuthorizationService } from '@/domains/tenancy/sub-domains/permission/authorization.service.js';
 import type { CallerMembershipContext } from '@/domains/tenancy/sub-domains/membership/membership.types.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import type { EntitlementService } from '@/domains/billing/sub-domains/entitlement/entitlement.service.js';
 import type { PlanAccess } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
 import { ACTIVE_PLAN_ACCESS } from '@/domains/billing/sub-domains/subscription/subscription.constants.js';
 import { serializePlanAccess } from '@/domains/billing/sub-domains/subscription/subscription.serializer.js';
@@ -28,9 +29,10 @@ import type {
  *   `UserService.getMe` and, when an active organization is in scope,
  *   `OrganizationService.getByPublicId` + `AuthorizationService.resolveUserOrganizationPermissions`
  *   + `MembershipService.getCallerMembershipContext` (the membership's public id and its roles,
- *   main role first — launch ROUTE #156, N10, S3) + `SubscriptionService.getPlanAccess` (the
- *   active organization's `plan_access`, owner decision D3 — read inside the same user context, so
- *   it adds no transaction of its own).
+ *   main role first — launch ROUTE #156, N10, S3) + `EntitlementService.resolve` (the active
+ *   organization's `plan_access` is its snapshot's plan read, owner decision D3 — billing's one plan
+ *   read, change-plan-gates EN7, K3; read inside the same user context, so it adds no transaction of
+ *   its own).
  * - **Failure modes:** propagates `NotFoundError` when the user or active organization is
  *   not accessible to the caller; an absent active-organization claim yields
  *   `activeOrganization: null` and empty permissions rather than an error.
@@ -47,28 +49,33 @@ export class AuthMeContextService {
     // Launch ROUTE #4 / #156: the caller's membership and roles (D5, N10); absent in the worker
     // process and minimal harnesses.
     private readonly membershipService?: Pick<MembershipService, 'getCallerMembershipContext'>,
-    // Owner decision D3: the active organization's plan access (grace, then read-only) and — through
-    // billing's accounts port — its not-revoked channel account count (feat-instagram-dm-sending
-    // BL16). Absent in the worker process and minimal harnesses, where every organization reads
-    // `active` with no accounts.
-    private readonly planAccessService?: Pick<
+    // Owner decision D3: the active organization's plan access (grace, then read-only), through the
+    // entitlement module — billing's one plan reader (change-plan-gates EN7, K3). Absent in the
+    // worker process and minimal harnesses, where every organization reads `active`.
+    private readonly entitlementService?: Pick<EntitlementService, 'resolve'>,
+    // Billing's accounts port: the organization's not-revoked channel account count
+    // (feat-instagram-dm-sending BL16) — not a plan read. Absent with the entitlement service.
+    private readonly channelAccountCountService?: Pick<
       SubscriptionService,
-      'getPlanAccess' | 'countConnectedChannelAccounts'
+      'countConnectedChannelAccounts'
     >,
   ) {}
 
-  /** The organization's not-revoked channel accounts (BL16) — `0` when no plan access service is wired. */
+  /** The organization's not-revoked channel accounts (BL16) — `0` when no count service is wired. */
   private async countChannelAccounts(organizationPublicId: string): Promise<number> {
-    return this.planAccessService
-      ? this.planAccessService.countConnectedChannelAccounts({ organizationPublicId })
+    return this.channelAccountCountService
+      ? this.channelAccountCountService.countConnectedChannelAccounts({ organizationPublicId })
       : 0;
   }
 
-  /** The organization's plan access — `active` when no plan access service is wired. */
+  /**
+   * The organization's plan access — the entitlement snapshot's one plan read, unchanged (so
+   * `plan_access` keeps its exact output); `active` when no entitlement service is wired.
+   */
   private async resolvePlanAccess(organizationPublicId: string): Promise<PlanAccess> {
-    return this.planAccessService
-      ? this.planAccessService.getPlanAccess({ organizationPublicId })
-      : ACTIVE_PLAN_ACCESS;
+    if (!this.entitlementService) return ACTIVE_PLAN_ACCESS;
+    const snapshot = await this.entitlementService.resolve({ organizationPublicId });
+    return snapshot.planAccess;
   }
 
   /** Assembles the caller's effective context for `GET /auth/me/context`. */
@@ -146,7 +153,7 @@ export class AuthMeContextService {
    * @remarks
    * - **Algorithm:** the same reads `getContext` performs for the active organization —
    *   `OrganizationService.getByPublicId` + `AuthorizationService.resolveUserOrganizationPermissions`
-   *   + `SubscriptionService.getPlanAccess` (its `plan_access`) — issued concurrently, since none
+   *   + `EntitlementService.resolve` (its `plan_access`) — issued concurrently, since none
    *   consumes another's result.
    * - **Failure modes:** propagates `NotFoundError` when the organization is not
    *   accessible to the caller.

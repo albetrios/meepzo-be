@@ -29,6 +29,8 @@ src/
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
     │   │   │   ├── instagram-retention-erasure.helper.ts
     │   │   │   └── instagram-send-flow.helper.ts
+    │   │   ├── factories/
+    │   │   │   └── entitlement.factory.ts
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/
@@ -251,6 +253,7 @@ src/
     │   │   │   │   ├── channel-account.bulk.seed.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-account-capabilities.constants.ts
+    │   │   │   ├── channel-account-entitlement.util.ts
     │   │   │   ├── channel-account-error.util.ts
     │   │   │   ├── channel-account-plan-stop.service.ts
     │   │   │   ├── channel-account-plan-stop.util.ts
@@ -751,7 +754,6 @@ src/
     │   │   ├── app-partition-upkeep.worker.ts
     │   │   ├── app-table-clean-up.constants.ts
     │   │   └── app-table-clean-up.processor.ts
-    │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts
     │   ├── app.failed-messages.serializer.ts
@@ -1099,12 +1101,19 @@ src/
     │   │   │   │   │   └── entitlements.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── entitlement-override.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-plan-guard.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-refusal.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement-snapshot.util.unit.test.ts
+    │   │   │   │   │   ├── entitlement.constants.unit.test.ts
     │   │   │   │   │   ├── entitlement.controller.unit.test.ts
     │   │   │   │   │   ├── entitlement.serializer.unit.test.ts
     │   │   │   │   │   └── entitlement.service.unit.test.ts
     │   │   │   ├── entitlement-override.repository.ts
     │   │   │   ├── entitlement-override.schema.ts
     │   │   │   ├── entitlement-override.util.ts
+    │   │   │   ├── entitlement-plan-guard.util.ts
+    │   │   │   ├── entitlement-refusal.util.ts
+    │   │   │   ├── entitlement-snapshot.util.ts
     │   │   │   ├── entitlement.constants.ts
     │   │   │   ├── entitlement.controller.ts
     │   │   │   ├── entitlement.dto.ts
@@ -1119,7 +1128,9 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── plan.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── plan-catalog-migration.unit.test.ts
     │   │   │   │   │   ├── plan-features.unit.test.ts
+    │   │   │   │   │   ├── plan-features.util.unit.test.ts
     │   │   │   │   │   ├── plan-routes-rate-limit.policy.unit.test.ts
     │   │   │   │   │   ├── plan.controller.unit.test.ts
     │   │   │   │   │   ├── plan.repository.db.unit.test.ts
@@ -1131,6 +1142,7 @@ src/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── plan.reference.seed.ts
     │   │   │   ├── plan-catalog-memo.ts
+    │   │   │   ├── plan-features.util.ts
     │   │   │   ├── plan.constants.ts
     │   │   │   ├── plan.controller.ts
     │   │   │   ├── plan.dto.ts
@@ -2816,6 +2828,7 @@ src/
     │   ├── no-direct-db-in-services.global.test.ts
     │   ├── no-global-admin-in-tenancy.global.test.ts
     │   ├── no-nodeenv-branching.global.test.ts
+    │   ├── no-plan-access-outside-entitlement.global.test.ts
     │   ├── no-stripe-shaped-literals.global.test.ts
     │   ├── object-params.global.test.ts
     │   ├── openapi-completeness.global.test.ts
@@ -2870,7 +2883,6 @@ src/
     │   ├── route-catalog-registry.ts
     │   ├── route-http-coverage.helper.ts
     │   ├── route-organization-scope.helper.ts
-    │   ├── route-plan-gate-model.ts
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts
@@ -2885,6 +2897,7 @@ src/
     │   ├── test-step-up.helper.ts
     │   ├── verification-code.helper.ts
     │   ├── webauthn-authenticator.helper.ts
+    │   ├── worker-job-names.ts
     │   └── workflow-jobs.helper.ts
     ├── integration/
     │   ├── api/

@@ -80,9 +80,10 @@ calls Meta, and the only code that decrypts a Meta token).
   maintenance role only, `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP`); an alert on fewer than 7 ready
   days, any DEFAULT-part row, a runs part held by an open run, or a part over a day late. It replaces
   the launch's daily webhook-event, run and comment-log batch deletes.
-- **A read-only plan stops the automation writes only** (AQ8, D27): `app-plan-access.ts` builds the
-  preHandler (`SubscriptionService.assertOrganizationWritable`, `403 organization_read_only`) that
-  `app.routes.ts` attaches to routes 12, 14 and 15; the domain's other writes stay open.
+- **A read-only plan stops go-live and the broadcast send only** (P10, change-plan-gates RG3): the
+  two routes declare `read_only` in `config.planGate`, and the one route hook in `src/routes.ts` puts
+  the entitlement module's plan guard (`403 organization_read_only`) first on them; every other app
+  write declares its own plan gate or open reason and stays open to a read-only organization.
 - **The channel connection's token stays ciphertext** outside the Meta client (IA5, MC9) — pinned by
   `sub-domains/channel-connection/__tests__/unit/channel-connection-token-isolation.policy.unit.test.ts`.
 - **A deleted organization's Instagram account is erased at once** (D54): tenancy's organization

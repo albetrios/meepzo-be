@@ -29,7 +29,10 @@ export function instagramAccountSettingsRoutes(
       {
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE)],
-        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        config: {
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+          planGate: { gates: ['feature:extra_delay', 'feature:mark_seen'] },
+        },
         schema: {
           summary: 'Change an Instagram account settings',
           description:

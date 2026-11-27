@@ -20,6 +20,7 @@ import {
   type ChannelFeature,
 } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { channelFeatureRefusalError } from '@/domains/app/sub-domains/channel-account/channel-account-error.util.js';
+import { entitlementServiceOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 vi.mock('@/infrastructure/database/contexts/database-context.js', async (importOriginal) => {
   const original =
@@ -66,18 +67,17 @@ function serviceWith({
   const connectionRepository = {
     findByIds: vi.fn(async () => [{ id: 9, scopes }]),
   } as unknown as ChannelConnectionRepository;
-  const planAccessService = {
-    getPlanAccess: vi.fn(async () => ({
-      state: 'active' as const,
-      graceEndsAt: null,
-      trialEndsAt: null,
-      plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
-      features,
-      seatLimit: null,
-      overrides: [],
-      isPlanChoiceRequired: false,
-    })),
-  };
+  const entitlementService = entitlementServiceOf({
+    state: 'active' as const,
+    graceEndsAt: null,
+    trialEndsAt: null,
+    plan: features === null ? null : { publicId: 'pln_x', name: 'Plan' },
+    features,
+    seatLimit: null,
+    defaultedKeys: [],
+    overrides: [],
+    isPlanChoiceRequired: false,
+  });
   const unused = {} as never;
   return new ChannelAccountService(
     accountRepository,
@@ -87,7 +87,7 @@ function serviceWith({
     connectionRepository,
     unused,
     unused,
-    planAccessService,
+    entitlementService,
     undefined,
     undefined,
     new Set(untested),
@@ -129,21 +129,38 @@ describe('ChannelAccountService.canChannelAccountUseFeature (CA11, P50, P61)', (
     });
   });
 
-  it('refuses every PRO switch on Free and allows it on Creator (P83), segments included (P76)', async () => {
+  it('refuses every PRO switch Free keeps off, allows broadcasts and segments on Free (change-plan-gates P13) and every PRO switch on Creator (P83)', async () => {
     const free = serviceWith({ features: FREE_PLAN_FEATURES });
     const creator = serviceWith({ features: CREATOR_PLAN_FEATURES });
+    const onForFree: readonly string[] = ['broadcasts', 'segments'];
     for (const feature of PRO_PLAN_FEATURE_KEYS) {
-      expect(await check(free, feature)).toEqual({
+      expect(await check(free, feature), feature).toEqual(
+        onForFree.includes(feature)
+          ? { isAllowed: true }
+          : { isAllowed: false, reason: 'plan_lacks_feature' },
+      );
+      expect(await check(creator, feature)).toEqual({ isAllowed: true });
+    }
+    expect(await check(free, 'starter_questions')).toEqual({ isAllowed: true });
+  });
+
+  it('refuses broadcasts and segments with plan_lacks_feature on a plan whose switch is off (P76)', async () => {
+    const switchedOff = serviceWith({
+      features: {
+        ...FREE_PLAN_FEATURES,
+        feature_switches: {
+          ...FREE_PLAN_FEATURES.feature_switches,
+          broadcasts: false,
+          segments: false,
+        },
+      },
+    });
+    for (const feature of ['broadcasts', 'segments'] as const) {
+      expect(await check(switchedOff, feature)).toEqual({
         isAllowed: false,
         reason: 'plan_lacks_feature',
       });
-      expect(await check(creator, feature)).toEqual({ isAllowed: true });
     }
-    expect(await check(free, 'segments')).toEqual({
-      isAllowed: false,
-      reason: 'plan_lacks_feature',
-    });
-    expect(await check(free, 'starter_questions')).toEqual({ isAllowed: true });
   });
 
   it('refuses every feature with plan_lacks_feature when the organization has no readable plan', async () => {

@@ -8,7 +8,9 @@ import {
   startInstagramAccountChainBestEffort,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
 import { MessageMonthCountRepository } from '@/domains/app/sub-domains/instagram-sending/message-month-count.repository.js';
-import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import { can, limit } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   assertTeamOrganization,
@@ -35,8 +37,11 @@ import type { InstagramAccountService } from '@/domains/app/sub-domains/instagra
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
 import type { InstagramAccountSettingsChannelAccountPort } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
-import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
-import { planAccountLimitError } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
+import {
+  type ChannelAccountEntitlementService,
+  readChannelAccountsMax,
+  readEntitlementSnapshot,
+} from './channel-account-entitlement.util.js';
 import {
   CHANNEL_ACCOUNT_CHANNELS,
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
@@ -94,14 +99,6 @@ import type {
 import { pickChannelAccountsInPlan } from './channel-account-plan-stop.util.js';
 
 /**
- * The plan read route 11 and the feature check take the plan from (sub-domain 8, P83).
- *
- * @remarks
- * Notes: structural, so a test can stub it; billing's `SubscriptionService` satisfies it.
- */
-export type ChannelAccountPlanAccessService = Pick<SubscriptionService, 'getPlanAccess'>;
-
-/**
  * The organization's week as {@link ChannelAccountService.readWeeklySummary} answers it — the shape
  * notify's weekly-summary port takes (feat-instagram-dm-sending UN1, UN12).
  *
@@ -145,7 +142,8 @@ interface ChannelFeatureInputs {
   grantedScopes: readonly string[];
   /** Which of the two {@link grantedScopes} came from. */
   scopesSource: 'account' | 'connection';
-  planSwitches: Readonly<Record<string, boolean>> | null;
+  /** The organization's entitlement — the plan step reads `can()` from it (change-plan-gates AP2). */
+  entitlement: EntitlementSnapshot;
 }
 
 /** The account as the channel connection's port names it, from its row and Instagram extension. */
@@ -187,7 +185,7 @@ function checkFeature({
   if (requirement.permission !== null && !inputs.grantedScopes.includes(requirement.permission)) {
     return { isAllowed: false, reason: 'permission_not_granted' };
   }
-  if (inputs.planSwitches?.[requirement.planSwitch] !== true) {
+  if (!can({ snapshot: inputs.entitlement, key: requirement.planSwitch })) {
     return { isAllowed: false, reason: 'plan_lacks_feature' };
   }
   if (requirement.isMetaTestRequired && untestedMetaFeatures.has(feature)) {
@@ -287,7 +285,7 @@ export class ChannelAccountService
     private readonly connectionRepository: ChannelConnectionRepository,
     private readonly connectionTokenService: ChannelConnectionTokenService,
     private readonly organizationService: OrganizationService,
-    private readonly planAccessService: ChannelAccountPlanAccessService,
+    private readonly entitlementService: ChannelAccountEntitlementService,
     private readonly lanePort?: ChannelAccountLanePort,
     private readonly planStopPort?: ChannelAccountPlanStopPort,
     private readonly untestedMetaFeatures: ReadonlySet<ChannelFeature> = new Set(
@@ -415,10 +413,12 @@ export class ChannelAccountService
         };
       },
     });
+    // A read: no request snapshot, so the inputs resolve the entitlement once (P24).
     const inputs = await this.readFeatureInputs({
       scope,
       organizationId,
       channelAccountId: account.id,
+      entitlement: undefined,
     });
     return {
       channel_account_id: account.public_id,
@@ -613,12 +613,14 @@ export class ChannelAccountService
    *
    * @remarks
    * Algorithm:
-   * 1. Outside any unit: the plan's `channel_accounts_max` (billing's plan read, P83).
+   * 1. Outside any unit: the organization's entitlement, resolved once (change-plan-gates AP4,
+   *    P24) — its `channel_accounts_max` (`limit()`, Free's 1 when it reads `null`, P39), passed on
+   *    to the plan stop below.
    * 2. One unit under the organization's account-limit lock (the pick's, MC7): the team check
    *    (`422`); the account (`404`); not `plan_downgrade` → `409 channel_account_already_active`;
    *    the named account must be another active account of the organization (`400
    *    stop_channel_account_id`); count the active accounts — at the limit with none named →
-   *    `409 plan_account_limit`; the named account takes `plan_downgrade` and its lanes stop; the
+   *    `409 plan_account_limit` (the module's `buildPlanRefusal`); the named account takes `plan_downgrade` and its lanes stop; the
    *    activated account's `plan_downgrade` gives way to the organization's own plan stop
    *    (`plan_ended` / `plan_limit` through {@link ChannelAccountPlanStopPort}, or none).
    * 3. After commit: the activated account's lanes wake.
@@ -639,7 +641,11 @@ export class ChannelAccountService
     change: ChannelAccountChange;
     stoppedChannelAccountPublicId: string | null;
   }> {
-    const accountsMax = await this.readAccountsMax(scope);
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
+    });
+    const accountsMax = readChannelAccountsMax(entitlement);
     const result = await withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -656,7 +662,11 @@ export class ChannelAccountService
         });
         const activeCount = await this.accountRepository.countActive(organizationId);
         if (activeCount >= accountsMax && stopAccount === null) {
-          throw planAccountLimitError({ limit: accountsMax, used: activeCount });
+          throw buildPlanRefusal({
+            reason: 'plan_account_limit',
+            limit: accountsMax,
+            used: activeCount,
+          });
         }
         if (stopAccount !== null) {
           await this.accountRepository.setPlanStop({
@@ -672,7 +682,11 @@ export class ChannelAccountService
           });
         }
         const organizationStop =
-          (await this.planStopPort?.readOrganizationPlanStop({ scope, organizationId })) ?? null;
+          (await this.planStopPort?.readOrganizationPlanStop({
+            scope,
+            organizationId,
+            entitlement,
+          })) ?? null;
         const activated = await this.accountRepository.setPlanStop({
           organizationId,
           channelAccountId: account.id,
@@ -718,7 +732,8 @@ export class ChannelAccountService
    * plan takes the organization's own stop (`plan_ended`, else `plan_limit`, else none).
    *
    * @remarks
-   * Algorithm: outside any unit, billing's plan read (the limit and the features, P83); then one
+   * Algorithm: outside any unit, the organization's entitlement resolved once (change-plan-gates
+   * AP1, P24 — the limit through `limit()`, Free's 1 when it reads `null`, P39); then one
    * unit under the organization's account-limit lock (the pick's and route 11's, MC7): the live
    * accounts (oldest connected first); the organization's stop through
    * {@link ChannelAccountPlanStopPort} (read in this unit — the month count against the plan's
@@ -729,7 +744,8 @@ export class ChannelAccountService
    * a time (CA3): `plan_downgrade` is never replaced by the other two, `plan_ended` replaces
    * `plan_limit`, and ending `plan_ended` re-derives `plan_limit`. Failure modes: none of its own —
    * a read failure rolls the unit back. Side effects: the account rows; the lanes' stops and history.
-   * Notes: returns the organization's id, the plan's features and the moves; the caller wakes the
+   * Notes: returns the organization's id, the entitlement snapshot (the plan-change job reads its
+   * switches with `can()`) and the moves; the caller wakes the
    * lanes of each account whose stop got weaker, after the commit. Running it twice changes nothing
    * the second time.
    */
@@ -738,11 +754,11 @@ export class ChannelAccountService
     keptChannelAccountPublicIds,
     mayActivate,
   }: ChannelAccountPlanStopsInput): Promise<ChannelAccountPlanStopsResult> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
     });
-    const accountsMax =
-      planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
+    const accountsMax = readChannelAccountsMax(entitlement);
     return withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -753,7 +769,11 @@ export class ChannelAccountService
           channels: CHANNEL_ACCOUNT_CHANNELS,
         });
         const organizationStop =
-          (await this.planStopPort?.readOrganizationPlanStop({ scope, organizationId })) ?? null;
+          (await this.planStopPort?.readOrganizationPlanStop({
+            scope,
+            organizationId,
+            entitlement,
+          })) ?? null;
         // A plan that ended holds every account where it is (CA3): its Free features trim nothing —
         // the limit applies again once a plan is picked.
         const isPlanEnded = organizationStop === CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED;
@@ -788,12 +808,7 @@ export class ChannelAccountService
             to,
           });
         }
-        return {
-          organizationId,
-          features: planAccess.features,
-          planName: planAccess.plan?.name ?? null,
-          moves,
-        };
+        return { organizationId, entitlement, moves };
       },
     });
   }
@@ -852,13 +867,31 @@ export class ChannelAccountService
   }
 
   /**
+   * The organization's entitlement snapshot for a caller with several feature checks (P41, K2):
+   * one resolve, which the caller passes to each {@link canChannelAccountUseFeature}.
+   *
+   * @remarks
+   * Algorithm: one `EntitlementService.resolve` for the scope's organization
+   * (`readEntitlementSnapshot`). Failure modes: a plan read failure propagates. Side effects: none.
+   * Notes: route 12's save (the Instagram settings) reads the plan through it once per save.
+   */
+  async readEntitlementSnapshot({
+    scope,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+  }): Promise<EntitlementSnapshot> {
+    return readEntitlementSnapshot({ entitlementService: this.entitlementService, scope });
+  }
+
+  /**
    * The one feature check (CA11 (2), P50): can this channel account use `feature` — allowed, or the
    * first failing reason in the order `channel_lacks_feature`, `permission_not_granted`,
    * `plan_lacks_feature`, `feature_not_offered`.
    *
    * @remarks
-   * Algorithm: the plan's switches (billing's plan read, outside any unit), then one unit — the
-   * account's channel and its connection's granted permissions — then the constants. Failure modes:
+   * Algorithm: the organization's entitlement (the caller's snapshot, else one resolve outside any
+   * unit — change-plan-gates AP2, P24), then one unit — the account's channel and its connection's
+   * granted permissions — then the constants; the plan step reads `can()`. Failure modes:
    * `404 channel_account_not_found` when the account is not the organization's. Side effects: none
    * — Postgres and constants only, never Meta. Notes: go-live lists the refusals; a route that
    * refuses outright maps the reason with `channelFeatureRefusalError` (P61).
@@ -868,11 +901,19 @@ export class ChannelAccountService
     organizationId,
     channelAccountId,
     feature,
+    entitlement,
   }: ChannelConnectionAccountScope & {
     channelAccountId: number;
     feature: ChannelFeature;
+    /** The request's or job's snapshot when the caller already resolved it (K2). */
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<ChannelFeatureCheckResult> {
-    const inputs = await this.readFeatureInputs({ scope, organizationId, channelAccountId });
+    const inputs = await this.readFeatureInputs({
+      scope,
+      organizationId,
+      channelAccountId,
+      entitlement,
+    });
     return checkFeature({ inputs, feature, untestedMetaFeatures: this.untestedMetaFeatures });
   }
 
@@ -889,11 +930,19 @@ export class ChannelAccountService
     organizationId,
     channelAccountId,
     features,
+    entitlement,
   }: ChannelConnectionAccountScope & {
     channelAccountId: number;
     features: readonly ChannelFeature[];
+    /** The request's or job's snapshot when the caller already resolved it (K2). */
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<ChannelFeatureProblem[]> {
-    const inputs = await this.readFeatureInputs({ scope, organizationId, channelAccountId });
+    const inputs = await this.readFeatureInputs({
+      scope,
+      organizationId,
+      channelAccountId,
+      entitlement,
+    });
     const problems: ChannelFeatureProblem[] = [];
     for (const feature of new Set(features)) {
       const result = checkFeature({
@@ -924,9 +973,12 @@ export class ChannelAccountService
     channelAccountId,
     channel,
     parts,
+    entitlement,
   }: ChannelConnectionAccountScope & {
     channelAccountId: number;
     channel: ChannelAccountChannel;
+    /** The request's snapshot (go-live's, from the route guard) when the caller holds one (K2). */
+    entitlement?: EntitlementSnapshot | undefined;
     parts: {
       triggerType: string;
       steps: readonly string[];
@@ -976,6 +1028,7 @@ export class ChannelAccountService
         organizationId,
         channelAccountId,
         features: parts.features,
+        entitlement,
       });
       problems.push(
         ...featureProblems.map((featureProblem) => ({
@@ -1381,7 +1434,8 @@ export class ChannelAccountService
    * @remarks
    * - **Algorithm:** in the given organization scope (joining the job's unit): the organization,
    *   one statement for every account (`ChannelAccountRepository.readWeeklySummary`), the month's
-   *   slots (`MessageMonthCountRepository.readMonth`) and billing's `message_month_limit`.
+   *   slots (`MessageMonthCountRepository.readMonth`) and the plan's `message_month_limit` (one
+   *   entitlement resolve, `limit()` — change-plan-gates AP1).
    *   `tappedPercent` = runs with a tap ÷ runs started, rounded; the username is the display name
    *   without its `@`.
    * - **Failure modes:** a missing organization reads an empty week; read errors propagate.
@@ -1414,8 +1468,9 @@ export class ChannelAccountService
       },
     });
     if (read === null) return { accounts: [], monthUsed: 0, monthLimit: null };
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
     });
     return {
       accounts: read.accounts.map((account) => ({
@@ -1433,7 +1488,7 @@ export class ChannelAccountService
         topAutomationName: account.topAutomationName,
       })),
       monthUsed: read.monthUsed,
-      monthLimit: planAccess.features?.message_month_limit ?? null,
+      monthLimit: limit({ snapshot: entitlement, key: 'message_month_limit' }),
     };
   }
 
@@ -1766,14 +1821,23 @@ export class ChannelAccountService
     return stopAccount;
   }
 
-  /** The feature check's inputs: the account's channel, its connection's scopes, the plan's switches. */
+  /**
+   * The feature check's inputs: the account's channel, its connection's scopes and the
+   * organization's entitlement (the caller's snapshot, else one resolve — P24).
+   */
   private async readFeatureInputs({
     scope,
     organizationId,
     channelAccountId,
-  }: ChannelConnectionAccountScope & { channelAccountId: number }): Promise<ChannelFeatureInputs> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    entitlement,
+  }: ChannelConnectionAccountScope & {
+    channelAccountId: number;
+    entitlement: EntitlementSnapshot | undefined;
+  }): Promise<ChannelFeatureInputs> {
+    const snapshot = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
+      entitlement,
     });
     return withAppDatabaseContext({
       scope,
@@ -1788,7 +1852,7 @@ export class ChannelAccountService
           channel: account.channel as ChannelAccountChannel,
           grantedScopes: account.scopes ?? connection?.scopes ?? [],
           scopesSource: (account.scopes ?? null) === null ? 'connection' : 'account',
-          planSwitches: planAccess.features?.feature_switches ?? null,
+          entitlement: snapshot,
         };
       },
     });
@@ -1837,14 +1901,6 @@ export class ChannelAccountService
       seen.add(item.blocker);
       return true;
     });
-  }
-
-  /** The plan's `channel_accounts_max` (Free's when the organization has no readable plan). */
-  private async readAccountsMax(scope: OrganizationPrincipalDatabaseScope): Promise<number> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
-    });
-    return planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
   }
 
   /** The Channel account object of one row, inside the caller's unit. */

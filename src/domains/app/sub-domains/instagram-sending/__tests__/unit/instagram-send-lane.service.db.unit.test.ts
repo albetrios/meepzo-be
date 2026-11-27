@@ -17,6 +17,7 @@ import {
   readLaneRows,
   readStopRows,
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
+import { entitlementSnapshotOf } from '@/domains/app/__tests__/factories/entitlement.factory.js';
 
 /**
  * The lanes and their stops in the database (feat-instagram-dm-sending routes-final § 6.A SNC10):
@@ -178,16 +179,18 @@ describe('InstagramSendLaneService (database)', () => {
 
   it('the month count answers plan_limit once the plan limit is reached (CA9, D34)', async () => {
     const monthService = new MessageMonthCountService(new MessageMonthCountRepository(), {
-      getPlanAccess: async () => ({
-        state: 'active',
-        graceEndsAt: null,
-        seatLimit: null,
-        overrides: [],
-        isPlanChoiceRequired: false,
-        trialEndsAt: null,
-        plan: { publicId: 'pln_test', name: 'Free' },
-        features: { ...FREE_PLAN_FEATURES, message_month_limit: 5 },
-      }),
+      resolve: async () =>
+        entitlementSnapshotOf({
+          state: 'active',
+          graceEndsAt: null,
+          seatLimit: null,
+          defaultedKeys: [],
+          overrides: [],
+          isPlanChoiceRequired: false,
+          trialEndsAt: null,
+          plan: { publicId: 'pln_test', name: 'Free' },
+          features: { ...FREE_PLAN_FEATURES, message_month_limit: 5 },
+        }),
     });
     await monthService.addMessages({ ...target, count: 4 });
     expect(await monthService.readOrganizationPlanStop(target)).toBeNull();

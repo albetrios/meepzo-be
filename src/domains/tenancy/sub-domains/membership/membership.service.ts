@@ -26,6 +26,7 @@ import {
   isFactoryDefaultUserLocaleSettings,
   preferredLocalesForOrganizationDefaultLocale,
 } from '@/domains/user/sub-domains/user-settings/user-settings-locale-defaults.util.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { OrganizationMembershipContext } from '@/domains/tenancy/sub-domains/organization/organization.types.js';
 import { assertTeamOrganization } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
@@ -133,14 +134,16 @@ export type MembershipLeavePort = {
 };
 
 /**
- * Cross-domain port for REQ-4 seat enforcement and Stripe seat reconciliation, satisfied by
- * billing's `SubscriptionService`.
+ * Cross-domain port for REQ-4 seat enforcement and Stripe seat reconciliation: the locked seat
+ * ceiling is answered by billing's entitlement module (`EntitlementService`, change-plan-gates SE1,
+ * K3), which delegates to subscription's locked read; the Stripe seat sync by billing's
+ * `SubscriptionService`.
  *
  * @remarks
- * - **Algorithm:** declared as a minimal structural interface (not a `SubscriptionService` import)
- *   so tenancy does not depend on billing — billing already depends on tenancy, so importing the
- *   concrete service here would create a cycle. The composition root late-wires the concrete
- *   service in via {@link MembershipService.wireSeatEnforcement}.
+ * - **Algorithm:** declared as a minimal structural interface (not a billing service import)
+ *   so tenancy does not depend on billing's services — billing already depends on tenancy, so
+ *   importing a concrete service here would create a cycle. The composition root late-wires the
+ *   two billing services in via {@link MembershipService.wireSeatEnforcement}.
  * - **Failure modes:** `reserveSeatCeilingForMemberAdd` returns `null` (no ceiling) when the organization has
  *   no active subscription or the plan is unlimited; the implementer takes a row lock so concurrent
  *   adds serialize. `enqueueSeatQuantitySync` is best-effort (swallows enqueue failures).
@@ -538,8 +541,8 @@ export class MembershipService {
    * REQ-4 seat enforcement + Stripe seat-sync port, late-wired by the composition root.
    *
    * @remarks
-   * billing's `SubscriptionService` (which enforces the seat ceiling and enqueues the Stripe
-   * quantity sync) itself depends on tenancy for `seats_used`, so the membership↔subscription
+   * billing (the entitlement module answers the locked seat ceiling, `SubscriptionService` enqueues
+   * the Stripe quantity sync) itself depends on tenancy for `seats_used`, so the membership↔billing
    * relationship is a true cycle. It is broken by constructing both services, then setting this
    * field via {@link MembershipService.wireSeatEnforcement} — never a constructor param. Left
    * `null` in minimal test harnesses, where seat enforcement is simply skipped.
@@ -575,8 +578,9 @@ export class MembershipService {
    * Enforces the plan seat limit before a member is added (REQ-4). MUST run inside the organization
    * transaction so the advisory lock (and the billing port's FOR UPDATE, when a subscription
    * exists) serializes concurrent adds. No-op when the seat-enforcement port is unwired (minimal
-   * harness) or when the plan grants unlimited seats (`ceiling === null`). Throws
-   * `ConflictError('errors:seatLimitReached')` with reason `seat_limit_reached` once
+   * harness) or when the plan grants unlimited seats (`ceiling === null`). Throws the entitlement
+   * module's refusal (`buildPlanRefusal`, change-plan-gates SE2: `409`
+   * `errors:seatLimitReached`) with reason `seat_limit_reached` once
    * `used >= ceiling` (a seat is consumed by ACTIVE + INVITED memberships, so an outstanding invite
    * already counts and a burst of invites cannot overshoot the limit).
    *
@@ -601,12 +605,7 @@ export class MembershipService {
     const seatsUsed =
       await this.membershipRepository.countActiveByOrganization(organizationInternalId);
     if (seatsUsed >= seatCeiling) {
-      throw new ConflictError('errors:seatLimitReached', {
-        used: seatsUsed,
-        limit: seatCeiling,
-      })
-        .withReason('seat_limit_reached')
-        .withFields({ limit: seatCeiling, used: seatsUsed, upgrade_required: true });
+      throw buildPlanRefusal({ reason: 'seat_limit_reached', limit: seatCeiling, used: seatsUsed });
     }
   }
 

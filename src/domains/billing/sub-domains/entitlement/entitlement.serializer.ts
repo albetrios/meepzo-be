@@ -1,10 +1,11 @@
 import type { OrganizationEntitlementOverrideRow } from './entitlement-override.schema.js';
 import type { EntitlementOverrideKey } from './entitlement.constants.js';
 import { isEntitlementOverrideActive } from './entitlement-override.util.js';
-import type { PlanAccess } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
+import { entitlementSources, limit } from './entitlement-snapshot.util.js';
 import type {
   EntitlementOverrideOutput,
   EntitlementPlanUsage,
+  EntitlementSnapshot,
   EntitlementsOutput,
 } from './entitlement.types.js';
 
@@ -37,44 +38,48 @@ export function serializeEntitlementOverride({
 }
 
 /**
- * Shapes `GET /api/v1/billing/entitlements` (P271) from the one plan read (overrides already laid
- * over its features), the app's usage and the member count.
+ * Shapes `GET /api/v1/billing/entitlements` (P271) from the resolved entitlement snapshot (the one
+ * plan read, overrides already laid over its features), the app's usage and the member count.
  *
  * @remarks
- * Each limit is the merged feature (`message_month_limit`, `channel_accounts_max`) or the plan's seats,
- * `null` when there is no plan in the catalog (or the plan has no seat limit, D55).
+ * Each limit is the snapshot's `limit()` — the merged `message_month_limit` / `channel_accounts_max`
+ * or the plan's seats — `null` when there is no plan in the catalog (or the plan has no seat limit,
+ * D55); `sources` names where every registry key's value came from (change-plan-gates EN6), so every
+ * value reported is the one the gates read.
  */
 export function serializeEntitlements({
-  plan_access: planAccess,
+  snapshot,
   usage,
   seats_used: seatsUsed,
 }: {
-  plan_access: PlanAccess;
+  snapshot: EntitlementSnapshot;
   usage: EntitlementPlanUsage;
   seats_used: number;
 }): EntitlementsOutput {
+  const { planAccess } = snapshot;
   return {
-    state: planAccess.state,
-    plan: planAccess.plan ? { id: planAccess.plan.publicId, name: planAccess.plan.name } : null,
+    state: snapshot.state,
+    plan: snapshot.plan ? { id: snapshot.plan.publicId, name: snapshot.plan.name } : null,
     features: planAccess.features,
     limits: {
       direct_messages: {
         used: usage.directMessagesUsed,
-        limit: planAccess.features?.message_month_limit ?? null,
+        limit: limit({ snapshot, key: 'message_month_limit' }),
         resets_on: usage.directMessagesResetsOn,
       },
       channel_accounts: {
         used: usage.channelAccountsUsed,
-        limit: planAccess.features?.channel_accounts_max ?? null,
+        limit: limit({ snapshot, key: 'channel_accounts_max' }),
       },
-      seats: { used: seatsUsed, limit: planAccess.seatLimit },
+      seats: { used: seatsUsed, limit: limit({ snapshot, key: 'seats' }) },
     },
-    trial_ends_at: planAccess.trialEndsAt?.toISOString() ?? null,
-    grace_ends_at: planAccess.graceEndsAt?.toISOString() ?? null,
+    trial_ends_at: snapshot.trialEndsAt?.toISOString() ?? null,
+    grace_ends_at: snapshot.graceEndsAt?.toISOString() ?? null,
     is_plan_choice_required: planAccess.isPlanChoiceRequired,
     overrides: planAccess.overrides.map((override) => ({
       key: override.key,
       expires_at: override.expiresAt?.toISOString() ?? null,
     })),
+    sources: entitlementSources(snapshot),
   };
 }

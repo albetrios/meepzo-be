@@ -3,7 +3,11 @@ import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
   type ChannelAccountPlanStopReason,
 } from './channel-account.constants.js';
-import type { ChannelAccountPlanAccessService } from './channel-account.service.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
+import {
+  type ChannelAccountEntitlementService,
+  readEntitlementSnapshot,
+} from './channel-account-entitlement.util.js';
 import type {
   ChannelAccountPlanStopPort,
   ChannelAccountPortScope,
@@ -16,10 +20,12 @@ import type {
  * while the organization is at its month limit (sub-domain 6's month count, ROUTE row R18).
  *
  * @remarks
- * - **Algorithm:** billing's one plan read (`SubscriptionService.getPlanAccess`, BL2) for the scope's
- *   organization — read in the caller's unit (a surrounding unit of the same organization lends its
- *   transaction); `read_only` → `plan_ended`; otherwise the month-limit port's answer
- *   (`MessageMonthCountService.readOrganizationPlanStop` — `plan_limit` or none).
+ * - **Algorithm:** the organization's entitlement snapshot — the caller's, else one resolve through
+ *   the entitlement module (change-plan-gates AP5, P24) in the caller's unit (a surrounding unit of
+ *   the same organization lends its transaction); its state `read_only` → `plan_ended`; otherwise
+ *   the month-limit port's answer over the same snapshot
+ *   (`MessageMonthCountService.readOrganizationPlanStop` — `plan_limit` or none), so the stop reads
+ *   the plan once.
  * - **Failure modes:** a read failure propagates into the caller's unit.
  * - **Side effects:** none.
  * - **Notes:** the month-limit port is optional so a unit test can leave it out; without it a
@@ -27,20 +33,24 @@ import type {
  */
 export class ChannelAccountPlanStopService implements ChannelAccountPlanStopPort {
   constructor(
-    private readonly planAccessService: ChannelAccountPlanAccessService,
+    private readonly entitlementService: ChannelAccountEntitlementService,
     private readonly monthLimitPort?: ChannelAccountPlanStopPort,
   ) {}
 
   /** The organization's plan stop now: `plan_ended`, else `plan_limit`, else `null`. */
   async readOrganizationPlanStop(
-    options: ChannelAccountPortScope,
+    options: ChannelAccountPortScope & { entitlement?: EntitlementSnapshot | undefined },
   ): Promise<Exclude<ChannelAccountPlanStopReason, 'plan_downgrade'> | null> {
-    const access = await this.planAccessService.getPlanAccess({
-      organizationPublicId: options.scope.organizationPublicId,
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope: options.scope,
+      entitlement: options.entitlement,
     });
-    if (access.state === PLAN_ACCESS_STATE.READ_ONLY) {
+    if (entitlement.state === PLAN_ACCESS_STATE.READ_ONLY) {
       return CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED;
     }
-    return (await this.monthLimitPort?.readOrganizationPlanStop(options)) ?? null;
+    return (
+      (await this.monthLimitPort?.readOrganizationPlanStop({ ...options, entitlement })) ?? null
+    );
   }
 }

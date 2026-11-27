@@ -4,10 +4,8 @@ import type {
   ChannelConnectionRow,
   ChannelConnectionRepository,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
-import {
-  type ChannelConnectionPlanAccessService,
-  ChannelConnectionService,
-} from '@/domains/app/sub-domains/channel-connection/channel-connection.service.js';
+import { ChannelConnectionService } from '@/domains/app/sub-domains/channel-connection/channel-connection.service.js';
+import type { ChannelAccountEntitlementService } from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
 import type { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import type { ChannelConnectionUsageService } from '@/domains/app/sub-domains/channel-connection/channel-connection-usage.service.js';
 import type {
@@ -193,7 +191,7 @@ function setup({
     {} as ChannelConnectionUsageService,
     accountPort as unknown as ChannelConnectionAccountPort,
     organizationService as unknown as OrganizationService,
-    {} as ChannelConnectionPlanAccessService,
+    {} as ChannelAccountEntitlementService,
     {} as Redis,
     lanePort as unknown as ChannelConnectionLanePort,
   );

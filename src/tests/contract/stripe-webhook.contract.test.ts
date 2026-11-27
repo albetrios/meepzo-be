@@ -115,6 +115,8 @@ describe('Stripe webhook ingestion contract (`constructStripeWebhookEvent` + Str
       // simply omits plan_id from the sync payload (no-op behavior).
       findByStripePriceId: async () => null,
     } as never,
+    // The plan-state cases' entitlement read (EN7) — not reached here. Stub for type safety only.
+    { resolve: vi.fn() } as never,
   );
   let webhookStripeSigningSecretBaseline: string;
 

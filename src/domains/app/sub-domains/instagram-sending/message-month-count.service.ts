@@ -3,7 +3,12 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
-import type { ChannelAccountPlanAccessService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import { limit } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
+import {
+  type ChannelAccountEntitlementService,
+  readEntitlementSnapshot,
+} from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
 import type {
   ChannelAccountPlanStopPort,
   ChannelAccountPortScope,
@@ -41,7 +46,7 @@ import {
 export class MessageMonthCountService implements ChannelAccountPlanStopPort {
   constructor(
     private readonly repository: MessageMonthCountRepository,
-    private readonly planAccessService: ChannelAccountPlanAccessService,
+    private readonly entitlementService: ChannelAccountEntitlementService,
   ) {}
 
   /**
@@ -111,30 +116,63 @@ export class MessageMonthCountService implements ChannelAccountPlanStopPort {
    * month's count has reached the plan's `message_month_limit`, else `null`.
    *
    * @remarks
-   * Algorithm: billing's plan read, then the month from Postgres in the caller's unit. Failure modes:
-   * a plan read failure propagates. Side effects: none. Notes: an organization with no plan in the
-   * catalog has no limit to reach.
+   * Algorithm: {@link readMonthLimitReached} over the caller's entitlement snapshot (else one
+   * resolve). Failure modes: a plan read failure propagates. Side effects: none. Notes: an
+   * organization with no plan in the catalog has no limit to reach.
    */
-  async readOrganizationPlanStop({
-    scope,
-    organizationId,
-  }: ChannelAccountPortScope): Promise<'plan_limit' | null> {
-    const limit = await this.readMonthLimit(scope);
-    if (limit === null) return null;
-    const month = await this.readMonthFromDatabase({ scope, organizationId });
-    return month.used >= limit ? 'plan_limit' : null;
+  async readOrganizationPlanStop(
+    options: ChannelAccountPortScope & { entitlement?: EntitlementSnapshot | undefined },
+  ): Promise<'plan_limit' | null> {
+    return (await this.readMonthLimitReached(options)) === null ? null : 'plan_limit';
   }
 
   /**
-   * The plan's `message_month_limit` (billing, P37), or `null` when the catalog has no plan.
+   * This month's count when it has reached the plan's `message_month_limit` — the numbers the month
+   * refusal carries (change-plan-gates AP4, P6) — else `null`.
    *
    * @remarks
-   * Algorithm: billing's plan read. Failure modes: propagates. Side effects: none.
+   * Algorithm: the ceiling with `limit('message_month_limit')` from the caller's entitlement snapshot
+   * (else one resolve, P24); then the month from Postgres in the caller's unit; reached when `used`
+   * is at or over the ceiling. Failure modes: a plan read failure propagates. Side effects: none.
+   * Notes: no plan in the catalog (`null`) has no limit to reach. The send claim's own month guard
+   * (`InstagramSendGateService`) keeps its locks and only reads the ceiling (P8, K4).
+   */
+  async readMonthLimitReached({
+    scope,
+    organizationId,
+    entitlement,
+  }: ChannelAccountPortScope & { entitlement?: EntitlementSnapshot | undefined }): Promise<{
+    limit: number;
+    used: number;
+    resetsOn: string;
+  } | null> {
+    const monthLimit = limit({
+      snapshot: await readEntitlementSnapshot({
+        entitlementService: this.entitlementService,
+        scope,
+        entitlement,
+      }),
+      key: 'message_month_limit',
+    });
+    if (monthLimit === null) return null;
+    const month = await this.readMonthFromDatabase({ scope, organizationId });
+    return month.used >= monthLimit
+      ? { limit: monthLimit, used: month.used, resetsOn: month.resetsOn }
+      : null;
+  }
+
+  /**
+   * The plan's `message_month_limit` (P37), or `null` when the catalog has no plan.
+   *
+   * @remarks
+   * Algorithm: one entitlement resolve, then `limit('message_month_limit')` (change-plan-gates AP1,
+   * AP4) — once per send job, before the claim. Failure modes: propagates. Side effects: none.
    */
   async readMonthLimit(scope: OrganizationPrincipalDatabaseScope): Promise<number | null> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+    const entitlement = await readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
     });
-    return planAccess.features?.message_month_limit ?? null;
+    return limit({ snapshot: entitlement, key: 'message_month_limit' });
   }
 }

@@ -13,12 +13,7 @@ import {
   assertTeamOrganization,
   assertTeamOrganizationForRead,
 } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  fieldValidationError,
-} from '@/shared/errors/index.js';
+import { ConflictError, NotFoundError, fieldValidationError } from '@/shared/errors/index.js';
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
@@ -33,13 +28,16 @@ import {
   serializeFailedMessagesRetry,
   serializeFailedMessagesSummary,
 } from '@/domains/app/app.failed-messages.serializer.js';
-import type {
-  ChannelAccountPlanAccessService,
-  ChannelAccountService,
-} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import {
+  type ChannelAccountEntitlementService,
+  readEntitlementSnapshot,
+} from '@/domains/app/sub-domains/channel-account/channel-account-entitlement.util.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { CHANNEL_FEATURES } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
-import type { PlanFeatureKey } from '@/domains/billing/sub-domains/plan/plan.constants.js';
+import { buildPlanRefusal } from '@/domains/billing/sub-domains/entitlement/entitlement-refusal.util.js';
+import { can } from '@/domains/billing/sub-domains/entitlement/entitlement-snapshot.util.js';
+import type { EntitlementSnapshot } from '@/domains/billing/sub-domains/entitlement/entitlement.types.js';
 import type { AutomationChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import { matchAutomationKeyword } from './automation-run/automation-run-matching.util.js';
 import {
@@ -69,6 +67,7 @@ import type {
   AutomationDeleteInput,
   AutomationDeleteResult,
   AutomationGetInput,
+  AutomationGoLiveInput,
   AutomationKeywordTestInput,
   AutomationKeywordTestOutput,
   AutomationLinkNextPostInput,
@@ -144,16 +143,6 @@ function refCodeExistsError(name: string): ConflictError {
   return new ConflictError('errors:automationRefCodeExists', { name }).withReason(
     'automation_ref_code_exists',
   );
-}
-
-/**
- * `403 plan_lacks_feature` — a save turns on a PRO part the plan lacks (AU4 (2), AU12), naming the
- * first such plan feature key as `error.feature` with `error.upgrade_required: true` (P269).
- */
-function planLacksFeatureError(feature: PlanFeatureKey): ForbiddenError {
-  return new ForbiddenError('errors:planLacksFeature')
-    .withReason('plan_lacks_feature')
-    .withFields({ feature, upgrade_required: true });
 }
 
 /** The order a list without `order` uses: newest first, `name` A→Z. */
@@ -273,7 +262,7 @@ export class AutomationService {
     private readonly countService: AutomationCountService,
     private readonly replyStateService: AutomationReplyStateService,
     private readonly channelAccountPort: AutomationChannelAccountPort,
-    private readonly planAccessService: ChannelAccountPlanAccessService,
+    private readonly entitlementService: ChannelAccountEntitlementService,
     private readonly organizationService: OrganizationService,
     private readonly openRunCancelSteps: readonly AutomationOpenRunCancelStep[],
     private readonly ports: AutomationServicePorts = {},
@@ -408,10 +397,10 @@ export class AutomationService {
             'instagram_not_connected',
           );
         }
-        const switches = await this.readPlanSwitches(scope);
+        const entitlement = await this.readEntitlement({ scope });
         const fields = mergeAutomationForCreate({
           changes,
-          isReplyLikePersonDefault: switches?.reply_like_person === true,
+          isReplyLikePersonDefault: can({ snapshot: entitlement, key: 'reply_like_person' }),
         });
         fields.ref_code = await this.resolveRefCode({
           organizationId: organization.id,
@@ -433,6 +422,7 @@ export class AutomationService {
           organizationId: organization.id,
           row: { ...row, channel_account_public_id: account.public_id },
           account,
+          entitlement,
         });
       },
     });
@@ -495,9 +485,11 @@ export class AutomationService {
           merged: mergeAutomationForUpdate({ stored: storedFields, changes }),
         });
         const isActive = stored.status !== 'draft';
+        // One plan read for the save (change-plan-gates P24): the PRO-part check and the answer.
+        const entitlement = await this.readEntitlement({ scope });
         if (isActive) {
           assertNoContentProblems(listAutomationContentProblems(merged));
-          await this.assertNoProFeatureTurnedOn({ scope, stored: storedFields, merged });
+          this.assertNoProFeatureTurnedOn({ entitlement, stored: storedFields, merged });
         }
         merged.ref_code = await this.resolveRefCode({
           organizationId: organization.id,
@@ -563,6 +555,7 @@ export class AutomationService {
           scope,
           organizationId: organization.id,
           row: { ...row, channel_account_public_id: stored.channel_account_public_id },
+          entitlement,
         });
         return { automation, warnings, isChanged: true };
       },
@@ -586,7 +579,9 @@ export class AutomationService {
    * 3. `live`; a `next` one waits from now (AU20). Warnings: a shared keyword; a private account on
    *    a comment kind.
    * 4. After commit: a starter-question one enqueues the sync. The plan-ended `403` is the route's
-   *    preHandler (AU4 (1)).
+   *    preHandler (AU4 (1)) — the one plan guard, whose snapshot (`entitlement`) the month check,
+   *    the feature check and the answer read, so go-live reads the plan no second time
+   *    (change-plan-gates RG5, P24); a direct call without one resolves once.
    *
    * Failure modes: as above; `404 automation_not_found`. Side effects: the row; the sync.
    */
@@ -594,7 +589,8 @@ export class AutomationService {
     scope,
     automationPublicId,
     actingUserPublicId,
-  }: AutomationActionInput): Promise<AutomationWithWarningsOutput> {
+    entitlement: guardEntitlement,
+  }: AutomationGoLiveInput): Promise<AutomationWithWarningsOutput> {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -618,12 +614,14 @@ export class AutomationService {
           automationPublicId,
         });
         if (stored === null || account === null) throw automationNotFoundError();
+        const entitlement = await this.readEntitlement({ scope, entitlement: guardEntitlement });
         if (stored.status === 'live') {
           const automation = await this.serialize({
             scope,
             organizationId: organization.id,
             row: stored,
             account,
+            entitlement,
           });
           return { automation, warnings: [], isChanged: false };
         }
@@ -634,6 +632,7 @@ export class AutomationService {
           stored,
           fields,
           account,
+          entitlement,
         });
         if (problems.length > 0) {
           throw new ConflictError('errors:automationNotReady', { count: problems.length })
@@ -699,6 +698,7 @@ export class AutomationService {
           organizationId: organization.id,
           row: { ...row, channel_account_public_id: stored.channel_account_public_id },
           account,
+          entitlement,
         });
         return { automation, warnings, isChanged: true };
       },
@@ -1277,12 +1277,15 @@ export class AutomationService {
     stored,
     fields,
     account,
+    entitlement,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     stored: AutomationWithAccountRow;
     fields: AutomationWritableFields;
     account: AutomationChannelAccount;
+    /** Go-live's one snapshot (P24): the month check and the feature check read it. */
+    entitlement: EntitlementSnapshot;
   }): Promise<AutomationProblem[]> {
     const problems: AutomationProblem[] = [];
     const isAccountUsable =
@@ -1297,7 +1300,11 @@ export class AutomationService {
       });
     }
     if (this.ports.monthLimit !== undefined) {
-      const stop = await this.ports.monthLimit.readOrganizationPlanStop({ scope, organizationId });
+      const stop = await this.ports.monthLimit.readOrganizationPlanStop({
+        scope,
+        organizationId,
+        entitlement,
+      });
       if (stop === 'plan_limit') {
         problems.push({
           field: 'channel_account_id',
@@ -1313,6 +1320,7 @@ export class AutomationService {
       channelAccountId: account.id,
       channel: account.channel,
       parts: listAutomationFeatureParts(fields),
+      entitlement,
     });
     problems.push(...featureProblems.map((item) => featureProblem(item)));
     const key = {
@@ -1419,34 +1427,45 @@ export class AutomationService {
     return problems;
   }
 
-  /** The plan's feature switches (P83), or `null` when the organization has no readable plan. */
-  private async readPlanSwitches(
-    scope: OrganizationPrincipalDatabaseScope,
-  ): Promise<Readonly<Record<string, boolean>> | null> {
-    const planAccess = await this.planAccessService.getPlanAccess({
-      organizationPublicId: scope.organizationPublicId,
+  /**
+   * The organization's entitlement for this request (change-plan-gates AP1, P24): the one the caller
+   * holds (go-live's guard snapshot), else one resolve through the entitlement module.
+   */
+  private async readEntitlement({
+    scope,
+    entitlement,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    entitlement?: EntitlementSnapshot | undefined;
+  }): Promise<EntitlementSnapshot> {
+    return readEntitlementSnapshot({
+      entitlementService: this.entitlementService,
+      scope,
+      entitlement,
     });
-    return planAccess.features?.feature_switches ?? null;
   }
 
-  /** `403 plan_lacks_feature` when a save turns on a PRO part the plan lacks (AU4 (2)). */
-  private async assertNoProFeatureTurnedOn({
-    scope,
+  /**
+   * `403 plan_lacks_feature` when a save turns on a PRO part the plan lacks (AU4 (2)) — the first
+   * such switch off in `can()`, refused through the entitlement module's `buildPlanRefusal`
+   * (change-plan-gates AP3: `feature`, `upgrade_required: true`).
+   */
+  private assertNoProFeatureTurnedOn({
+    entitlement,
     stored,
     merged,
   }: {
-    scope: OrganizationPrincipalDatabaseScope;
+    entitlement: EntitlementSnapshot;
     stored: AutomationWritableFields;
     merged: AutomationWritableFields;
-  }): Promise<void> {
+  }): void {
     const before = new Set(listAutomationProFeatures(stored));
     const turnedOn = listAutomationProFeatures(merged).filter((feature) => !before.has(feature));
-    if (turnedOn.length === 0) return;
-    const switches = await this.readPlanSwitches(scope);
     const lacking = turnedOn
       .map((feature) => CHANNEL_FEATURES[feature].planSwitch)
-      .find((planSwitch) => switches?.[planSwitch] !== true);
-    if (lacking !== undefined) throw planLacksFeatureError(lacking);
+      .find((planSwitch) => !can({ snapshot: entitlement, key: planSwitch }));
+    if (lacking !== undefined)
+      throw buildPlanRefusal({ reason: 'plan_lacks_feature', feature: lacking });
   }
 
   /** A save's `ref_code`: a `ref_link` without one gets a free one; a given one must be free (D43). */
@@ -1668,17 +1687,23 @@ export class AutomationService {
     );
   }
 
-  /** Serializes one row: its users' public ids, counts, PRO parts off and the account's username. */
+  /**
+   * Serializes one row: its users' public ids, counts, PRO parts off (`can()` over the request's
+   * snapshot, else one resolve) and the account's username.
+   */
   private async serialize({
     scope,
     organizationId,
     row,
     account,
+    entitlement,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     row: AutomationWithAccountRow;
     account?: AutomationChannelAccount | null | undefined;
+    /** The request's snapshot when an earlier step resolved it (P24). */
+    entitlement?: EntitlementSnapshot | undefined;
   }): Promise<AutomationOutput> {
     const userIds = [row.created_by_user_id, row.updated_by_user_id].filter(
       (userId): userId is number => userId !== null,
@@ -1694,9 +1719,9 @@ export class AutomationService {
       organizationId,
       automationIds: [row.id],
     });
-    const switches = await this.readPlanSwitches(scope);
+    const snapshot = await this.readEntitlement({ scope, entitlement });
     const proPartsOff: ChannelFeature[] = listAutomationProFeatures(toWritableFields(row)).filter(
-      (feature) => switches?.[CHANNEL_FEATURES[feature].planSwitch] !== true,
+      (feature) => !can({ snapshot, key: CHANNEL_FEATURES[feature].planSwitch }),
     );
     const resolvedAccount =
       account === undefined && row.trigger_type === 'ref_link'

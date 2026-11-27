@@ -12,4 +12,7 @@
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-overview-doc-maintainer/SKILL.md"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-system-narrative-maintainer/SKILL.md"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-change-completeness-guard/SKILL.md"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-api-contract-guard/SKILL.md"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-rls-tenant-isolation-guard/SKILL.md"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"agent-os/skills/be-sql-design-guard/SKILL.md"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"pnpm validate:domain"}}]}}

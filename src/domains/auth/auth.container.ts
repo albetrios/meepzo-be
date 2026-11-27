@@ -7,6 +7,7 @@ import type { MembershipService } from '@/domains/tenancy/sub-domains/membership
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { AuthorizationService } from '@/domains/tenancy/sub-domains/permission/authorization.service.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import type { EntitlementService } from '@/domains/billing/sub-domains/entitlement/entitlement.service.js';
 import { AuthMethodRepository } from './sub-domains/auth-method/auth-method.repository.js';
 import { VerificationTokenRepository } from './sub-domains/auth-method/verification-token/verification-token.repository.js';
 import { AuthSessionRepository } from './sub-domains/auth-session/auth-session.repository.js';
@@ -51,7 +52,8 @@ export function createAuthContainer({
   organizationService,
   authorizationService,
   membershipService,
-  planAccessService,
+  entitlementService,
+  channelAccountCountService,
 }: {
   userService: UserService;
   organizationSettingsService: OrganizationSettingsService;
@@ -59,8 +61,13 @@ export function createAuthContainer({
   authorizationService: AuthorizationService;
   /** Launch ROUTE #4: the caller's roles for /auth/me/context; the worker process omits it. */
   membershipService?: MembershipService;
-  /** Owner decision D3: the active organization's `plan_access` for /auth/me/context; the worker omits it. */
-  planAccessService?: Pick<SubscriptionService, 'getPlanAccess' | 'countConnectedChannelAccounts'>;
+  /**
+   * Owner decision D3: the active organization's `plan_access` for /auth/me/context, through billing's
+   * entitlement module (change-plan-gates EN7, K3); the worker omits it.
+   */
+  entitlementService?: Pick<EntitlementService, 'resolve'>;
+  /** Billing's accounts port: the active organization's channel account count (BL16); the worker omits it. */
+  channelAccountCountService?: Pick<SubscriptionService, 'countConnectedChannelAccounts'>;
 }): AuthContainer {
   const authMethodRepository = new AuthMethodRepository();
   const verificationTokenRepository = new VerificationTokenRepository();
@@ -132,7 +139,8 @@ export function createAuthContainer({
     organizationService,
     authorizationService,
     membershipService,
-    planAccessService,
+    entitlementService,
+    channelAccountCountService,
   );
 
   return {
@@ -159,7 +167,8 @@ export function registerAuthContainer(application: FastifyInstance): void {
       organizationService: application.tenancyDomain.organizationService,
       authorizationService: application.tenancyDomain.authorizationService,
       membershipService: application.tenancyDomain.membershipService,
-      planAccessService: application.billingDomain.subscriptionService,
+      entitlementService: application.billingDomain.entitlementService,
+      channelAccountCountService: application.billingDomain.subscriptionService,
     }),
   );
 }

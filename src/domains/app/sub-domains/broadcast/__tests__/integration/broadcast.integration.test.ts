@@ -10,7 +10,9 @@ import {
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import { organization_entitlement_overrides } from '@/domains/billing/sub-domains/entitlement/entitlement-override.schema.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -476,6 +478,31 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       const limited = await send(broadcast.id);
       expect(limited.statusCode).toBe(409);
       expect(errorOf(limited).reason).toBe('message_month_limit_reached');
+      // change-plan-gates AP4, P6, P38 — the one planned wire change: the entitlement module's month
+      // refusal gains the ceiling, this month's count and the day it starts again, after the reason
+      // and the detail; no upgrade hint.
+      const monthRefusal = (limited.json() as { error: Record<string, unknown> }).error;
+      expect(monthRefusal).toEqual({
+        type: 'request_error',
+        code: 'conflict',
+        reason: 'message_month_limit_reached',
+        detail: 'You used all your DMs this month. Upgrade, or wait until the 1st.',
+        limit: CREATOR_PLAN_FEATURES.message_month_limit,
+        used: expect.any(Number),
+        resets_on: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+        documentation_url: expect.stringMatching(/\/errors\/conflict$/),
+      });
+      expect(monthRefusal.used).toBeGreaterThanOrEqual(100000);
+      expect(Object.keys(monthRefusal)).toEqual([
+        'type',
+        'code',
+        'reason',
+        'detail',
+        'limit',
+        'used',
+        'resets_on',
+        'documentation_url',
+      ]);
       await operatorQuery`
         UPDATE app.channel_accounts SET connection_status = 'error' WHERE id = ${account.channel_account_id}`;
       const broken = await send(broadcast.id);
@@ -708,11 +735,9 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
     });
   });
 
-  describe('on Free (BC3, P76)', () => {
-    it('refuses draft and send with 403 plan_lacks_feature and leaves list, read, edit, cancel and delete open (AC-9.1)', async () => {
-      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
-      const draft = await createCompleteDraft();
-      const other = await createBroadcast();
+  describe('on Free (change-plan-gates P13, PL4; supersedes BC3, P76)', () => {
+    /** Moves the team from its Creator plan to a Free plan (the catalog's Free features). */
+    async function moveToFree(creatorPlanId: number): Promise<void> {
       const freePlan = await createTestPlan({
         features: FREE_PLAN_FEATURES,
         priceMonthly: '0.00',
@@ -721,10 +746,57 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       await operatorQuery`
         UPDATE billing.subscriptions SET plan_id = ${freePlan.id}
         WHERE organization_id = ${team.organization.id} AND plan_id = ${creatorPlanId}`;
+    }
+
+    it('drafts and sends on Free — its broadcasts switch is on (P13)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      await moveToFree(creatorPlanId);
+      expect(FREE_PLAN_FEATURES.feature_switches.broadcasts).toBe(true);
+      const draft = await createCompleteDraft();
+      const sent = await send(draft.id);
+      expect(sent.statusCode, sent.body).toBe(200);
+    });
+
+    it('with an override turning broadcasts off, refuses draft and send with 403 plan_lacks_feature and leaves list, read, edit, cancel and delete open (AC-9.1, P19)', async () => {
+      const creatorPlanId = await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const draft = await createCompleteDraft();
+      const other = await createBroadcast();
+      await moveToFree(creatorPlanId);
+      // The override is read before the plan (P19): it turns Free's broadcasts switch off.
+      await getOperatorDatabase()
+        .insert(organization_entitlement_overrides)
+        .values({
+          public_id: generatePublicId('organizationEntitlementOverride'),
+          organization_id: team.organization.id,
+          key: 'broadcasts',
+          value: false,
+          expires_at: null,
+          reason: 'Broadcasts held',
+        });
       for (const refused of [await create(), await send(draft.id)]) {
         expect(refused.statusCode).toBe(403);
         expect(errorOf(refused).reason).toBe('plan_lacks_feature');
         expect(errorOf(refused)).toMatchObject({ feature: 'broadcasts', upgrade_required: true });
+        // change-plan-gates AP2: the feature check's plan refusal comes from the entitlement
+        // module's builder — the body as before, every field, its value and its order.
+        expect(errorOf(refused)).toEqual({
+          type: 'request_error',
+          code: 'forbidden',
+          reason: 'plan_lacks_feature',
+          detail: 'Your plan does not include this feature. Upgrade your plan to use it.',
+          feature: 'broadcasts',
+          upgrade_required: true,
+          documentation_url: expect.stringMatching(/\/errors\/forbidden$/),
+        });
+        expect(Object.keys(errorOf(refused))).toEqual([
+          'type',
+          'code',
+          'reason',
+          'detail',
+          'feature',
+          'upgrade_required',
+          'documentation_url',
+        ]);
       }
       const list = await injectAuthenticated(app, {
         url: `${BROADCASTS_PATH}?channel_account_id=${account.public_id}`,
@@ -761,6 +833,44 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       expect(errorOf(refused).reason).toBe('organization_read_only');
       expect(errorOf(refused)).toMatchObject({ upgrade_required: true });
       expect(typeof (errorOf(refused) as { grace_ends_at?: unknown }).grace_ends_at).toBe('string');
+    });
+
+    it('checks the plan first, then the permission, then the idempotency key (change-plan-gates R2, P4)', async () => {
+      await usePlan({ features: CREATOR_PLAN_FEATURES });
+      const draft = await createCompleteDraft();
+      const sendPath = broadcastPath(draft.id, 'send');
+
+      // Writable: the permission is checked before the key, so a viewer without a key gets the
+      // permission 403, not the 422 for a missing key.
+      const viewerWithoutKey = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        token: team.viewerToken,
+        idempotencyKey: null,
+      });
+      expect(viewerWithoutKey.statusCode).toBe(403);
+      expect(errorOf(viewerWithoutKey).reason).not.toBe('organization_read_only');
+
+      await operatorQuery`DELETE FROM billing.subscriptions WHERE organization_id = ${team.organization.id}`;
+      await endPaidPlanWithoutPaying(team.organization.id);
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
+
+      // Read-only: the plan is checked before the permission …
+      const viewer = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        token: team.viewerToken,
+      });
+      expect(viewer.statusCode).toBe(403);
+      expect(errorOf(viewer).reason).toBe('organization_read_only');
+      // … and before the key: no key still answers the plan's 403, not the 422.
+      const ownerWithoutKey = await post({
+        url: sendPath,
+        payload: { mode: 'now' },
+        idempotencyKey: null,
+      });
+      expect(ownerWithoutKey.statusCode).toBe(403);
+      expect(errorOf(ownerWithoutKey).reason).toBe('organization_read_only');
     });
   });
 

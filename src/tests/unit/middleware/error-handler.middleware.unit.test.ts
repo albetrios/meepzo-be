@@ -78,9 +78,15 @@ async function createErrorHandlerApp() {
       feature: '',
       grace_ends_at: 'not a date',
       upgrade_required: 'yes',
+      resets_on: '2026-12-01T00:00:00.000Z',
       unknown_field: 1,
     } as unknown as NonNullable<AppError['fields']>;
     throw error;
+  });
+  application.get('/month-refusal-with-fields', async () => {
+    throw new AppError('CONFLICT', 409, 'errors:messageMonthLimitReached', undefined, 'Month')
+      .withReason('message_month_limit_reached')
+      .withFields({ limit: 1000, used: 1000, resets_on: '2026-12-01' });
   });
   application.get('/plan-room-with-extra-key', async () => {
     const error = new AppError('CONFLICT', 409, 'errors:planAccountLimit', undefined, 'Limit');
@@ -217,6 +223,18 @@ describe('error-handler.middleware', () => {
     });
   });
 
+  it('change-plan-gates P6: serializes the month refusal numbers, resets_on a calendar date', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({ method: 'GET', url: '/month-refusal-with-fields' });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toMatchObject({
+      reason: 'message_month_limit_reached',
+      limit: 1000,
+      used: 1000,
+      resets_on: '2026-12-01',
+    });
+  });
+
   it('P269: drops an extra field whose value is not of its kind, and an unknown name', async () => {
     application = await createErrorHandlerApp();
     const response = await application.inject({
@@ -224,7 +242,14 @@ describe('error-handler.middleware', () => {
       url: '/plan-refusal-with-wrong-kinds',
     });
     const error = response.json().error;
-    for (const name of ['limit', 'used', 'feature', 'grace_ends_at', 'upgrade_required']) {
+    for (const name of [
+      'limit',
+      'used',
+      'feature',
+      'grace_ends_at',
+      'upgrade_required',
+      'resets_on',
+    ]) {
       expect(error[name]).toBeUndefined();
     }
     expect(error.unknown_field).toBeUndefined();

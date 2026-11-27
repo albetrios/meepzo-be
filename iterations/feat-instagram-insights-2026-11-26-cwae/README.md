@@ -9,7 +9,7 @@
 | Opened | 2026-11-26 |
 | Branch | feat/instagram-automation |
 | Baseline | none |
-| Status | ready-for-approval |
+| Status | approved |
 | Summary | Meepzo shows what Instagram automations bring: its own analytics beside Instagram account, post and story insights — opened with a brief, not planned yet |
 | Drop placed | 2026-11-26 |
 | Drop source | _brief-insights |
@@ -21,3 +21,4 @@
 ## History
 
 - 2026-11-27 · planning → ready-for-approval · — · Claude
+- 2026-11-27 · ready-for-approval → approved · — · Claude

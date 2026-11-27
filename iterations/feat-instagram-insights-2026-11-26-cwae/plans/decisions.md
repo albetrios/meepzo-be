@@ -15,6 +15,7 @@ Claude's.
 | N-D8 | Response times before the inbox writes them (N4) | (a) shown once the inbox's rows land, empty before · (b) drop them from this iteration | **(a)** | 2026-11-27 | Claude | AMBER | open |
 | N-D9 | Step 5 — route review sub-domain 1, Instagram analytics (AN1–AN6, routes 182–184) | confirm · drop the post dimension · change | **confirmed as drafted** (rev 1), with the day counts' post dimension (AN2) | 2026-11-27 | user | RED | answered |
 | N-D10 | Step 5 — route review sub-domain 2, Instagram insight (IN1–IN7, routes 185–188, route 153 changed) | confirm · 403 without permission · change | **confirmed as drafted** (rev 1): empty `200` with `insights_status: permission_not_granted` | 2026-11-27 | user | RED | answered |
+| N-D11 | Approval of the plan (KICKOFF, 10-row ROUTE, stories, acceptance) | approve · changes | **approved**; kickoff after the inbox and engage (shared source commits, webhook fields, upkeep) | 2026-11-27 | user | RED | answered |
 
 ## Owner items
 

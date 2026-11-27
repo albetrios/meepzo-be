@@ -16,7 +16,7 @@ Paths are under `/api/v1/app`; `{x_id}` is a public id; **Gate** is the permissi
 
 | # | Sub-domain | Folder (`SD/…`) | Paths | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Instagram automation message (rename) | `instagram-sending/instagram-message/` → `instagram-sending/instagram-automation-message/` | none | 0 | — | **final (rev 1, confirmed 2026-11-26)** |
+| 1 | Instagram outgoing message (rename) | `instagram-sending/instagram-message/` → `instagram-sending/instagram-outgoing-message/` | none | 0 | — | **final (rev 2, confirmed 2026-11-27)** |
 | 2 | Instagram conversation | `instagram-conversation/` (new) with nested `instagram-conversation-message/`, `instagram-conversation-note/` | `/social/instagram/conversations…` | 15 new (155–169), 2 changed (12, contact read) | 1, contacts, upload | **final (rev 1, confirmed 2026-11-26)** |
 | 3 | Saved reply | `saved-reply/` (new, shared across channels — [I-D2](decisions.md)) | `/saved-replies…` | 5 new (170–174) | — | **final (rev 1, confirmed 2026-11-26)** |
 
@@ -24,7 +24,7 @@ Paths are under `/api/v1/app`; `{x_id}` is a public id; **Gate** is the permissi
 
 | Sub-domain | Table | Lives in | Written by |
 | --- | --- | --- | --- |
-| 1 | `app.instagram_automation_messages` (renamed) | `instagram-sending/instagram-automation-message/` | the paced sender (unchanged) |
+| 1 | `app.instagram_outgoing_messages` (renamed) | `instagram-sending/instagram-outgoing-message/` | the paced sender (unchanged) |
 | 2 | `app.instagram_conversation_messages` | `instagram-conversation/instagram-conversation-message/` | the webhook intake (inbound), the result save (automation / broadcast), the team-reply route |
 
 ## File header — rules for every sub-domain
@@ -37,7 +37,7 @@ Paths are under `/api/v1/app`; `{x_id}` is a public id; **Gate** is the permissi
 
 ---
 
-## 1. Instagram automation message (rename) — final (rev 1, confirmed 2026-11-26) — no routes
+## 1. Instagram outgoing message (rename) — final (rev 2, confirmed 2026-11-27 — name I-D21) — no routes
 
 Code: `SD/instagram-sending/instagram-message/` — the paced sender's ledger (one row per automation or broadcast DM;
 no text; split by ISO week; ~30 days) and its nested send attempts. This sub-domain only **renames** it
@@ -47,10 +47,10 @@ no text; split by ISO week; ~30 days) and its nested send attempts. This sub-dom
 
 | # | Decision |
 | --- | --- |
-| AM1 | **Table** `app.instagram_messages` → **`app.instagram_automation_messages`**, by one migration: the parent, its weekly parts and the DEFAULT part, its keys, checks, indexes and RLS policy names (`…_instagram_messages_…` → `…_instagram_automation_messages_…`), the composite foreign keys that point at it (`broadcast_id` link, send attempts), and the partition upkeep's CASE entry (`migrations/20261125190000_app_partition_upkeep.sql:95`). Expand-only is not possible for a rename: it runs in one transaction, and the release that ships it is the first to read the new name (the previous release stops before the migration — the deploy order the migration runner already enforces). |
-| AM2 | **Code follows the table** (the repo's naming rule — a sub-domain is named for its table; reuse rule — never old and new side by side): the folder `instagram-message/` → `instagram-automation-message/`, files `instagram-message.*` → `instagram-automation-message.*`, the Drizzle table export, `InstagramMessageService` / `Repository` / types → `InstagramAutomationMessage…`, the FORCE-RLS list (`src/infrastructure/database/utils/force-rls-tables.constants.ts:42`), the partition upkeep spec (`src/domains/app/workers/app-partition-upkeep.constants.ts`), the RLS test matrix. Other option: rename the table only and keep the code names — rejected, the names would disagree for good. |
+| AM1 | **Table** `app.instagram_messages` → **`app.instagram_outgoing_messages`**, by one migration: the parent, its weekly parts and the DEFAULT part, its keys, checks, indexes and RLS policy names (`…_instagram_messages_…` → `…_instagram_outgoing_messages_…`), the composite foreign keys that point at it (`broadcast_id` link, send attempts), and the partition upkeep's CASE entry (`migrations/20261125190000_app_partition_upkeep.sql:95`). Expand-only is not possible for a rename: it runs in one transaction, and the release that ships it is the first to read the new name (the previous release stops before the migration — the deploy order the migration runner already enforces). |
+| AM2 | **Code follows the table** (the repo's naming rule — a sub-domain is named for its table; reuse rule — never old and new side by side): the folder `instagram-message/` → `instagram-outgoing-message/`, files `instagram-message.*` → `instagram-outgoing-message.*`, the Drizzle table export, `InstagramMessageService` / `Repository` / types → `InstagramOutgoingMessage…`, the FORCE-RLS list (`src/infrastructure/database/utils/force-rls-tables.constants.ts:42`), the partition upkeep spec (`src/domains/app/workers/app-partition-upkeep.constants.ts`), the RLS test matrix. Other option: rename the table only and keep the code names — rejected, the names would disagree for good. |
 | AM3 | **What does not change**: the public id prefix `igm_` (ids already handed out stay valid), the routes that read it (24–26, 36–37 — failed-message summaries and retries), every behaviour. The nested `instagram_send_attempts` keeps its name (it is the attempt of a send, not of an automation). |
-| AM4 | **Name note** — the table also holds broadcast sends ([I-D13](decisions.md)); the TSDoc and the overview say so on the first line. |
+| AM4 | **Name** — `instagram_outgoing_messages` ([I-D21](decisions.md), supersedes I-D13's `instagram_automation_messages`): it holds every DM the paced sender sends — automation and broadcast; team replies are conversation messages (sub-domain 2). |
 
 ### 1.2 Open questions
 
@@ -60,7 +60,7 @@ None.
 
 | Table | Change |
 | --- | --- |
-| `app.instagram_messages` → `app.instagram_automation_messages` | renamed with every dependent name; columns unchanged |
+| `app.instagram_messages` → `app.instagram_outgoing_messages` | renamed with every dependent name; columns unchanged |
 
 ### 1.4 Permissions
 
@@ -88,7 +88,7 @@ n/a.
 
 ### 1.10 Rules worth knowing
 
-- A conversation message of an automation or broadcast (sub-domain 2) links its ledger row by `instagram_automation_message_id`.
+- A conversation message of an automation or broadcast (sub-domain 2) links its ledger row by `instagram_outgoing_message_id`.
 
 ### 1.11 Code changes (whole sub-domain)
 
@@ -122,7 +122,7 @@ details · 2.9 Errors · 2.10 Rules · 2.11 Code changes · 2.12 Nested sub-doma
 | CV2 | **Created lazily, once**: the first message of a contact (inbound, or the first automation / broadcast send) creates its conversation in the same transaction (an upsert on the 1:1 key). Conversations start empty at the connect ([I-D11](decisions.md)). |
 | CV3 | **Gates reuse the contact codes** ([I-D4](decisions.md)): `contact:read` reads everything here; `contact:update` takes, releases, assigns, changes state, replies, types, reacts, writes notes; deleting someone else's note needs `contact:delete`. |
 | CV4 | **Hand-off** ([I-D3](decisions.md)): a conversation taken by a member — or by "Instagram app" when an echo our app did not send arrives — holds **every automation DM** to that contact on that account: the send gate answers a new hold reason `conversation_taken`, so the message **waits** (it is not skipped; the existing 7-day expiry still applies). Release, close, or **24 hours** with no `team_member` message ends it (`INSTAGRAM_CONVERSATION_IDLE_RELEASE_HOURS = 24`). Today: only the default reply is suppressed for 6 h (`automation-run-matching.util.ts:451`) — that rule is kept for an untaken conversation. |
-| CV5 | **Team replies are sent directly** ([I-D9](decisions.md), [I-D10](decisions.md)) by route 165 — not through `app.instagram_automation_messages` or a lane: the 24-hour window, the account's hard stops, Meta's usage at `META_USAGE_WAIT_PERCENT`, `X-Idempotency-Key`; saved `sending`, Meta called after the commit, then `sent` / `failed`; not counted in the month limit. |
+| CV5 | **Team replies are sent directly** ([I-D9](decisions.md), [I-D10](decisions.md)) by route 165 — not through `app.instagram_outgoing_messages` or a lane: the 24-hour window, the account's hard stops, Meta's usage at `META_USAGE_WAIT_PERCENT`, `X-Idempotency-Key`; saved `sending`, Meta called after the commit, then `sent` / `failed`; not counted in the month limit. |
 | CV6 | **Replying assigns**: a reply to an unassigned conversation assigns it to the replier (a take); a reply to one another member holds is allowed and leaves the holder. Other option: refuse replies to someone else's conversation — rejected, it blocks cover. |
 | CV7 | **Polling** ([I-D8](decisions.md)), route 157: `since` is an opaque cursor (time + id); the answer lists changed conversations (summary) and `next_since`; a cursor older than 24 hours answers `meta.is_full_reload_needed: true` instead of a list. |
 | CV8 | **Mark seen on open** (rule 16): a new Instagram account setting `is_mark_seen_on_open_enabled` beside today's `is_mark_seen_after_reply_enabled` (`instagram-account-settings.schema.ts:63`), behind the same plan feature `mark_seen` and its Meta test; route 162 (mark read) sends Meta's `mark_seen` when it is on. ⚠️ owner test I1. |
@@ -144,7 +144,7 @@ None RED. Owner tests: I1 (typing, `mark_seen`, reactions, `reply_to`), I2 (down
 
 ```text
 app.contacts ──1:1── app.instagram_conversations ──┬──< app.instagram_conversation_messages (monthly)
-                                                   │        └──> app.instagram_automation_messages (copy of the id)
+                                                   │        └──> app.instagram_outgoing_messages (copy of the id)
                                                    │        └──> upload (copied file)
                                                    └──< app.instagram_conversation_notes ──> tenancy.memberships (author)
 app.instagram_conversations ──> tenancy.memberships (holder)
@@ -326,7 +326,7 @@ None.
 `reply_to_meta_message_id`, `reaction` (`{ emoji, target_meta_message_id }` for a reaction), `meta_message_id`
 (nullable until a team reply is sent; Meta's message ids are opaque — every one of these id columns is
 `INSTAGRAM_OPAQUE_ID_MAX_LENGTH` (1,024) with **no format CHECK**, merged rule `f3ca17f`), `automation_id`, `automation_run_id`, `broadcast_id`,
-`instagram_automation_message_id` (copies, no reference — the ledger is split by week), `sent_by_membership_id`,
+`instagram_outgoing_message_id` (copies, no reference — the ledger is split by week), `sent_by_membership_id`,
 `send_status` (`sending` · `sent` · `failed`, team replies only), `failure_reason`, `is_edited`, `edited_at`, `is_unsent`,
 `seen_at`, `sent_at`, `created_at`. Checks: `sender_type` and `kind` lists; `send_status` only for `team_member`;
 `sent_by_membership_id` exactly for `team_member`. Indexes: the thread keyset `(instagram_conversation_id, sent_at desc, id

@@ -15,7 +15,7 @@ inbox ends at 174): new ones start at **175**.
 
 | # | Sub-domain | Folder (`src/domains/app/sub-domains/…`) | Paths (`/social/…`) | Routes touched | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Instagram comment | `instagram-account/instagram-comment/` | `instagram/accounts/{channel_account_id}/comments…` | 5 new (175–179) | instagram-account, instagram-media, automation comment log, reply lane | **rev 1 — awaiting your OK** |
+| 1 | Instagram comment | `instagram-account/instagram-comment/` | `instagram/accounts/{channel_account_id}/comments…` | 5 new (175–179) | instagram-account, instagram-media, automation comment log, reply lane | **final (rev 1, confirmed 2026-11-27)** |
 | 2 | Instagram mention | `instagram-account/instagram-mention/` | `instagram/accounts/{channel_account_id}/mentions`, `…/tagged-media`; automations' `trigger_type` | 2 new (180, 181), 2 changed (automation create / update) | 1, automation | draft |
 
 Total so far: **7 new routes, 2 changed** — none removed.
@@ -57,7 +57,7 @@ Total so far: **7 new routes, 2 changed** — none removed.
 
 ---
 
-## 1. Instagram comment — rev 1 — awaiting your OK — no nested sub-domains
+## 1. Instagram comment — final (rev 1, confirmed 2026-11-27) — no nested sub-domains
 
 Code: a new nested folder `instagram-account/instagram-comment/` (schema, repository, service, controller, routes,
 dto, validator, serializer, types), beside `instagram-media/` — a comment belongs to the account's media.

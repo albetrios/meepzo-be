@@ -6,7 +6,7 @@ Filled at Close: `pass` (test file › test name, or a command), `partial`, `ope
 
 | Item | Source | Result | Evidence |
 | --- | --- | --- | --- |
-| AC-7.1 — `app.instagram_automation_messages` exists with every part, key, check and policy; `app.in… | features/automation-messages-rename | open | |
+| AC-7.1 — `app.instagram_outgoing_messages` exists with every part, key, check and policy; `app.in… | features/automation-messages-rename | open | |
 | AC-7.2 — The sending, broadcast, channel-account and webhook suites pass unchanged in behaviour; `i… | features/automation-messages-rename | open | |
 | AC-1.1 — A contact's first message creates exactly one conversation; a second never creates another… | features/conversation-inbox | open | |
 | AC-1.2 — Route 155 filters by state, holder (`me` · `none` · a member), unread, window closing, acc… | features/conversation-inbox | open | |

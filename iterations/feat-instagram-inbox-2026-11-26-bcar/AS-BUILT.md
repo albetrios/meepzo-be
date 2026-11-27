@@ -10,6 +10,7 @@ Baseline: none · KICKOFF.md approved 2026-11-26 (I-D19) · kicked off 2026-11-2
 ## Revisions to upcoming rows
 
 - Paused before R1 by the user (I-D20): the rename's dry run was shown; nothing applied. Resume at R1.
+- #R1: rename `app.instagram_messages` → **`app.instagram_outgoing_messages`** (not `instagram_automation_messages`) with every dependent name, folder `instagram-outgoing-message/`, identifiers `InstagramOutgoingMessage…`; the conversation message links it by `instagram_outgoing_message_id` — [I-D21](plans/decisions.md)
 
 ## Summary
 

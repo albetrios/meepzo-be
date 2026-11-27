@@ -63,6 +63,13 @@ export const instagram_account_settings = appSchema
       is_mark_seen_after_reply_enabled: boolean('is_mark_seen_after_reply_enabled')
         .notNull()
         .default(false),
+      /**
+       * Mark her messages seen when a team member opens the conversation (feat-instagram-inbox CV8) —
+       * the same plan feature and Meta test as `is_mark_seen_after_reply_enabled`.
+       */
+      is_mark_seen_on_open_enabled: boolean('is_mark_seen_on_open_enabled')
+        .notNull()
+        .default(false),
       /** The extra delay before each answer, low end in seconds (D67, PRO — P83). */
       extra_delay_seconds_min: smallint('extra_delay_seconds_min'),
       /** The extra delay's high end, in seconds (D67). */

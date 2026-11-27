@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/shared/errors/index.js';
 import { validateCreateUpload } from '@/domains/upload/upload.validator.js';
+import { createUploadDto } from '@/domains/upload/upload.dto.js';
 
 describe('upload.validator', () => {
   it('validateCreateUpload accepts valid upload input', () => {
@@ -92,5 +93,19 @@ describe('upload.validator', () => {
       file_size: 1024,
     };
     expect(validateCreateUpload(input)).toEqual(input);
+  });
+});
+
+describe('createUploadDto purpose list', () => {
+  it('refuses the server-only instagram-inbound-media purpose (feat-instagram-inbox R6, I-D7)', () => {
+    const result = createUploadDto.safeParse({
+      purpose: 'instagram-inbound-media',
+      for: 'organization',
+      file_name: 'photo.jpg',
+      content_type: 'image/jpeg',
+      file_size: 1024,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) => issue.path[0] === 'purpose')).toBe(true);
   });
 });

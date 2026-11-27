@@ -37,6 +37,11 @@ const AAC_ADTS_SIGNATURES = [0xf1, 0xf9, 0xf0, 0xf8].map(
   (secondByte) => new Uint8Array([0xff, secondByte]),
 );
 
+/** The MPEG audio (MP3) frame starts without an ID3 tag (11-bit sync, MPEG-1/2 Layer III, no CRC). */
+const MPEG_AUDIO_FRAME_SIGNATURES = [0xfb, 0xf3, 0xf2].map(
+  (secondByte) => new Uint8Array([0xff, secondByte]),
+);
+
 const MAGIC_SIGNATURES: ReadonlyArray<MagicSignature> = [
   {
     contentType: 'image/png',
@@ -57,6 +62,15 @@ const MAGIC_SIGNATURES: ReadonlyArray<MagicSignature> = [
     signature: new Uint8Array([0x66, 0x74, 0x79, 0x70]), // 'ftyp'
     offset: ISO_MEDIA_FILE_TYPE_BOX_OFFSET,
   })),
+  // Video in the same ISO base media container (MP4; QuickTime's own `ftyp qt  ` brand).
+  ...['video/mp4', 'video/quicktime'].map((contentType) => ({
+    contentType,
+    signature: new Uint8Array([0x66, 0x74, 0x79, 0x70]), // 'ftyp'
+    offset: ISO_MEDIA_FILE_TYPE_BOX_OFFSET,
+  })),
+  { contentType: 'image/gif', signature: new Uint8Array([0x47, 0x49, 0x46, 0x38]) }, // 'GIF8'
+  { contentType: 'audio/mpeg', signature: new Uint8Array([0x49, 0x44, 0x33]) }, // 'ID3'
+  ...MPEG_AUDIO_FRAME_SIGNATURES.map((signature) => ({ contentType: 'audio/mpeg', signature })),
   {
     contentType: 'audio/wav',
     signature: RIFF_SIGNATURE,

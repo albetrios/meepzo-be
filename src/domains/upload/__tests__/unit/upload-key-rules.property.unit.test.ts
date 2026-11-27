@@ -127,11 +127,14 @@ describe('content-type map (property)', () => {
   });
 
   it('extension sets of distinct content types never share an extension across one purpose', () => {
-    // The one sanctioned alias: `audio/x-m4a` is what Safari and macOS send for the same `.m4a`
-    // file browsers elsewhere declare `audio/mp4` (routes-final § 12 UP2) — one container, one
-    // magic-byte signature, so the shared `.m4a` is not ambiguous. Any other sharing still fails.
+    // The sanctioned aliases share one ISO base media container and its one `ftyp` signature, so a
+    // shared extension is not ambiguous: `audio/x-m4a` is what Safari and macOS send for the same
+    // `.m4a` file browsers elsewhere declare `audio/mp4` (routes-final § 12 UP2), and a DM's `.mp4`
+    // is `audio/mp4` or `video/mp4` (the Instagram inbound-media purpose, feat-instagram-inbox R6).
+    // Any other sharing still fails.
+    const isoBaseMediaTypes = new Set(['audio/mp4', 'audio/x-m4a', 'video/mp4']);
     const canonicalType = (contentType: string) =>
-      contentType === 'audio/x-m4a' ? 'audio/mp4' : contentType;
+      isoBaseMediaTypes.has(contentType) ? 'iso-base-media' : contentType;
     fc.assert(
       fc.property(fc.constantFrom(...purposes), (purpose) => {
         const seen = new Map<string, string>();

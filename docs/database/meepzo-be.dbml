@@ -593,6 +593,7 @@ Table app.instagram_account_settings {
   is_automatic_notice_enabled boolean [not null]
   is_comment_reply_trigger_enabled boolean [not null]
   is_mark_seen_after_reply_enabled boolean [not null]
+  is_mark_seen_on_open_enabled boolean [not null]
   is_once_per_person_per_post_enabled boolean [not null]
   opening_day_limit int
   opening_hour_limit smallint

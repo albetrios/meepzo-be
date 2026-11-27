@@ -22,6 +22,7 @@ export function buildInstagramAccountSettingsRow(
     is_comment_reply_trigger_enabled: true,
     is_once_per_person_per_post_enabled: true,
     is_mark_seen_after_reply_enabled: false,
+    is_mark_seen_on_open_enabled: false,
     extra_delay_seconds_min: null,
     extra_delay_seconds_max: null,
     updated_by_user_id: null,

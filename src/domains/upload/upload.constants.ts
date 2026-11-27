@@ -9,6 +9,12 @@ export const UPLOAD_PURPOSES = {
    * organization's team and read by the sending engine through `UploadService.findUsableMessageFile`.
    */
   MESSAGE_MEDIA: 'message-media',
+  /**
+   * A file a contact sent the organization in an Instagram DM — copied from Meta's expiring link
+   * into our storage by the inbox's copy job (feat-instagram-inbox I-D7). Server-side only: the
+   * upload route's `purpose` list leaves it out, so no client can request one.
+   */
+  INSTAGRAM_INBOUND_MEDIA: 'instagram-inbound-media',
 } as const;
 
 /** Union of valid purpose codes from {@link UPLOAD_PURPOSES}. */
@@ -78,6 +84,9 @@ export const MESSAGE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 /** The byte cap of a message document (pdf). */
 export const MESSAGE_FILE_MAX_BYTES = 25 * 1024 * 1024;
 
+/** The byte cap of a copied inbound DM video (mp4, mov) — Instagram's attachment limit for video. */
+export const INSTAGRAM_INBOUND_VIDEO_MAX_BYTES = 25 * 1024 * 1024;
+
 /**
  * Per-purpose policy table consulted by the validator and presigned-URL
  * service: allowed MIME types, max byte size, the S3 key prefix used
@@ -134,6 +143,45 @@ export const UPLOAD_PURPOSE_CONFIG: Record<UploadPurpose, UploadPurposeConfig> =
     keyPrefix: 'message-media',
     thumbnailTypes: [],
   },
+  [UPLOAD_PURPOSES.INSTAGRAM_INBOUND_MEDIA]: {
+    // What a contact can send in an Instagram DM: pictures (incl. GIF and webp stickers), video,
+    // voice notes and documents. No SVG; every type has a magic-byte signature.
+    allowedTypes: [
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'image/webp',
+      'video/mp4',
+      'video/quicktime',
+      'audio/aac',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/wav',
+      'application/pdf',
+    ],
+    maxSize: Math.max(
+      MESSAGE_IMAGE_MAX_BYTES,
+      MESSAGE_AUDIO_MAX_BYTES,
+      MESSAGE_FILE_MAX_BYTES,
+      INSTAGRAM_INBOUND_VIDEO_MAX_BYTES,
+    ),
+    maxSizeByContentType: {
+      'image/png': MESSAGE_IMAGE_MAX_BYTES,
+      'image/jpeg': MESSAGE_IMAGE_MAX_BYTES,
+      'image/gif': MESSAGE_IMAGE_MAX_BYTES,
+      'image/webp': MESSAGE_IMAGE_MAX_BYTES,
+      'video/mp4': INSTAGRAM_INBOUND_VIDEO_MAX_BYTES,
+      'video/quicktime': INSTAGRAM_INBOUND_VIDEO_MAX_BYTES,
+      'audio/aac': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/mp4': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/mpeg': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/wav': MESSAGE_AUDIO_MAX_BYTES,
+      'application/pdf': MESSAGE_FILE_MAX_BYTES,
+    },
+    magicByteVerifiedTypesOnly: true,
+    keyPrefix: 'instagram-inbound-media',
+    thumbnailTypes: [],
+  },
 } as const;
 
 /**
@@ -165,6 +213,7 @@ export const UPLOAD_PURPOSE_REQUIRED_TARGET: Record<UploadPurpose, UploadTarget>
   [UPLOAD_PURPOSES.ORGANIZATION_LOGO]: UPLOAD_TARGETS.ORGANIZATION,
   [UPLOAD_PURPOSES.ORGANIZATION_FILE]: UPLOAD_TARGETS.ORGANIZATION,
   [UPLOAD_PURPOSES.MESSAGE_MEDIA]: UPLOAD_TARGETS.ORGANIZATION,
+  [UPLOAD_PURPOSES.INSTAGRAM_INBOUND_MEDIA]: UPLOAD_TARGETS.ORGANIZATION,
 } as const;
 
 /**

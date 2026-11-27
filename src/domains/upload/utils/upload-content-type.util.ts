@@ -19,6 +19,11 @@ export const CONTENT_TYPE_TO_EXTENSIONS: Readonly<Record<string, readonly string
   // What Safari and macOS send for a `.m4a` voice note.
   'audio/x-m4a': ['.m4a'],
   'audio/wav': ['.wav'],
+  // The Instagram inbound-media purpose's extra types (a DM's GIF, video and MP3 copies).
+  'image/gif': ['.gif'],
+  'video/mp4': ['.mp4'],
+  'video/quicktime': ['.mov'],
+  'audio/mpeg': ['.mp3'],
 } as const;
 
 /**

@@ -34,6 +34,6 @@ erDiagram
 | # | Table | Before | After |
 | --- | --- | --- | --- |
 | DB-5 | `app.instagram_messages` | the paced sender's ledger, named generically | **renamed `app.instagram_outgoing_messages`** ([I-D13](decisions.md)) — its parts, keys, checks, RLS policy, the partition upkeep entry and every reference move with it; behaviour unchanged; team replies do not go through it ([I-D9](decisions.md)) |
-| DB-7 | upload purposes (`src/domains/upload/upload.constants.ts`) | `avatar` … `message-media` | + an Instagram inbound-file purpose for copied DM files ([I-D7](decisions.md)) |
+| DB-7 | upload purposes (`src/domains/upload/upload.constants.ts`) | `avatar` … `message-media` | + `instagram-inbound-media` for copied DM files, server-only ([I-D7](decisions.md); built R6) |
 | DB-8 | `app.instagram_account_settings` | `is_mark_seen_after_reply_enabled` | + `is_mark_seen_on_open_enabled` (routes-final CV8) |
 | DB-6 | partition upkeep (`app.fn_manage_time_partitions`) | its CASE lists today's split tables | + `instagram_conversation_messages` (monthly, dropped after 12 months) |

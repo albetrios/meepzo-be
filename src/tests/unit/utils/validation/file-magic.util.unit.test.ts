@@ -12,6 +12,13 @@ function webpBuffer(): Buffer {
   return buffer;
 }
 
+/** A buffer of `length` bytes that starts with `bytes`. */
+function withPrefix(bytes: number[], length = 16): Buffer {
+  const buffer = Buffer.alloc(length);
+  Buffer.from(bytes).copy(buffer, 0);
+  return buffer;
+}
+
 describe('file-magic.util', () => {
   it('accepts PNG magic bytes', () => {
     const buffer = Buffer.concat([PNG_SIGNATURE, Buffer.alloc(4)]);
@@ -69,12 +76,6 @@ describe('file-magic.util', () => {
   });
 
   describe('audio signatures (message files)', () => {
-    function withPrefix(bytes: number[], length = 16): Buffer {
-      const buffer = Buffer.alloc(length);
-      Buffer.from(bytes).copy(buffer, 0);
-      return buffer;
-    }
-
     it.each([0xf1, 0xf9, 0xf0, 0xf8])('accepts an AAC ADTS frame start FF %s', (secondByte) => {
       expect(
         verifyFileMagicBytes({ buffer: withPrefix([0xff, secondByte]), contentType: 'audio/aac' }),
@@ -121,6 +122,47 @@ describe('file-magic.util', () => {
       expect(
         verifyFileMagicBytes({ buffer: withPrefix([0xff, 0xfb]), contentType: 'audio/aac' }),
       ).toBe(false);
+    });
+  });
+
+  describe('inbound DM signatures (the Instagram inbound-media purpose)', () => {
+    it.each(['video/mp4', 'video/quicktime'])('accepts an ftyp box at offset 4 for %s', (type) => {
+      const buffer = withPrefix([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+      expect(verifyFileMagicBytes({ buffer, contentType: type })).toBe(true);
+    });
+
+    it('accepts a GIF87a and a GIF89a header', () => {
+      for (const header of ['GIF87a', 'GIF89a']) {
+        const buffer = Buffer.concat([Buffer.from(header, 'ascii'), Buffer.alloc(10)]);
+        expect(verifyFileMagicBytes({ buffer, contentType: 'image/gif' })).toBe(true);
+      }
+    });
+
+    it('accepts an MP3 with an ID3 tag or a bare Layer III frame sync', () => {
+      expect(
+        verifyFileMagicBytes({ buffer: withPrefix([0x49, 0x44, 0x33]), contentType: 'audio/mpeg' }),
+      ).toBe(true);
+      for (const secondByte of [0xfb, 0xf3, 0xf2]) {
+        expect(
+          verifyFileMagicBytes({
+            buffer: withPrefix([0xff, secondByte]),
+            contentType: 'audio/mpeg',
+          }),
+        ).toBe(true);
+      }
+    });
+
+    it('refuses a disguised file (HTML or a PNG declared as video, GIF or MP3)', () => {
+      const text = Buffer.from('<html><script>alert(1)</script></html>');
+      for (const contentType of ['video/mp4', 'video/quicktime', 'image/gif', 'audio/mpeg']) {
+        expect(verifyFileMagicBytes({ buffer: text, contentType })).toBe(false);
+        expect(
+          verifyFileMagicBytes({
+            buffer: Buffer.concat([PNG_SIGNATURE, Buffer.alloc(8)]),
+            contentType,
+          }),
+        ).toBe(false);
+      }
     });
   });
 });

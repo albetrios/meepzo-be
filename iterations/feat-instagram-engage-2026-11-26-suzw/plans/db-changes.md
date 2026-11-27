@@ -62,21 +62,26 @@ erDiagram
 - **Table** — `app.instagram_mentions` ([E-D5](decisions.md)).
 - **Sources** — B:9-10, B:23-24, B:36-37, B:45.
 - **Added / Replaced** — new.
-- **Open** — Meta's payload under Unified Login (E7, owner test EO1); kept 90 days ([E-D3](decisions.md)); both sources start the `mention` trigger ([E-D4](decisions.md)).
+- **Open** — Meta's payload and text reads under Unified Login (E7, owner test EO1). Settled: kept 90 days ([E-D3](decisions.md)); both sources start the `mention` trigger ([E-D4](decisions.md)); columns as the route review § 2.3 ([E-D7](decisions.md)).
 
 ```mermaid
 erDiagram
   instagram_mention["instagram_mention · NEW · app.instagram_mentions"] {
     id id PK
+    text public_id "igmn_"
     id organization_id FK
     id channel_account_id FK
     choice source "caption · comment"
     text instagram_media_id "the other account's media"
-    text instagram_comment_id "when source = comment"
+    text instagram_comment_id "exactly when source = comment"
+    id contact_id FK "when already a contact"
     text mentioned_by_username
-    text text
+    text mentioned_by_instagram_user_id
+    text text "≤ 2,200; empty when the read failed"
+    bool is_text_read
     text permalink
-    datetime mentioned_at
+    text media_type
+    datetime mentioned_at "month split key, kept 90 days"
     datetime created_at
   }
 ```

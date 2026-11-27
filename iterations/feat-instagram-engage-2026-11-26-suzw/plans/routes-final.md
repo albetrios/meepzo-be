@@ -1,5 +1,7 @@
 # Meepzo API — Instagram engage (comments, mentions, tagged media), final routes, sub-domain by sub-domain
 
+**Route review final — 2026-11-27.** Every sub-domain is confirmed; the frontend may kick off on these routes.
+
 Started from branch `feat/instagram-automation` at `76de0ed`. Every decision reads **today → after**; today is the
 code as built (`src/domains/app/sub-domains/…`, `file:line`). Sources: [`coverage.md`](coverage.md) (E1–E7,
 `B:<line>` = `intake-files/BRIEF.md`), [`decisions.md`](decisions.md) (E-D1–E-D5), [`route-changes.md`](route-changes.md)
@@ -16,9 +18,9 @@ inbox ends at 174): new ones start at **175**.
 | # | Sub-domain | Folder (`src/domains/app/sub-domains/…`) | Paths (`/social/…`) | Routes touched | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Instagram comment | `instagram-account/instagram-comment/` | `instagram/accounts/{channel_account_id}/comments…` | 5 new (175–179) | instagram-account, instagram-media, automation comment log, reply lane | **final (rev 1, confirmed 2026-11-27)** |
-| 2 | Instagram mention | `instagram-account/instagram-mention/` | `instagram/accounts/{channel_account_id}/mentions`, `…/tagged-media`; automations' `trigger_type` | 2 new (180, 181), 2 changed (automation create / update) | 1, automation | draft |
+| 2 | Instagram mention | `instagram-account/instagram-mention/` | `instagram/accounts/{channel_account_id}/mentions`, `…/tagged-media`; automations' `trigger_type` | 2 new (180, 181), 2 changed (automation create / update) | 1, automation | **final (rev 1, confirmed 2026-11-27)** |
 
-Total so far: **7 new routes, 2 changed** — none removed.
+Total: **7 new routes, 2 changed** — none removed.
 
 ## File header — code layout and tables without routes
 
@@ -156,8 +158,102 @@ None.
 
 ---
 
-## 2. Instagram mention — draft
+## 2. Instagram mention — final (rev 1, confirmed 2026-11-27) — no nested sub-domains
 
-Written after sub-domain 1 is confirmed: the mention table, `mentions` subscription and intake (WC-2, WC-3), routes
-180 (mentions) and 181 (tagged media, live from Meta), the `mention` trigger type ([E-D4](decisions.md)) on the
-automation create / update.
+Code: a new nested folder `instagram-account/instagram-mention/` (schema, repository, service, controller, routes,
+dto, validator, serializer, types), beside `instagram-comment/`. Tagged media has no table: route 181 reads Meta live
+through the media service's pattern (`listInstagramEdge`).
+
+### 2.1 Decisions (whole sub-domain)
+
+| # | Decision |
+| --- | --- |
+| IM1 | **Subscribe and store every mention** ([E-D2](decisions.md) applied to mentions). Today `mentions` is not among the six fields (`INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS`, `meta-graph.client.ts:40-47`); a `mentions` change is saved `unknown` and skipped `unsupported`. After: the set-up and the subscription check subscribe a seventh field `mentions` (WC-2); the classifier gains a 14th kind `mention` (WC-3); processing reads the mention's text once and upserts one `app.instagram_mentions` row. |
+| IM2 | **Two sources, one row shape** ([E-D4](decisions.md)): `caption` (Meta sends `media_id`) and `comment` (Meta sends `media_id` + `comment_id`). The text is read once at intake — caption: `/{ig-user-id}?fields=mentioned_media.media_id({media_id}){caption,permalink,timestamp,username,media_type}`; comment: `mentioned_comment.comment_id({comment_id}){text,timestamp,username}` ⚠️ unverified, owner test EO1. A failed read stores the row with empty text and `is_text_read = false`; it is never retried by a loop (the list shows "open on Instagram" with the permalink when known). |
+| IM3 | **The `mention` trigger** ([E-D4](decisions.md)): a 16th Instagram trigger type `mention`, in `CHANNEL_CAPABILITIES` and the automation create / update (RC-8, RC-9), plan family as `story_mention` (`story`, `automation.constants.ts:22`). Config: optional `sources` (`caption` · `comment`, default both). A live `mention` automation on the account starts one run per stored mention, once (the run's start key is the mention row). |
+| IM4 | **How a mention run can reach the person** ⚠️ EO1: a **comment** mention → the run's first DM goes as a private reply to that comment (the comment path the reply lane already uses); a **caption** mention → no message path unless the person has an open 24-hour window with the account — otherwise the run ends `no_message_path` (logged, no DM). Nobody is contacted without a live automation (B:36-37). |
+| IM5 | **Retention 90 days** ([E-D3](decisions.md)): monthly parts by `mentioned_at`, dropped by the shared partition upkeep after `AUTOMATION_RUN_KEEP_DAYS` (WC-5). The contact erase empties `text`, `mentioned_by_username`, `mentioned_by_instagram_user_id`. |
+| IM6 | **Tagged media is live** (B:11): route 181 calls Meta's `/{ig-user-id}/tags` each time, gated as every Meta read (K4); nothing stored, no retention. |
+| IM7 | **Permission**: both routes read with `instagram-account:read` (Viewer included); the trigger uses the automation permissions already in place. No new code. |
+
+### 2.2 Open questions
+
+None RED — E-D3, E-D4, E-D5 answer the table, retention and trigger scope. Owner test EO1 (payload, text reads, the
+private-reply path for a comment mention) stays open; a failing EO1 changes IM2/IM4's Meta calls, not the routes.
+
+### 2.3 Tables and relations
+
+| Table | Change |
+| --- | --- |
+| `app.instagram_mentions` | **NEW** — `id`, `public_id` (`igmn_`), `organization_id`, `channel_account_id`, `source` (`caption` · `comment`), `instagram_media_id` (Meta's, the other account's media, bounded K5), `instagram_comment_id` (Meta's, when `comment`), `contact_id` (nullable — when the person is already a contact), `mentioned_by_username`, `mentioned_by_instagram_user_id`, `text` (≤ 2,200 characters), `is_text_read`, `permalink`, `media_type`, `mentioned_at`, `created_at` |
+
+**PostgreSQL design**: partitioned by month on `mentioned_at`; unique `(organization_id, channel_account_id,
+instagram_media_id, coalesce(instagram_comment_id, ''), mentioned_at)`; keyset index `(organization_id,
+channel_account_id, mentioned_at DESC, id DESC)`; partial `(organization_id, contact_id)` where set; `source` CHECK
+(and `instagram_comment_id` present exactly for `comment`); FORCE RLS organization policy + the retention arm (K3);
+the upkeep's CASE entry.
+
+### 2.4 Permissions
+
+| Code | Allows | Routes | Held by default |
+| --- | --- | --- | --- |
+| `instagram-account:read` | list mentions, list tagged media | 180, 181 | Owner, Admin, Editor, Viewer |
+| `automation:create` / `automation:update` | a `mention` automation | 28, 30 (changed) | as today |
+
+### 2.5 Common to every route
+
+As 1.5 (team organizations only; `{channel_account_id}` a `cha_` id of this organization's Instagram account, not
+revoked).
+
+### 2.6 Objects returned
+
+| Object | Shape |
+| --- | --- |
+| Instagram mention | `{ id, channel_account_id, source, media: { instagram_media_id, permalink, media_type }, comment_id, mentioned_by: { username, contact_id }, text, is_text_read, mentioned_at, automation_run: { id, status } \| null }` |
+| Tagged media | `{ instagram_media_id, owner_username, caption, media_type, media_url, thumbnail_url, permalink, timestamp }` |
+
+### 2.7 Routes
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 180 | GET | `/instagram/accounts/{channel_account_id}/mentions` | The mention list, newest first | `instagram-account:read` | |
+| 181 | GET | `/instagram/accounts/{channel_account_id}/tagged-media` | Posts the account is tagged in, live from Meta | `instagram-account:read` | |
+| 28 | POST | `/automations` | **+ `trigger_type: mention`** with optional `sources` (changed) | `automation:create` | req |
+| 30 | PATCH | `/automations/{automation_id}` | **+ `mention`** (changed) | `automation:update` | |
+
+### 2.8 Request details
+
+- 180: query `source` (`caption · comment · any`, default `any`), `limit` (≤ 50), `cursor` (keyset).
+- 181: query `limit` (≤ 50), `after` (Meta's cursor, passed through).
+- 28 / 30: `trigger.config.sources` — an array of `caption` · `comment`, 1–2, default both.
+
+### 2.9 Errors
+
+| Route | Status · reason | When |
+| --- | --- | --- |
+| 180, 181 | `404` · `channel_account_not_found` | not this organization's Instagram account, or revoked |
+| 181 | `409` · `instagram_not_connected` | the account or its connection is not connected |
+| 181 | `503` · `instagram_unavailable` | Meta down, throttling, circuit open |
+| 28, 30 | `400` · `trigger.config.sources` | empty, repeated or unknown source |
+| 28, 30 | `403` · `plan_feature_required` | the plan's `story` trigger family is off (as `story_mention`) |
+
+### 2.10 Rules worth knowing
+
+- The mention list never calls Meta; tagged media always does.
+- A mention arrives once (the webhook event key); a repeat delivery stores nothing new and starts no second run.
+- A mention by the account itself (its own caption tagging itself) is not stored.
+- Deleting a mention is not offered — Meta has no "remove mention" call; it ages out after 90 days.
+
+### 2.11 Code changes (whole sub-domain)
+
+| # | Change |
+| --- | --- |
+| IMC1 | IM1, IM5: the table + migration (partitioned, upkeep entry, FORCE RLS), schema, repository; prefix `igmn`; the contact erase step |
+| IMC2 | IM1, IM2: `mentions` added to the subscribed fields (WC-2, with the subscription check's drift repair); classifier kind `mention`; processing + the two Meta reads (WC-3) |
+| IMC3 | IM3, IM4: trigger type `mention` in capabilities, DTO / validator of routes 28 / 30, the run start per stored mention, the private-reply / window path, `no_message_path` end |
+| IMC4 | IM6: Meta client `listInstagramTaggedMedia`; routes 180–181, controller, service, dto, validator, serializer; OpenAPI, catalogs, i18n |
+| IMC5 | Tests: a caption and a comment mention stored once; a failed text read; the list's filter and keyset; tagged media's Meta call, 409 / 503; a `mention` automation started once per mention, both sources, and the caption path without a window; another organization 404; the contact erase |
+
+### 2.12 Nested sub-domains
+
+None.

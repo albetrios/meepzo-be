@@ -38,5 +38,5 @@ Route numbers continue from 175 (route review sub-domain 1: 175–179; sub-domai
 
 | # | Route | What changes | Before | After | Why |
 | --- | --- | --- | --- | --- | --- |
-| RC-8 | `POST /automations` | input | 15 trigger types | + `mention` | B:10 |
-| RC-9 | `PATCH /automations/{automation_id}` | input | 15 trigger types | + `mention` | B:10 |
+| RC-8 | `POST /automations` | input | 15 trigger types | + `mention`, optional `trigger.config.sources` (`caption` · `comment`) | B:10 |
+| RC-9 | `PATCH /automations/{automation_id}` | input | 15 trigger types | + `mention`, optional `trigger.config.sources` (`caption` · `comment`) | B:10 |

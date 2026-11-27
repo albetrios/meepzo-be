@@ -7,24 +7,24 @@ Sources: `intake-files/BRIEF.md` (B:<line>) and the code today (file:line).
 
 | Source (file:line) | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| B:5-6 | Comment inbox — every comment on the account's posts and reels, newest first; filters post / not answered / automation answered | operations.comment-list | comment-inbox | B:42 | open |
-| B:7-8 | Reply publicly, hide / unhide, delete a comment from the inbox | operations.comment-moderation | comment-moderation | B:44 | open |
-| B:9-10 | @mentions arrive by webhook, listed; a mention can start an automation | operations.mention-list, integrations.mentions-webhook | mentions | B:45 | open |
-| B:11 | Tagged media (`/{ig-user-id}/tags`) listed beside mentions, read live | operations.tagged-media | mentions | B:46 | open |
-| B:22 | Screen: comments inbox (new) | operations.comment-list | comment-inbox | B:42 | open |
-| B:22 | Screen: mentions & tags list (new) | operations.mention-list | mentions | B:45 | open |
-| B:22 | Automation editor — one more trigger: mention | operations.mention-trigger | mentions | B:45 | open |
-| B:23 | Entity `app.instagram_comments` (new) | data.instagram-comment | comment-inbox | B:42 | open |
-| B:23-24 | Entity `app.instagram_mentions` (new) | data.instagram-mention | mentions | B:45 | open |
-| B:24 | Existing `app.instagram_media`, `app.automation_comment_logs`, contacts | data.instagram-comment | comment-inbox | B:42 | open |
-| B:25-26 | Routes under `…/instagram/accounts/{channel_account_id}/comments…` and `…/mentions`; webhook route unchanged | (route-changes.md) | all | B:42-46 | open |
-| B:30-31 | Read with `instagram-account:read`; writes with new `instagram-comment:manage` (Owner, Admin, Editor) | access.comment-moderation | comment-moderation | B:44 | open |
-| B:32-33 | Every write through the sending gate and Meta usage; a deleted comment soft-gone | quality.comment-writes-paced, data.comment-delete | comment-moderation | B:44 | open |
-| B:34-35 | `instagram_` prefix, FORCE RLS, Meta ids bounded (C-D16) | quality.tenant-isolation | all | B:47 | open |
-| B:36-37 | `mentions` webhook field subscribed; mention text stored; never contact the media owner without an automation | integrations.mentions-webhook, quality.mention-privacy | mentions | B:45 | open |
-| B:38 | Comment retention follows run / comment-log retention | quality.comment-retention | comment-inbox | — | open |
-| B:42-43 | Webhook comment shows within one processing cycle with the automation's answer | background.comment-store | comment-inbox | B:42 | open |
-| B:47 | Another organization's comment or mention → 404 | access.tenant-404 | all | B:47 | open |
+| B:5-6 | Comment inbox — every comment on the account's posts and reels, newest first; filters post / not answered / automation answered | operations.comment-list | comment-inbox | B:42 | covered |
+| B:7-8 | Reply publicly, hide / unhide, delete a comment from the inbox | operations.comment-moderation | comment-moderation | B:44 | covered |
+| B:9-10 | @mentions arrive by webhook, listed; a mention can start an automation | operations.mention-list, integrations.mentions-webhook | mentions | B:45 | covered |
+| B:11 | Tagged media (`/{ig-user-id}/tags`) listed beside mentions, read live | operations.tagged-media | mentions | B:46 | covered |
+| B:22 | Screen: comments inbox (new) | operations.comment-list | comment-inbox | B:42 | covered |
+| B:22 | Screen: mentions & tags list (new) | operations.mention-list | mentions | B:45 | covered |
+| B:22 | Automation editor — one more trigger: mention | operations.mention-trigger | mentions | B:45 | covered |
+| B:23 | Entity `app.instagram_comments` (new) | data.instagram-comment | comment-inbox | B:42 | covered |
+| B:23-24 | Entity `app.instagram_mentions` (new) | data.instagram-mention | mentions | B:45 | covered |
+| B:24 | Existing `app.instagram_media`, `app.automation_comment_logs`, contacts | data.instagram-comment | comment-inbox | B:42 | covered |
+| B:25-26 | Routes under `…/instagram/accounts/{channel_account_id}/comments…` and `…/mentions`; webhook route unchanged | (route-changes.md) | all | B:42-46 | covered |
+| B:30-31 | Read with `instagram-account:read`; writes with new `instagram-comment:manage` (Owner, Admin, Editor) | access.comment-moderation | comment-moderation | B:44 | covered |
+| B:32-33 | Every write through the sending gate and Meta usage; a deleted comment soft-gone | quality.comment-writes-paced, data.comment-delete | comment-moderation | B:44 | covered |
+| B:34-35 | `instagram_` prefix, FORCE RLS, Meta ids bounded (C-D16) | quality.tenant-isolation | all | B:47 | covered |
+| B:36-37 | `mentions` webhook field subscribed; mention text stored; never contact the media owner without an automation | integrations.mentions-webhook, quality.mention-privacy | mentions | B:45 | covered |
+| B:38 | Comment retention follows run / comment-log retention | quality.comment-retention | comment-inbox | — | covered |
+| B:42-43 | Webhook comment shows within one processing cycle with the automation's answer | background.comment-store | comment-inbox | B:42 | covered |
+| B:47 | Another organization's comment or mention → 404 | access.tenant-404 | all | B:47 | covered |
 | B:51-52 | Out of scope: likes (`instagram_manage_engagement`), Facebook Page comments, comment insights | — | — | — | out-of-scope (brief) |
 
 ## Reconciliation

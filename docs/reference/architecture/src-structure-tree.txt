@@ -504,6 +504,13 @@ src/
     │   │   │   ├── __tests__/
     │   │   │   │   └── unit/
     │   │   │   │   │   └── instagram-conversation.schema.db.unit.test.ts
+    │   │   │   ├── instagram-conversation-message/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   └── instagram-conversation-message.schema.db.unit.test.ts
+    │   │   │   │   ├── instagram-conversation-message.constants.ts
+    │   │   │   │   ├── instagram-conversation-message.overview.md
+    │   │   │   │   └── instagram-conversation-message.schema.ts
     │   │   │   ├── instagram-conversation.constants.ts
     │   │   │   ├── instagram-conversation.overview.md
     │   │   │   └── instagram-conversation.schema.ts

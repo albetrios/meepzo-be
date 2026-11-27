@@ -54,7 +54,7 @@ team reads, takes, replies and notes from our app, while a bot never answers ove
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | R1 | 1 The ledger rename — routes-final § 1 (AM1–AM4; AMC1–AMC3) | sub-domain | — | `/be-build-requirement` (CHANGE table) | AC-7.1, AC-7.2 | — | done |
 | R2 | `app.instagram_conversations` — routes-final § 2.A.3 | table | — | staged-build prompt (NEW table) | AC-1.1 | — | done |
-| R3 | `app.instagram_conversation_messages` (monthly, 12 months, upkeep entry) — § 2.B.3 | table | R2 | staged-build prompt (NEW table) | AC-6.2 | — | open |
+| R3 | `app.instagram_conversation_messages` (monthly, 12 months, upkeep entry) — § 2.B.3 | table | R2 | staged-build prompt (NEW table) | AC-6.2 | — | done |
 | R4 | `app.instagram_conversation_notes` — § 2.C.3 | table | R2 | staged-build prompt (NEW table) | AC-1.8 | — | open |
 | R5 | `app.saved_replies` — § 3.3 | table | — | staged-build prompt (NEW table) | AC-4.1 | — | open |
 | R6 | `instagram_account_settings.is_mark_seen_on_open_enabled`; the upload purpose — CV8, CVC8 | table | — | `/be-build-requirement` (CHANGE table) | AC-1.6 | — | open |

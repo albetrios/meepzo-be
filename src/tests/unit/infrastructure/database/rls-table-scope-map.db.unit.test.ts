@@ -51,6 +51,16 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
     'app.global_retention_cleanup',
   ],
   'app.automation_runs': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The team inbox (feat-instagram-inbox R2, R3): organization-scoped, plus the retention sweep arm in
+  // USING (the idle release and the part upkeep read across organizations).
+  'app.instagram_conversations': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.instagram_conversation_messages': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Automations: organization-scoped, plus the retention sweep arm in USING (routes-final § 3.3).
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.automation_counts': ['app.current_organization_public_id'],

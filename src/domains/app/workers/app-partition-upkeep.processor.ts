@@ -148,7 +148,7 @@ function reportTable(report: AppPartitionUpkeepTableReport): void {
 }
 
 /**
- * Keeps the seven time-split `app` tables' parts ready and drops the expired ones (feat-instagram-dm-
+ * Keeps the eight time-split `app` tables' parts ready and drops the expired ones (feat-instagram-dm-
  * sending WC-55, WC-48–WC-52; routes-final § 5.B WHC13, § 4.B AUC14, § 6.B SNC13; P92, P96, S17).
  *
  * @remarks

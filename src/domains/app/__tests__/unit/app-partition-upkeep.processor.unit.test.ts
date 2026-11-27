@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The shared partition upkeep's processor (feat-instagram-dm-sending WC-55, WHC13; P92, S17): the
- * seven tables in order under the upkeep's maintenance scope, the gauges, and the alerts.
+ * eight tables in order under the upkeep's maintenance scope, the gauges, and the alerts.
  */
 
 const state = vi.hoisted(() => ({
@@ -77,16 +77,17 @@ describe('runAppPartitionUpkeepJob', () => {
     setGaugesMock.mockReset();
   });
 
-  it('visits the seven tables in order — messages and run events before runs — with their keep times', async () => {
+  it('visits the eight tables in order — messages and run events before runs — with their keep times', async () => {
     const reports = await runAppPartitionUpkeepJob({ mode: 'drop' });
 
-    expect(reports).toHaveLength(7);
+    expect(reports).toHaveLength(8);
     expect(state.calls.map(({ table, keepDays, drop }) => [table, keepDays, drop])).toEqual([
       ['app.instagram_webhook_events', 8, true],
       ['app.instagram_webhook_event_keys', 8, true],
       ['app.instagram_send_attempts', 8, true],
       ['app.instagram_outgoing_messages', 30, true],
       ['app.automation_comment_logs', 90, true],
+      ['app.instagram_conversation_messages', 365, true],
       ['app.automation_run_events', 98, true],
       ['app.automation_runs', 98, true],
     ]);
@@ -112,7 +113,7 @@ describe('runAppPartitionUpkeepJob', () => {
 
     await runAppPartitionUpkeepJob({ mode: 'drop' });
 
-    expect(setGaugesMock).toHaveBeenCalledTimes(7);
+    expect(setGaugesMock).toHaveBeenCalledTimes(8);
     expect(setGaugesMock).toHaveBeenCalledWith({
       table: 'app.instagram_outgoing_messages',
       readyDays: 26,
@@ -172,6 +173,6 @@ describe('runAppPartitionUpkeepJob', () => {
     await expect(runAppPartitionUpkeepJob({ mode: 'drop' })).rejects.toThrow(
       'app partition upkeep failed for app.instagram_outgoing_messages',
     );
-    expect(state.calls).toHaveLength(7);
+    expect(state.calls).toHaveLength(8);
   });
 });

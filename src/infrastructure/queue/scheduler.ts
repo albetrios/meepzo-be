@@ -281,7 +281,7 @@ function withSchedulerTimezone({
 }
 
 /**
- * The app domain's clean-ups: the shared partition upkeep of the seven time-split tables (the daily
+ * The app domain's clean-ups: the shared partition upkeep of the eight time-split tables (the daily
  * make and the hourly drop, feat-instagram-dm-sending WC-55, P96 — ROUTE row R49; runs, run events,
  * comment logs, messages, send attempts, webhook events and their keys expire by part drops), and
  * launch D8's (routes-final § 3.B AU25, AQ7) hourly 7-day wait cancel and daily deleted-automation

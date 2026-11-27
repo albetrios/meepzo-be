@@ -56,6 +56,8 @@ export const PUBLIC_ID_PREFIXES = {
   automationCommentLog: 'acl',
   /** One conversation with one contact (`app.instagram_conversations`, feat-instagram-inbox CV1). */
   instagramConversation: 'igcv',
+  /** One message of a conversation, either way (`app.instagram_conversation_messages`, feat-instagram-inbox CV1). */
+  instagramConversationMessage: 'igcm',
   /**
    * One past-comments read of an automation (`app.automation_backfills`, feat-instagram-dm-sending
    * AU1; prefix chosen at kickoff, P22).

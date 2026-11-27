@@ -29,6 +29,7 @@ TableGroup app {
   app.instagram_account_settings
   app.instagram_accounts
   app.instagram_attachments
+  app.instagram_conversation_messages
   app.instagram_conversations
   app.instagram_media
   app.instagram_messages
@@ -645,6 +646,43 @@ Table app.instagram_attachments {
 
 Note app.instagram_attachments {
   'RLS: enabled\nPolicies: instagram_attachments_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_conversation_messages {
+  AND  [not null]
+  attachments jsonb [not null]
+  automation_id bigint
+  automation_run_id bigint
+  broadcast_id bigint
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  edited_at timestamptz
+  failure_reason varchar(50)
+  id bigint [increment, not null]
+  instagram_conversation_id bigint [not null]
+  instagram_outgoing_message_id bigint
+  is_edited boolean [not null]
+  is_unsent boolean [not null]
+  kind varchar(20) [not null]
+  meta_message_id varchar(1024)
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  reaction jsonb
+  reply_to_meta_message_id varchar(1024)
+  seen_at timestamptz
+  send_status varchar(10)
+  sender_type varchar(20) [not null]
+  sent_at timestamptz [not null]
+  sent_by_membership_id bigint
+  text varchar(2200)
+  indexes {
+    (id, sent_at) [pk]
+  }
+}
+
+Note app.instagram_conversation_messages {
+  'Partitioned BY RANGE (sent_at)\nRLS: enabled\nPolicies: instagram_conversation_messages_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_conversations {

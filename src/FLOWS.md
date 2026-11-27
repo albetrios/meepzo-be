@@ -640,7 +640,7 @@ sequenceDiagram
   end
   Scheduler->>Worker: every hour at :37 — app-partition-upkeep (drop-expired-app-partitions)
   Worker->>DB: app.fn_manage_time_partitions per table, maintenance role only — parts made 14 days ahead; expired parts detached and dropped (events and keys 8 days, attempts 8, messages 30 after their week, comment logs 90 and run events then runs 98 after their month; a runs part with an open run kept)
-  Note over Scheduler,DB: no batch delete remains on the seven time-split tables (feat-instagram-dm-sending R14, R49); the daily 02:23 make pass and one at worker start keep the parts coming
+  Note over Scheduler,DB: no batch delete remains on the eight time-split tables (feat-instagram-dm-sending R14, R49); the daily 02:23 make pass and one at worker start keep the parts coming
   Scheduler->>Worker: every hour at :07 — app-partition-upkeep (clean-up-app-tables)
   Worker->>DB: within a 10-minute budget, per table its cap: unused file links of automations deleted over 179 days ago, broadcasts and segments deleted over 90 days ago, recipients and ended stops over 90 days, tag events over 8 days, month counts over 13 months; the oldest-row gauge per table (P92)
   Scheduler->>Worker: every hour at :47 — automation-tombstone-retention

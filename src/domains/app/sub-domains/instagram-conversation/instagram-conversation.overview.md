@@ -18,6 +18,8 @@ conversation messages (2.B, R3), the notes (2.C, R4) and the routes 155–169 (R
   (`CASCADE`), its account (`RESTRICT`) and the holder's membership; the state / holder / sender checks; the
   list keyset, "mine", unread and idle-release indexes; RLS
 - `instagram-conversation.constants.ts` — states, holders, sender types, the preview cap, the 24-hour idle release
+- `instagram-conversation-message/` — every message both ways, split by month, kept a year (2.B, ROUTE row R3) —
+  [overview](instagram-conversation-message/instagram-conversation-message.overview.md)
 - `__tests__/unit/` — the table's database suite
 
 ## Key invariants

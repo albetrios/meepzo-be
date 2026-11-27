@@ -189,6 +189,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
       'instagram_send_attempts',
       'instagram_outgoing_messages',
       'automation_comment_logs',
+      'instagram_conversation_messages',
       'automation_run_events',
       'automation_runs',
     ]);
@@ -219,6 +220,10 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     }
     await operatorQuery`SELECT app.fn_create_weekly_partitions('app.instagram_outgoing_messages'::regclass, ${oldWeekDay}::date, ${oldWeekDay}::date)`;
     await operatorQuery`SELECT app.fn_create_monthly_partitions('app.automation_comment_logs'::regclass, ${oldMonthDay}::date, ${oldMonthDay}::date)`;
+    // The conversation messages keep a year (I-D5): their old part is 14 months back.
+    const oldConversationMonth = monthStart(-14);
+    const oldConversationMonthDay = oldConversationMonth.toISOString().slice(0, 10);
+    await operatorQuery`SELECT app.fn_create_monthly_partitions('app.instagram_conversation_messages'::regclass, ${oldConversationMonthDay}::date, ${oldConversationMonthDay}::date)`;
     await makeRunMonthParts(oldMonth);
     const oldDayParts = [
       'instagram_webhook_events',
@@ -229,6 +234,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
       ...oldDayParts,
       await weekPart('instagram_outgoing_messages', oldWeekDay),
       monthPart('automation_comment_logs', oldMonth),
+      monthPart('instagram_conversation_messages', oldConversationMonth),
       monthPart('automation_run_events', oldMonth),
       monthPart('automation_runs', oldMonth),
     ];
@@ -411,7 +417,7 @@ describe('app.fn_manage_time_partitions — the shared partition upkeep (WC-55)'
     expect(await partExists(monthPart('automation_runs', farMonth))).toBe(false);
   });
 
-  it('runs for the maintenance role only, on the seven tables only, with the S17 floors', async () => {
+  it('runs for the maintenance role only, on the eight tables only, with the S17 floors', async () => {
     await withOperatorTransaction(async (transaction) => {
       await transaction`SET LOCAL ROLE meepzo_be_app`;
       await expect(

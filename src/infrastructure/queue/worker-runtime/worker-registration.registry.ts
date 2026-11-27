@@ -919,7 +919,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createAutomationTombstoneRetentionWorker(),
   }),
   // feat-instagram-dm-sending WC-55 (WHC13, P96, P410 — ROUTE row R49): the shared upkeep of the
-  // seven time-split app tables — parts made 14 days ahead daily and at worker start, expired parts
+  // eight time-split app tables — parts made 14 days ahead daily and at worker start, expired parts
   // dropped hourly (webhook events and keys, send attempts, messages, comment logs, run events,
   // runs: WC-48–WC-52). Replaces the launch's daily webhook-event batch delete (WHC15). A pure
   // database pass under its own maintenance scope; no `isEnabled` — the parts must keep coming

@@ -781,7 +781,7 @@ export const MAINTENANCE_CONTEXTS = {
     workerContextKind: 'system_table',
     appliesWorkerStatementTimeout: true,
     grants:
-      'EXECUTE on app.fn_manage_time_partitions only — the SECURITY DEFINER part maker / dropper of the seven time-split app tables, granted to the maintenance role alone (feat-instagram-dm-sending WC-55, P410); no table access of its own',
+      'EXECUTE on app.fn_manage_time_partitions only — the SECURITY DEFINER part maker / dropper of the eight time-split app tables, granted to the maintenance role alone (feat-instagram-dm-sending WC-55, P410); no table access of its own',
   },
   SYSTEM_TABLE_RETENTION: {
     guc: null,

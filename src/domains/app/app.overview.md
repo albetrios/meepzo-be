@@ -73,7 +73,7 @@ calls Meta, and the only code that decrypts a Meta token).
   `retention_cleanup_oldest_overdue_seconds` gauge (`runTimeBudgetedCleanUp`). Contacts are never
   removed by age.
 - **The shared partition upkeep** (`workers/app-partition-upkeep.*`, feat-instagram-dm-sending WC-55,
-  R49, P410) — the domain's one root `workers/` folder, family `retention`: the seven time-split
+  R49, P410) — the domain's one root `workers/` folder, family `retention`: the eight time-split
   tables (webhook events and keys, send attempts by day; messages by week; comment logs, run events
   and runs by month) get their parts 14 days ahead (daily at 02:23 UTC and at worker start) and lose
   the expired ones every hour, through `app.fn_manage_time_partitions` (SECURITY DEFINER, the

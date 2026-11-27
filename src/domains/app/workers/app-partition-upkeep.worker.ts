@@ -19,7 +19,7 @@ import { APP_TABLE_CLEAN_UP_JOB_NAME } from './app-table-clean-up.constants.js';
 import { runAppTableCleanUpJob } from './app-table-clean-up.processor.js';
 
 /**
- * The shared upkeep of the `app` tables (feat-instagram-dm-sending WC-55, WHC13): the seven
+ * The shared upkeep of the `app` tables (feat-instagram-dm-sending WC-55, WHC13): the eight
  * time-split tables' parts, and the hourly batch clean-up of the plain ones (WC-53, WC-54, WC-62 —
  * ROUTE row R50, on this queue so no pool place is added) — family `retention`, registered with
  * `retentionDefinition`; its three repeatable schedules (the daily make at a quiet hour, the hourly

@@ -39,6 +39,7 @@ import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-we
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { instagram_conversations } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation.schema.js';
+import { instagram_conversation_messages } from '@/domains/app/sub-domains/instagram-conversation/instagram-conversation-message/instagram-conversation-message.schema.js';
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -885,6 +886,33 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_conversations' }),
     conversationIds,
+  );
+
+  // Conversation messages (feat-instagram-inbox R3): one inbound message per conversation.
+  const conversationMessageIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [message] = await database
+      .insert(instagram_conversation_messages)
+      .values({
+        public_id: generatePublicId('instagramConversationMessage'),
+        organization_id: organization.id,
+        instagram_conversation_id: conversationIds[side],
+        channel_account_id: channelAccountIds[side],
+        contact_id: contactIds[side],
+        sender_type: 'contact',
+        kind: 'text',
+        text: 'rls matrix',
+        sent_at: new Date(),
+      })
+      .returning();
+    conversationMessageIds[side] = message!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_conversation_messages' }),
+    conversationMessageIds,
   );
 
   // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.

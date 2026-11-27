@@ -768,3 +768,22 @@ export async function writeBroadcastHistory(organizationId: number): Promise<voi
         ON c.organization_id = b.organization_id AND c.channel_account_id = b.channel_account_id
      WHERE b.organization_id = ${organizationId}`;
 }
+
+/**
+ * One conversation per live contact and one inbound message in it (feat-instagram-inbox R2, R3) — so the
+ * organization delete is seen erasing `app.instagram_conversations` and `app.instagram_conversation_messages`
+ * too, before the intake writes them (R8).
+ */
+export async function writeConversationHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.instagram_conversations
+      (public_id, organization_id, channel_account_id, contact_id, last_message_at, last_message_sender_type)
+    SELECT 'igcv_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, id, now(), 'contact'
+      FROM app.contacts WHERE organization_id = ${organizationId} AND deleted_at IS NULL`;
+  await operatorQuery`
+    INSERT INTO app.instagram_conversation_messages
+      (public_id, organization_id, instagram_conversation_id, channel_account_id, contact_id, sender_type, kind, text, sent_at)
+    SELECT 'igcm_' || lpad(id::text, 21, '0'), organization_id, id, channel_account_id, contact_id,
+           'contact', 'text', 'Hello', now()
+      FROM app.instagram_conversations WHERE organization_id = ${organizationId}`;
+}
